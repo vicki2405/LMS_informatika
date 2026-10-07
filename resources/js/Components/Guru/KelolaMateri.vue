@@ -1,0 +1,690 @@
+<script setup>
+import { ref, computed } from 'vue';
+import { router } from '@inertiajs/vue3';
+import axios from 'axios';
+import { renderFormulaContent } from '@/Utils/formulaRenderer';
+
+const props = defineProps({
+  materiList: { type: Array, default: () => [] },
+  kelasList: { type: Array, default: () => [] },
+  tpList: { type: Array, default: () => [] },
+  teacherSubject: { type: String, default: 'Informatika' }
+});
+
+const emit = defineEmits(['delete-materi']);
+
+// Filter Controls State
+const selectedSemester = ref('Ganjil');
+const selectedTpFilter = ref('Semua');
+const selectedTipeFilter = ref('Semua');
+const searchQuery = ref('');
+
+// Filtered Materi List
+const filteredMateriList = computed(() => {
+  let list = props.materiList || [];
+
+  if (selectedSemester.value !== 'Semua') {
+    list = list.filter(m => (m.semester || 'Ganjil') === selectedSemester.value);
+  }
+
+  if (selectedTpFilter.value !== 'Semua') {
+    list = list.filter(m => m.tpId === Number(selectedTpFilter.value));
+  }
+
+  if (selectedTipeFilter.value !== 'Semua') {
+    list = list.filter(m => m.tipe === selectedTipeFilter.value);
+  }
+
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase();
+    list = list.filter(m => m.judul.toLowerCase().includes(q) || (m.deskripsiSingkat && m.deskripsiSingkat.toLowerCase().includes(q)));
+  }
+
+  return list;
+});
+
+// Stat Summary Calculations
+const totalModul = computed(() => filteredMateriList.value.length);
+const coveredTpCount = computed(() => {
+  const coveredIds = new Set(filteredMateriList.value.map(m => m.tpId));
+  return coveredIds.size;
+});
+const totalFilesAndVideos = computed(() => {
+  return filteredMateriList.value.filter(m => m.tipe === 'Dokumen PDF/PPT' || m.tipe === 'Video YouTube' || m.tipe === 'Slider PPT').length;
+});
+const totalPublished = computed(() => {
+  return filteredMateriList.value.filter(m => m.isPublished !== false).length;
+});
+
+// Preview Modal State
+const showPreviewModal = ref(false);
+const previewMateriObj = ref(null);
+const previewActiveSlide = ref(0);
+
+function openPreviewModal(materi) {
+  previewMateriObj.value = materi;
+  previewActiveSlide.value = 0;
+  showPreviewModal.value = true;
+}
+
+// Monitoring Modal State
+const showMonitoringModal = ref(false);
+const monitoringLoading = ref(false);
+const monitoringData = ref(null);
+const monitoringStatusFilter = ref('semua');
+const monitoringSearch = ref('');
+
+async function openMonitoringModal(materi) {
+  showMonitoringModal.value = true;
+  monitoringLoading.value = true;
+  monitoringData.value = null;
+  monitoringStatusFilter.value = 'semua';
+  monitoringSearch.value = '';
+
+  try {
+    const res = await axios.get(route('guru.materi.monitoring', materi.id));
+    monitoringData.value = res.data;
+  } catch (err) {
+    console.error('Gagal memuat data monitoring:', err);
+  } finally {
+    monitoringLoading.value = false;
+  }
+}
+
+const filteredStudents = computed(() => {
+  if (!monitoringData.value?.students) return [];
+  let rows = monitoringData.value.students;
+
+  if (monitoringStatusFilter.value !== 'semua') {
+    rows = rows.filter(s => s.status === monitoringStatusFilter.value);
+  }
+
+  if (monitoringSearch.value.trim()) {
+    const q = monitoringSearch.value.toLowerCase();
+    rows = rows.filter(s => s.nama.toLowerCase().includes(q) || s.nis.toLowerCase().includes(q));
+  }
+
+  return rows;
+});
+
+// Navigation to dedicated form pages
+function goCreate() {
+  router.get(route('guru.materi.create'));
+}
+
+function goEdit(materi) {
+  router.get(route('guru.materi.edit', materi.id));
+}
+
+// Helper: Get Icon based on Content Type
+function getTypeBadge(tipe) {
+  if (tipe === 'Slider PPT') return { label: '🖥️ Slider PPT', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' };
+  if (tipe === 'Dokumen PDF/PPT') return { label: '📄 Dokumen PDF/PPT', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' };
+  if (tipe === 'Video YouTube' || tipe === 'Video Tutorial') return { label: '🎥 Video Pembelajaran', color: 'bg-red-500/20 text-red-300 border-red-500/30' };
+  if (tipe === 'Tugas Praktik') return { label: '📝 Tugas Praktik', color: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
+  return { label: '📖 Modul Teks', color: 'bg-purple-500/20 text-purple-300 border-purple-500/30' };
+}
+</script>
+
+<template>
+  <div class="space-y-6 animate-in fade-in duration-300">
+
+    <!-- Header Title & Action Button -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2 mb-1">
+          <h1 class="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2">
+            <span>Kelola Materi Pembelajaran</span>
+            <span class="text-cyan-400 text-base">📚</span>
+          </h1>
+          <span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-extrabold px-3 py-1 rounded-full">
+            Semester {{ selectedSemester }}
+          </span>
+        </div>
+        <p class="text-gray-400 text-xs sm:text-sm font-medium">
+          Materi interaktif slider PPT berumus sains, PDF/PPT, dan video pembelajaran langsung terhubung ke ujian CBT & monitoring baca siswa.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-2.5 shrink-0 flex-wrap">
+        <a
+          href="/guru/dashboard?tab=tp"
+          class="inline-flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-cyan-300 border border-cyan-500/30 px-4 py-2.5 rounded-2xl font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95 min-h-[44px]"
+          title="Kelola Master Sasaran TP"
+        >
+          <span>🎯</span>
+          <span>Kelola TP</span>
+        </a>
+        <button
+          @click="goCreate"
+          class="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 via-teal-600 to-indigo-600 text-white px-5 py-2.5 rounded-2xl font-extrabold text-xs sm:text-sm shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-105 active:scale-95 transition-all duration-200 min-h-[44px]"
+        >
+          <span class="text-base">+</span>
+          <span>Buat Materi Baru</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Stat Summary Cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+          <span class="w-9 h-9 rounded-2xl bg-cyan-500/20 text-cyan-300 font-black text-sm flex items-center justify-center border border-cyan-500/30 shadow-md">📚</span>
+          <span class="text-[11px] font-extrabold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-3 py-1 rounded-full font-mono">TOTAL MATERI</span>
+        </div>
+        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ totalModul }} Materi</div>
+        <div class="text-xs text-gray-400 font-semibold">Semester {{ selectedSemester }}</div>
+      </div>
+
+      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+          <span class="w-9 h-9 rounded-2xl bg-purple-500/20 text-purple-300 font-black text-sm flex items-center justify-center border border-purple-500/30 shadow-md">🎯</span>
+          <a href="/guru/dashboard?tab=tp" class="text-[11px] font-extrabold text-purple-300 bg-purple-500/15 border border-purple-500/30 px-3 py-1 rounded-full font-mono hover:bg-purple-500/25 transition">COVERED TP ↗</a>
+        </div>
+        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ coveredTpCount }} / {{ tpList.length }} TP</div>
+        <div class="text-xs text-gray-400 font-semibold">Memiliki Materi Aktif</div>
+      </div>
+
+      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+          <span class="w-9 h-9 rounded-2xl bg-teal-500/20 text-teal-300 font-black text-sm flex items-center justify-center border border-teal-500/30 shadow-md">🖥️</span>
+          <span class="text-[11px] font-extrabold text-teal-300 bg-teal-500/15 border border-teal-500/30 px-3 py-1 rounded-full font-mono">SLIDER & MEDIA</span>
+        </div>
+        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ totalFilesAndVideos }} File</div>
+        <div class="text-xs text-gray-400 font-semibold">PPT, PDF, & Video</div>
+      </div>
+
+      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+          <span class="w-9 h-9 rounded-2xl bg-emerald-500/20 text-emerald-300 font-black text-sm flex items-center justify-center border border-emerald-500/30 shadow-md">🟢</span>
+          <span class="text-[11px] font-extrabold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 rounded-full font-mono">RILIS SISWA</span>
+        </div>
+        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ totalPublished }} Rilis</div>
+        <div class="text-xs text-gray-400 font-semibold">Status Dilihat Siswa</div>
+      </div>
+    </div>
+
+    <!-- Filter Controls Bar -->
+    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div>
+          <label class="block text-[11px] font-bold text-cyan-300 uppercase mb-1.5">📅 Semester</label>
+          <select
+            v-model="selectedSemester"
+            class="w-full bg-slate-800 border border-cyan-500/40 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-cyan-300 font-extrabold focus:border-cyan-400 outline-none min-h-[44px]"
+          >
+            <option value="Ganjil">Semester Ganjil (1)</option>
+            <option value="Genap">Semester Genap (2)</option>
+            <option value="Semua">Semua Semester</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🎯 Tujuan Pembelajaran (TP)</label>
+          <select
+            v-model="selectedTpFilter"
+            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
+          >
+            <option value="Semua">Semua TP (Semester {{ selectedSemester }})</option>
+            <option v-for="tp in tpList" :key="tp.id" :value="tp.id">{{ tp.kode }}: {{ tp.judul }}</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">📦 Format Konten</label>
+          <select
+            v-model="selectedTipeFilter"
+            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
+          >
+            <option value="Semua">Semua Format</option>
+            <option value="Slider PPT">🖥️ Slider PPT Interaktif</option>
+            <option value="Dokumen PDF/PPT">📄 Dokumen PDF / PPT</option>
+            <option value="Video YouTube">🎥 Video Pembelajaran</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🔍 Cari Judul Materi</label>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Cari materi..."
+            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-gray-400 focus:border-cyan-400 outline-none min-h-[44px]"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN MATERI TABLE & CARD VIEW -->
+    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
+      <!-- Table Header Bar -->
+      <div class="p-4 sm:p-5 border-b border-white/10 bg-slate-950/60 flex items-center justify-between">
+        <h3 class="text-xs font-black text-white uppercase tracking-wider">📚 Daftar Materi Pembelajaran:</h3>
+        <span class="text-xs text-gray-400 font-mono font-bold">Total {{ filteredMateriList.length }} Materi</span>
+      </div>
+
+      <!-- Desktop Table View -->
+      <div class="hidden md:block overflow-x-auto">
+        <table class="w-full text-left text-xs sm:text-sm text-gray-300">
+          <thead class="bg-slate-950/60 text-gray-400 uppercase text-[11px] font-extrabold tracking-wider border-b border-white/10">
+            <tr>
+              <th class="px-4 py-4 text-center w-12 border-r border-white/5">No</th>
+              <th class="px-5 py-4 w-32 border-r border-white/5">Target TP</th>
+              <th class="px-6 py-4 border-r border-white/5">Materi & Integrasi</th>
+              <th class="px-4 py-4 w-36 border-r border-white/5">Format</th>
+              <th class="px-4 py-4 text-center w-36 border-r border-white/5">Monitoring Baca</th>
+              <th class="px-4 py-4 text-center w-28 border-r border-white/5">Status</th>
+              <th class="px-5 py-4 text-right w-44">Aksi</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-white/5 font-medium">
+            <tr v-for="(materi, index) in filteredMateriList" :key="materi.id" class="hover:bg-white/5 transition-colors">
+              <td class="px-4 py-4 text-center font-mono text-gray-400 text-xs border-r border-white/5">
+                {{ index + 1 }}
+              </td>
+
+              <!-- Target TP Badge -->
+              <td class="px-5 py-4 border-r border-white/5">
+                <div class="flex flex-col items-start gap-1">
+                  <span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-black px-3 py-1 rounded-full">
+                    {{ materi.tpKode || 'TP-01' }}
+                  </span>
+                  <span v-if="materi.mapelNama" class="bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    {{ materi.mapelNama }}
+                  </span>
+                </div>
+              </td>
+
+              <!-- Judul Materi & Integrasi CBT -->
+              <td class="px-6 py-4 border-r border-white/5">
+                <div class="space-y-1.5">
+                  <div
+                    class="font-black text-white text-sm hover:text-cyan-300 transition-colors cursor-pointer"
+                    @click="openPreviewModal(materi)"
+                  >
+                    {{ materi.judul }}
+                  </div>
+                  <div class="text-gray-400 text-xs line-clamp-1 font-normal">{{ materi.deskripsiSingkat }}</div>
+
+                  <!-- Integrasi CBT Badge -->
+                  <div class="flex items-center gap-2 flex-wrap pt-0.5">
+                    <span v-if="materi.cbtJadwal" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                      🎯 Terhubung CBT: {{ materi.cbtJadwal.judul }}
+                    </span>
+                    <span v-if="materi.kegiatan?.length" class="text-[10px] text-slate-400">
+                      🧩 {{ materi.kegiatan.length }} slide/tahap
+                    </span>
+                    <span class="text-[10px] text-cyan-400 font-semibold">
+                      🏛️ {{ materi.targetKelas || 'Semua Kelas' }}
+                    </span>
+                  </div>
+                </div>
+              </td>
+
+              <!-- Format Badge -->
+              <td class="px-4 py-4 border-r border-white/5">
+                <span :class="['text-xs font-extrabold px-3 py-1 rounded-full border inline-flex items-center gap-1.5', getTypeBadge(materi.tipe).color]">
+                  {{ getTypeBadge(materi.tipe).label }}
+                </span>
+              </td>
+
+              <!-- Monitoring Siswa Button / Badge -->
+              <td class="px-4 py-4 text-center border-r border-white/5">
+                <button
+                  @click="openMonitoringModal(materi)"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition active:scale-95 shadow-sm"
+                  title="Klik untuk melihat siapa saja yang telah membuka/membaca materi ini"
+                >
+                  <span>👥</span>
+                  <span>Pantau Siswa</span>
+                  <span v-if="materi.readsCount" class="ml-0.5 px-1.5 py-0.2 rounded-full bg-cyan-500 text-slate-950 font-black text-[10px]">
+                    {{ materi.readsCount }}
+                  </span>
+                </button>
+              </td>
+
+              <!-- Status Publikasi -->
+              <td class="px-4 py-4 text-center border-r border-white/5">
+                <span v-if="materi.isPublished !== false" class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-black px-2.5 py-1 rounded-full">
+                  🟢 Rilis
+                </span>
+                <span v-else class="bg-gray-500/20 text-gray-400 border border-gray-500/30 text-[11px] font-bold px-2.5 py-1 rounded-full">
+                  ⚪ Draft
+                </span>
+              </td>
+
+              <!-- Action Buttons -->
+              <td class="px-5 py-4 text-right shrink-0">
+                <div class="flex items-center justify-end gap-1.5">
+                  <button
+                    @click="openPreviewModal(materi)"
+                    class="p-2 text-xs font-bold text-cyan-300 bg-cyan-500/15 hover:bg-cyan-500/30 rounded-xl border border-cyan-500/30 transition active:scale-95"
+                    title="Pratinjau Tampilan Siswa"
+                  >👁️</button>
+                  <button
+                    @click="goEdit(materi)"
+                    class="p-2 text-xs font-bold text-purple-300 bg-purple-500/15 hover:bg-purple-500/30 rounded-xl border border-purple-500/30 transition active:scale-95"
+                    title="Edit Materi"
+                  >✏️</button>
+                  <button
+                    @click="$emit('delete-materi', materi.id)"
+                    class="p-2 text-xs font-bold text-red-400 bg-red-500/15 hover:bg-red-500/30 rounded-xl border border-red-500/30 transition active:scale-95"
+                    title="Hapus Materi"
+                  >🗑️</button>
+                </div>
+              </td>
+            </tr>
+
+            <tr v-if="filteredMateriList.length === 0">
+              <td colspan="7" class="px-6 py-12 text-center text-gray-400 text-xs font-medium">
+                Belum ada materi pembelajaran untuk semester {{ selectedSemester }}. Klik <strong>+ Buat Materi Baru</strong> untuk memulai.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Mobile Smartphone Card List View -->
+      <div class="block md:hidden p-4 space-y-4">
+        <div v-for="materi in filteredMateriList" :key="materi.id" class="bg-slate-950/40 rounded-2xl p-4 border border-white/10 space-y-3 shadow-md">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-black px-2.5 py-0.5 rounded-full">
+                {{ materi.tpKode || 'TP-01' }}
+              </span>
+              <span v-if="materi.mapelNama" class="bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                {{ materi.mapelNama }}
+              </span>
+            </div>
+            <span v-if="materi.isPublished !== false" class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-2 py-0.5 rounded-full shrink-0">
+              🟢 Rilis
+            </span>
+            <span v-else class="bg-gray-500/20 text-gray-400 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">
+              ⚪ Draft
+            </span>
+          </div>
+
+          <div>
+            <h3 class="font-extrabold text-white text-sm cursor-pointer" @click="openPreviewModal(materi)">
+              {{ materi.judul }}
+            </h3>
+            <p class="text-xs text-gray-300 leading-relaxed mt-1 line-clamp-2">{{ materi.deskripsiSingkat }}</p>
+            <div v-if="materi.cbtJadwal" class="mt-2 text-[11px] text-indigo-300 font-bold flex items-center gap-1">
+              <span>🎯 Terhubung CBT:</span> {{ materi.cbtJadwal.judul }}
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+            <span :class="['text-[10px] font-extrabold px-2.5 py-1 rounded-full border', getTypeBadge(materi.tipe).color]">
+              {{ getTypeBadge(materi.tipe).label }}
+            </span>
+
+            <div class="flex items-center gap-1.5">
+              <button
+                @click="openMonitoringModal(materi)"
+                class="px-2.5 py-1 text-xs font-bold text-cyan-300 bg-cyan-500/15 rounded-lg border border-cyan-500/30"
+              >
+                👥 Pantau
+              </button>
+              <button
+                @click="goEdit(materi)"
+                class="px-2.5 py-1 text-xs font-bold text-purple-300 bg-purple-500/15 rounded-lg border border-purple-500/30"
+              >
+                ✏️
+              </button>
+              <button
+                @click="$emit('delete-materi', materi.id)"
+                class="px-2.5 py-1 text-xs font-bold text-red-400 bg-red-500/15 rounded-lg border border-red-500/30"
+              >
+                🗑️
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL MONITORING PEMBACA SISWA -->
+    <div
+      v-if="showMonitoringModal"
+      class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6"
+    >
+      <div class="bg-slate-900 border border-white/15 rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+        <!-- Modal Header -->
+        <div class="p-5 bg-slate-950 border-b border-white/10 flex items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-xl">📊</span>
+              <h2 class="text-base sm:text-lg font-black text-white">Monitoring Pembaca Materi</h2>
+            </div>
+            <p v-if="monitoringData?.materi" class="text-xs text-cyan-300 font-semibold truncate mt-0.5">
+              {{ monitoringData.materi.judul }} ({{ monitoringData.materi.targetKelas }})
+            </p>
+          </div>
+          <button
+            @click="showMonitoringModal = false"
+            class="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center transition"
+          >✕</button>
+        </div>
+
+        <!-- Loading State -->
+        <div v-if="monitoringLoading" class="p-16 text-center text-slate-400 space-y-3">
+          <div class="animate-spin text-3xl">⏳</div>
+          <p class="text-sm font-bold">Memuat data aktivitas siswa...</p>
+        </div>
+
+        <!-- Monitoring Content Body -->
+        <div v-else-if="monitoringData" class="flex-1 overflow-y-auto p-5 space-y-5">
+          <!-- Summary Banner -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="bg-slate-950/60 p-4 rounded-2xl border border-white/10">
+              <span class="text-[10px] font-black uppercase text-slate-400">Total Siswa Kelas</span>
+              <div class="text-2xl font-black text-white mt-1">{{ monitoringData.summary.totalSiswa }} Siswa</div>
+            </div>
+            <div class="bg-emerald-950/30 p-4 rounded-2xl border border-emerald-500/30">
+              <span class="text-[10px] font-black uppercase text-emerald-400">🟢 Selesai Membaca</span>
+              <div class="text-2xl font-black text-emerald-300 mt-1">{{ monitoringData.summary.selesaiCount }} Siswa</div>
+              <span class="text-[10px] text-emerald-400 font-bold">({{ monitoringData.summary.persentaseSelesai }}%)</span>
+            </div>
+            <div class="bg-amber-950/30 p-4 rounded-2xl border border-amber-500/30">
+              <span class="text-[10px] font-black uppercase text-amber-400">🟡 Sedang Baca</span>
+              <div class="text-2xl font-black text-amber-300 mt-1">{{ monitoringData.summary.membacaCount }} Siswa</div>
+            </div>
+            <div class="bg-slate-950/60 p-4 rounded-2xl border border-white/10">
+              <span class="text-[10px] font-black uppercase text-slate-400">⚪ Belum Buka</span>
+              <div class="text-2xl font-black text-slate-300 mt-1">{{ monitoringData.summary.belumBukaCount }} Siswa</div>
+            </div>
+          </div>
+
+          <!-- Progress Bar Global -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between text-xs font-bold">
+              <span class="text-slate-300">Tingkat Ketuntasan Baca Kelas</span>
+              <span class="text-emerald-400 font-mono">{{ monitoringData.summary.persentaseSelesai }}% Tuntas</span>
+            </div>
+            <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-white/10 flex">
+              <div
+                class="bg-emerald-500 transition-all duration-500"
+                :style="{ width: monitoringData.summary.persentaseSelesai + '%' }"
+              ></div>
+            </div>
+          </div>
+
+          <!-- Filters & Search -->
+          <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <button
+                v-for="st in [
+                  { id: 'semua', label: 'Semua Siswa' },
+                  { id: 'selesai', label: '🟢 Selesai' },
+                  { id: 'sedang_membaca', label: '🟡 Sedang Baca' },
+                  { id: 'belum_baca', label: '⚪ Belum Buka' }
+                ]"
+                :key="st.id"
+                @click="monitoringStatusFilter = st.id"
+                class="px-3 py-1.5 rounded-xl text-xs font-bold border transition"
+                :class="monitoringStatusFilter === st.id
+                  ? 'bg-cyan-500 text-white border-cyan-400 shadow'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'"
+              >
+                {{ st.label }}
+              </button>
+            </div>
+
+            <input
+              v-model="monitoringSearch"
+              type="text"
+              placeholder="Cari nama / NIS siswa..."
+              class="w-full sm:w-64 bg-slate-950 border border-white/15 focus:border-cyan-400 rounded-xl px-3.5 py-1.5 text-xs text-white placeholder-slate-500"
+            />
+          </div>
+
+          <!-- Student List Table -->
+          <div class="rounded-2xl border border-white/10 overflow-hidden bg-slate-950/60">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold border-b border-white/10">
+                <tr>
+                  <th class="px-4 py-3 w-10">No</th>
+                  <th class="px-4 py-3">Nama Siswa</th>
+                  <th class="px-4 py-3">Status</th>
+                  <th class="px-4 py-3 w-40">Progres Baca</th>
+                  <th class="px-4 py-3 text-right">Terakhir Dibaca</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-white/5 font-medium">
+                <tr v-for="(s, idx) in filteredStudents" :key="s.id" class="hover:bg-white/5">
+                  <td class="px-4 py-3 font-mono text-slate-500">{{ idx + 1 }}</td>
+                  <td class="px-4 py-3">
+                    <div class="font-bold text-white">{{ s.nama }}</div>
+                    <div class="text-[10px] text-slate-400 font-mono">{{ s.nis }}</div>
+                  </td>
+                  <td class="px-4 py-3">
+                    <span v-if="s.status === 'selesai'" class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      🟢 Selesai
+                    </span>
+                    <span v-else-if="s.status === 'sedang_membaca'" class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      🟡 Sedang Baca
+                    </span>
+                    <span v-else class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-white/10">
+                      ⚪ Belum Buka
+                    </span>
+                  </td>
+                  <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                      <div class="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          class="h-full transition-all duration-300"
+                          :class="s.status === 'selesai' ? 'bg-emerald-400' : (s.progressPersen > 0 ? 'bg-amber-400' : 'bg-transparent')"
+                          :style="{ width: (s.progressPersen || 0) + '%' }"
+                        ></div>
+                      </div>
+                      <span class="font-mono text-[10px] font-bold text-slate-300 w-8 text-right">
+                        {{ s.progressPersen || 0 }}%
+                      </span>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 text-right text-[11px] text-slate-400 font-mono">
+                    {{ s.terakhirDibaca || '-' }}
+                  </td>
+                </tr>
+
+                <tr v-if="filteredStudents.length === 0">
+                  <td colspan="5" class="px-4 py-8 text-center text-slate-500">
+                    Tidak ditemukan data siswa untuk filter yang dipilih.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL PREVIEW DETAIL MATERI GURU -->
+    <div
+      v-if="showPreviewModal && previewMateriObj"
+      class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6"
+    >
+      <div class="bg-slate-900 border border-white/15 rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+        <!-- Header -->
+        <div class="p-5 bg-slate-950 border-b border-white/10 flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <span :class="['text-[10px] font-bold px-2 py-0.5 rounded-full border mb-1 inline-block', getTypeBadge(previewMateriObj.tipe).color]">
+              {{ getTypeBadge(previewMateriObj.tipe).label }}
+            </span>
+            <h2 class="text-base sm:text-lg font-black text-white truncate">{{ previewMateriObj.judul }}</h2>
+          </div>
+          <button
+            @click="showPreviewModal = false"
+            class="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center transition"
+          >✕</button>
+        </div>
+
+        <!-- Body -->
+        <div class="flex-1 overflow-y-auto p-6 space-y-6">
+          <!-- Slider Mode Preview -->
+          <div v-if="previewMateriObj.tipe === 'Slider PPT' && previewMateriObj.kegiatan?.length" class="space-y-4">
+            <!-- Slide Selector -->
+            <div class="flex items-center gap-2 overflow-x-auto pb-2 border-b border-white/10">
+              <button
+                v-for="(sl, sIdx) in previewMateriObj.kegiatan"
+                :key="sl.id || sIdx"
+                @click="previewActiveSlide = sIdx"
+                class="px-3 py-1.5 rounded-xl text-xs font-bold border transition shrink-0"
+                :class="previewActiveSlide === sIdx ? 'bg-cyan-500 text-white border-cyan-400' : 'bg-white/5 border-white/10 text-slate-400'"
+              >
+                Slide {{ sIdx + 1 }}: {{ sl.judul || sl.label }}
+              </button>
+            </div>
+
+            <!-- Slide Content Card -->
+            <div class="bg-slate-950 p-6 rounded-2xl border border-cyan-500/30 space-y-4 min-h-[240px]">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">
+                  {{ previewMateriObj.kegiatan[previewActiveSlide]?.label || 'Konsep' }}
+                </span>
+                <span class="text-xs font-mono text-slate-500">
+                  {{ previewActiveSlide + 1 }} / {{ previewMateriObj.kegiatan.length }}
+                </span>
+              </div>
+              <h3 class="text-lg font-black text-white">
+                {{ previewMateriObj.kegiatan[previewActiveSlide]?.judul }}
+              </h3>
+
+              <!-- Optional Slide Image -->
+              <div v-if="previewMateriObj.kegiatan[previewActiveSlide]?.fileUrl" class="max-w-md mx-auto rounded-xl overflow-hidden border border-white/20">
+                <img :src="previewMateriObj.kegiatan[previewActiveSlide].fileUrl" class="w-full object-contain max-h-64" />
+              </div>
+
+              <!-- Rendered KaTeX Text -->
+              <div
+                class="prose prose-invert max-w-none text-sm text-slate-200 leading-relaxed"
+                v-html="renderFormulaContent(previewMateriObj.kegiatan[previewActiveSlide]?.konten)"
+              ></div>
+            </div>
+          </div>
+
+          <!-- Document / Video Preview -->
+          <div v-else class="space-y-4">
+            <div v-if="previewMateriObj.fileUrl" class="p-4 rounded-2xl bg-slate-950 border border-white/10 flex items-center justify-between">
+              <span class="text-xs text-slate-300 font-bold truncate">Berkas / Tautan Pembelajaran</span>
+              <a
+                :href="previewMateriObj.fileUrl"
+                target="_blank"
+                class="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-black text-xs hover:bg-cyan-400 transition"
+              >
+                Buka Dokumen
+              </a>
+            </div>
+
+            <div v-if="previewMateriObj.deskripsiSingkat" class="p-5 rounded-2xl bg-slate-950/60 border border-white/10">
+              <h4 class="text-xs font-bold text-slate-400 mb-2 uppercase">Petunjuk & Deskripsi</h4>
+              <p class="text-sm text-slate-200 leading-relaxed whitespace-pre-line">{{ previewMateriObj.deskripsiSingkat }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</template>

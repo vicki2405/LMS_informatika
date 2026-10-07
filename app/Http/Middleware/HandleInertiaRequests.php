@@ -1,0 +1,53 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Illuminate\Http\Request;
+use Inertia\Middleware;
+
+class HandleInertiaRequests extends Middleware
+{
+    /**
+     * The root template that is loaded on the first page visit.
+     *
+     * @var string
+     */
+    protected $rootView = 'app';
+
+    /**
+     * Determine the current asset version.
+     */
+    public function version(Request $request): ?string
+    {
+        if (file_exists($manifest = public_path('build/manifest.json'))) {
+            return md5_file($manifest);
+        }
+
+        return parent::version($request);
+    }
+
+    /**
+     * Define the props that are shared by default.
+     *
+     * @return array<string, mixed>
+     */
+    public function share(Request $request): array
+    {
+        $user = $request->user();
+
+        return [
+            ...parent::share($request),
+            'flash' => [
+                'message' => fn () => $request->session()->get('message'),
+            ],
+            'auth' => [
+                'user' => $user ? array_merge($user->loadMissing('roles')->toArray(), [
+                    'roles' => $user->getRoleNames(),
+                    'permissions' => $user && ($request->routeIs('admin.*') || $request->routeIs('guru.*') || $request->routeIs('siswa.*') || $request->routeIs('wali-kelas.*') || $request->routeIs('dashboard'))
+                        ? $user->getAllPermissions()->pluck('name')
+                        : [],
+                ]) : null,
+            ],
+        ];
+    }
+}
