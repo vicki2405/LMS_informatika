@@ -18,7 +18,7 @@ class WaliKelasApiController extends Controller
         $guru = $user?->guru ?? \App\Models\Guru::query()->where('user_id', '=', $user?->id)->first();
         $kelas = $guru?->id ? Kelas::query()->where('guru_id', '=', $guru->id)->first() : null;
 
-        return $kelas ?? ($user?->kelas_id ? Kelas::find($user->kelas_id) : null) ?? Kelas::first();
+        return $kelas ?? ($user?->kelas_id ? Kelas::find($user->kelas_id) : null);
     }
 
     public function getSiswa(Request $request): JsonResponse

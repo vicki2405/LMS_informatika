@@ -124,4 +124,32 @@ class AdminSiswaImportTest extends TestCase
             'tanggal_status' => null
         ]);
     }
+
+    public function test_admin_can_import_student_with_nis(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+
+        $response = $this
+            ->actingAs($admin)
+            ->post('/admin/siswa/import-batch', [
+                'rows' => [
+                    [
+                        'nis' => '12345',
+                        'nama' => 'AHMAD FAUZI',
+                        'jenisKelamin' => 'Laki-laki',
+                        'kelas' => 'X TKR 1',
+                        'telepon' => '08123456789',
+                    ],
+                ]
+            ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('siswas', [
+            'nama' => 'AHMAD FAUZI',
+            'nis' => '12345',
+        ]);
+    }
 }

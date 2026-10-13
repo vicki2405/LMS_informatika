@@ -173,6 +173,8 @@ class GuruDashboardController extends Controller
             $kelasIds = $this->getTeacherKelasIds($guruId);
             if (! empty($kelasIds)) {
                 $query->whereIn('id', $kelasIds);
+            } else {
+                return [];
             }
         }
 
@@ -209,8 +211,12 @@ class GuruDashboardController extends Controller
 
     private function getSiswaData(?int $guruId = null, array $kelasIds = []): array
     {
+        if ($guruId && empty($kelasIds)) {
+            return [];
+        }
+
         $query = Siswa::query()
-            ->select(['id', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status'])
+            ->select(['id', 'nis', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status'])
             ->with(['kelas:id,nama_kelas,tingkat,guru_id', 'kelas.waliKelas:id,nama'])
             ->orderBy('nama', 'asc');
 
@@ -222,7 +228,7 @@ class GuruDashboardController extends Controller
             ->map(function ($s) {
             return [
                 'id' => $s->id,
-                'nis' => '100'.$s->id,
+                'nis' => $s->nis ?: ('100'.$s->id),
                 'nama' => $s->nama,
                 'jenisKelamin' => $s->jenis_kelamin,
                 'kelas' => $s->kelas?->nama_kelas ?? 'X RPL 1',
@@ -566,18 +572,21 @@ class GuruDashboardController extends Controller
     {
         $validated = $request->validate([
             'tanggal'  => 'required|date_format:Y-m-d',
-            'kelas_id' => 'nullable|integer',
+            'kelas_id' => 'required|integer|exists:kelases,id',
         ]);
 
-        $query = Absensi::query()->where('tanggal', '=', $validated['tanggal']);
+        $guru = $this->resolveGuru($request);
+        $guruId = $guru?->id;
+        $teacherKelasIds = $this->getTeacherKelasIds($guruId);
 
-        if (!empty($validated['kelas_id'])) {
-            $query->whereHas('siswa', function ($q) use ($validated) {
-                $q->where('kelas_id', '=', $validated['kelas_id']);
-            });
+        if ($guruId && ! in_array((int) $validated['kelas_id'], $teacherKelasIds) && ! $request->user()->hasRole('admin')) {
+            return redirect()->back()->withErrors(['kelas_id' => 'Anda tidak memiliki wewenang untuk membatalkan absensi kelas ini.']);
         }
 
-        $deleted = $query->delete();
+        $deleted = Absensi::query()
+            ->where('tanggal', '=', $validated['tanggal'])
+            ->where('kelas_id', '=', $validated['kelas_id'])
+            ->delete();
 
         return redirect()->back()->with('message', "Absensi tanggal {$validated['tanggal']} berhasil dibatalkan ({$deleted} record dihapus).");
     }

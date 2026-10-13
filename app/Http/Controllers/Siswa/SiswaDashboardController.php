@@ -834,15 +834,6 @@ class SiswaDashboardController extends Controller
             return response()->json(['success' => false, 'message' => 'Akses ditolak: siswa bukan anggota kelas ini.'], 403);
         }
 
-        $user = $request->user();
-        $siswa = Siswa::find($validated['siswa_id']);
-        if (! $siswa) {
-            return response()->json(['success' => false, 'message' => 'Data siswa tidak valid.'], 404);
-        }
-        if ($user->kelas_id && $siswa->kelas_id !== $user->kelas_id) {
-            return response()->json(['success' => false, 'message' => 'Akses ditolak: siswa bukan anggota kelas ini.'], 403);
-        }
-
         $sesi = CbtSesi::where('jadwal_id', $validated['jadwal_id'])
             ->where('siswa_id', $validated['siswa_id'])
             ->first();

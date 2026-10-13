@@ -30,11 +30,22 @@ class AdminApiController extends Controller
     {
         $validated = $request->validated();
 
+        $baseUsername = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', explode(' ', $validated['nama'])[0] ?? 'guru'));
+        if (empty($baseUsername)) {
+            $baseUsername = 'guru';
+        }
+        $username = $baseUsername;
+        $counter = 1;
+        while (User::where('username', $username)->where('email', '!=', $validated['email'])->exists()) {
+            $username = $baseUsername . $counter;
+            $counter++;
+        }
+
         $user = User::updateOrCreate(
             ['email' => $validated['email']],
             [
                 'name' => $validated['nama'],
-                'username' => strtolower(explode(' ', $validated['nama'])[0]),
+                'username' => $username,
                 'password' => !empty($validated['password']) ? Hash::make($validated['password']) : Hash::make('password123'),
             ]
         );

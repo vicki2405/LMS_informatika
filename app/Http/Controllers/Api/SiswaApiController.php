@@ -127,7 +127,14 @@ class SiswaApiController extends Controller
         $siswaId = $validated['siswa_id'] ?? null;
         if (! $siswaId) {
             $siswa = $this->resolveSiswa($user);
-            $siswaId = $siswa?->id ?? 1;
+            $siswaId = $siswa?->id;
+        }
+
+        if (! $siswaId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Identitas siswa tidak ditemukan atau akun tidak terhubung ke data siswa.',
+            ], 404);
         }
 
         $jadwal = CbtJadwal::with(['bankSoal.soals'])->findOrFail($validated['jadwal_id']);
@@ -261,6 +268,15 @@ class SiswaApiController extends Controller
                 'waktu_selesai' => now(),
             ]
         );
+
+        \App\Models\CbtSesi::where('jadwal_id', $jadwal->id)
+            ->where('siswa_id', $siswaId)
+            ->update([
+                'status' => 'selesai',
+                'soal_terjawab' => min($totalSoal, count(array_filter($answers))),
+                'waktu_selesai' => now(),
+                'last_heartbeat' => now(),
+            ]);
 
         return response()->json([
             'success' => true,

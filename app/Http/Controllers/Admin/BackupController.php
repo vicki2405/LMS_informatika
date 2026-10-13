@@ -141,6 +141,10 @@ class BackupController extends Controller
 
             Schema::enableForeignKeyConstraints();
             DB::commit();
+
+            if (class_exists(\Spatie\Permission\PermissionRegistrar::class)) {
+                app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+            }
         } catch (\Exception $e) {
             DB::rollBack();
             Schema::enableForeignKeyConstraints();

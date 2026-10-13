@@ -545,13 +545,14 @@ class WaliKelasDashboardController extends Controller
 
         $resolvedKelasId = $validated['kelas_id'] ?? $kelasId;
 
-        $query = Absensi::query()->where('tanggal', '=', $validated['tanggal']);
-
-        if ($resolvedKelasId) {
-            $query->where('kelas_id', '=', $resolvedKelasId);
+        if (! $resolvedKelasId) {
+            return redirect()->back()->withErrors(['kelas_id' => 'Kelas tidak ditentukan atau Anda belum memiliki kelas binaan.']);
         }
 
-        $deleted = $query->delete();
+        $deleted = Absensi::query()
+            ->where('tanggal', '=', $validated['tanggal'])
+            ->where('kelas_id', '=', $resolvedKelasId)
+            ->delete();
 
         return redirect()->back()->with('message', "Absensi tanggal {$validated['tanggal']} berhasil dibatalkan ({$deleted} record dihapus).");
     }
