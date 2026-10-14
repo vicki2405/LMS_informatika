@@ -60,7 +60,9 @@ const jadwalForm = ref({
 });
 
 const filteredKelasByTingkat = computed(() => {
-  return allAvailableClasses.value.filter(k => (k.tingkat || 'X') === selectedTingkat.value);
+  return allAvailableClasses.value
+    .filter(k => (k.tingkat || 'X') === selectedTingkat.value)
+    .sort((a, b) => (a.namaKelas || a.nama || a).localeCompare(b.namaKelas || b.nama || b, undefined, { numeric: true, sensitivity: 'base' }));
 });
 
 function onTingkatChange() {

@@ -178,7 +178,14 @@ class GuruDashboardController extends Controller
             }
         }
 
-        return $query->orderBy('nama_kelas', 'asc')->get()->map(function ($k) {
+        return $query->get()
+            ->sort(function ($a, $b) {
+                $t = strcmp($a->tingkat ?? 'X', $b->tingkat ?? 'X');
+                if ($t !== 0) return $t;
+                return strnatcasecmp($a->nama_kelas, $b->nama_kelas);
+            })
+            ->values()
+            ->map(function ($k) {
             return [
                 'id' => $k->id,
                 'nama' => $k->nama_kelas,
@@ -196,8 +203,14 @@ class GuruDashboardController extends Controller
      */
     private function getMasterKelasData(): array
     {
-        return Kelas::query()->with(['jurusan'])->orderBy('tingkat', 'asc')->orderBy('nama_kelas', 'asc')
-            ->get()->map(function ($k) {
+        return Kelas::query()->with(['jurusan'])->get()
+            ->sort(function ($a, $b) {
+                $t = strcmp($a->tingkat ?? 'X', $b->tingkat ?? 'X');
+                if ($t !== 0) return $t;
+                return strnatcasecmp($a->nama_kelas, $b->nama_kelas);
+            })
+            ->values()
+            ->map(function ($k) {
                 return [
                     'id' => $k->id,
                     'namaKelas' => $k->nama_kelas,
@@ -311,7 +324,7 @@ class GuruDashboardController extends Controller
 
     private function getJurnalData(?int $guruId = null): array
     {
-        $query = Jurnal::query()->with('kelas')->orderBy('tanggal', 'asc')->orderBy('id', 'asc')->limit(100);
+        $query = Jurnal::query()->with('kelas')->orderBy('tanggal', 'desc')->orderBy('id', 'desc')->limit(500);
         if ($guruId) {
             $query->where('guru_id', '=', $guruId);
         }
@@ -398,7 +411,7 @@ class GuruDashboardController extends Controller
             });
         }
 
-        return $query->limit(200)->get()->map(fn (Materi $m) => $this->serializeMateri($m))->toArray();
+        return $query->limit(500)->get()->map(fn (Materi $m) => $this->serializeMateri($m))->toArray();
     }
 
     private function serializeMateri(Materi $m): array

@@ -152,4 +152,78 @@ class AdminSiswaImportTest extends TestCase
             'nis' => '12345',
         ]);
     }
+
+    public function test_admin_can_add_students_with_same_name_in_different_classes(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(\Database\Seeders\KelasSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+
+        $kelas1 = \App\Models\Kelas::create(['nama_kelas' => 'X TKR 11', 'tingkat' => 'X']);
+        $kelas2 = \App\Models\Kelas::create(['nama_kelas' => 'XI Animasi', 'tingkat' => 'XI']);
+
+        // 1. Simpan Alvin pertama di kelas X TKR 11
+        $res1 = $this->actingAs($admin)->post('/admin/siswa/store', [
+            'nis' => '1001',
+            'nama' => 'ALVIN ZIDNA FAQIH',
+            'jenisKelamin' => 'Laki-laki',
+            'kelas' => 'X TKR 11',
+            'telepon' => '081234567890',
+            'status' => 'Aktif',
+        ]);
+        $res1->assertSessionHasNoErrors();
+
+        // 2. Simpan Alvin kedua di kelas XI Animasi
+        $res2 = $this->actingAs($admin)->post('/admin/siswa/store', [
+            'nis' => '2001',
+            'nama' => 'ALVIN ZIDNA FAQIH',
+            'jenisKelamin' => 'Laki-laki',
+            'kelas' => 'XI Animasi',
+            'telepon' => '089876543210',
+            'status' => 'Aktif',
+        ]);
+        $res2->assertSessionHasNoErrors();
+
+        // Keduanya HARUS ada di database dan tidak saling menimpa
+        $this->assertEquals(2, Siswa::where('nama', 'ALVIN ZIDNA FAQIH')->count());
+        $this->assertDatabaseHas('siswas', [
+            'nama' => 'ALVIN ZIDNA FAQIH',
+            'kelas_id' => $kelas1->id,
+            'nis' => '1001',
+        ]);
+        $this->assertDatabaseHas('siswas', [
+            'nama' => 'ALVIN ZIDNA FAQIH',
+            'kelas_id' => $kelas2->id,
+            'nis' => '2001',
+        ]);
+    }
+
+    public function test_admin_can_save_student_with_nis_and_telepon(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(\Database\Seeders\KelasSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+
+        $response = $this->actingAs($admin)->post('/admin/siswa/store', [
+            'nis' => '998877',
+            'nama' => 'SISWA TES NIS',
+            'jenisKelamin' => 'Perempuan',
+            'kelas' => 'X TKR 1',
+            'telepon' => '081122334455',
+            'status' => 'Aktif',
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('siswas', [
+            'nama' => 'SISWA TES NIS',
+            'nis' => '998877',
+            'telepon' => '081122334455',
+            'jenis_kelamin' => 'Perempuan',
+        ]);
+    }
 }
+

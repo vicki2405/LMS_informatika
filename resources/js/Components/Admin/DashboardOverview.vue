@@ -58,7 +58,7 @@ const emit = defineEmits(['change-view']);
       
       <!-- Total Guru Card -->
       <div
-        @click="$emit('change-view', 'users')"
+        @click="$emit('change-view', 'guru')"
         class="group relative bg-slate-900/80 backdrop-blur-xl rounded-3xl p-6 border border-white/10 hover:border-purple-500/50 shadow-xl hover:shadow-purple-950/40 hover:-translate-y-1 transition-all duration-300 cursor-pointer overflow-hidden"
       >
         <div class="flex items-center justify-between mb-4">
@@ -80,7 +80,7 @@ const emit = defineEmits(['change-view']);
 
       <!-- Wali Kelas Card -->
       <div
-        @click="$emit('change-view', 'users')"
+        @click="$emit('change-view', 'kelas')"
         class="group relative bg-slate-900/80 backdrop-blur-xl rounded-3xl p-6 border border-white/10 hover:border-indigo-500/50 shadow-xl hover:shadow-indigo-950/40 hover:-translate-y-1 transition-all duration-300 cursor-pointer overflow-hidden"
       >
         <div class="flex items-center justify-between mb-4">

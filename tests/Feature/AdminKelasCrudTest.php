@@ -96,4 +96,79 @@ class AdminKelasCrudTest extends TestCase
 
         $response->assertSessionHasErrors(['tingkat']);
     }
+
+    public function test_admin_can_assign_and_update_wali_kelas(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        /** @var User $admin */
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+
+        $guru = \App\Models\Guru::create([
+            'nama' => 'Budi Setiawan, S.Pd',
+            'nip' => '198501012010011001',
+            'telepon' => '08123456789'
+        ]);
+
+        $response = $this
+            ->actingAs($admin)
+            ->post('/admin/kelas/store', [
+                'namaKelas' => 'XII RPL 1',
+                'tingkat' => 'XII',
+                'jurusan' => '',
+                'waliKelas' => $guru->id,
+            ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('kelases', [
+            'nama_kelas' => 'XII RPL 1',
+            'tingkat' => 'XII',
+            'guru_id' => $guru->id,
+        ]);
+
+        $kelas = Kelas::where('nama_kelas', 'XII RPL 1')->first();
+
+        // Admin updates wali kelas to empty (unassigned)
+        $updateResponse = $this
+            ->actingAs($admin)
+            ->post('/admin/kelas/store', [
+                'id' => $kelas->id,
+                'namaKelas' => 'XII RPL 1',
+                'tingkat' => 'XII',
+                'jurusan' => '',
+                'waliKelas' => '',
+            ]);
+
+        $updateResponse->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('kelases', [
+            'id' => $kelas->id,
+            'guru_id' => null,
+        ]);
+    }
+
+    public function test_cannot_create_duplicate_class_name(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        /** @var User $admin */
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+
+        Kelas::create([
+            'nama_kelas' => 'X RPL 1',
+            'tingkat' => 'X',
+        ]);
+
+        $response = $this
+            ->actingAs($admin)
+            ->post('/admin/kelas/store', [
+                'namaKelas' => 'X RPL 1',
+                'tingkat' => 'X',
+                'jurusan' => '',
+                'waliKelas' => '',
+            ]);
+
+        $response->assertSessionHasErrors(['namaKelas']);
+    }
 }

@@ -215,8 +215,8 @@ function getTodayString() {
         </button>
       </div>
 
-      <!-- Schedule Table -->
-      <div class="overflow-x-auto">
+      <!-- Schedule Desktop Table -->
+      <div class="hidden md:block overflow-x-auto">
         <table class="w-full text-left text-xs sm:text-sm text-gray-300 border-collapse table-fixed min-w-[700px]">
           <thead class="bg-slate-950/60 text-gray-400 uppercase text-[11px] font-extrabold tracking-wider border-b border-white/10">
             <tr>
@@ -258,6 +258,49 @@ function getTodayString() {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Schedule Mobile Card List -->
+      <div class="block md:hidden space-y-3">
+        <div
+          v-for="item in todayJadwal"
+          :key="item.id"
+          class="bg-slate-950/60 rounded-2xl p-4 border border-white/10 space-y-3 shadow-md"
+        >
+          <div class="flex items-center justify-between">
+            <span class="px-3 py-1 rounded-xl bg-cyan-500/20 text-cyan-300 font-extrabold text-xs border border-cyan-500/30 font-mono">
+              Jam ke-{{ item.jamKe }}
+            </span>
+            <span class="font-mono text-xs text-gray-300 font-bold bg-white/5 px-2.5 py-1 rounded-lg border border-white/10">
+              🕒 {{ item.waktu }}
+            </span>
+          </div>
+
+          <div>
+            <div class="text-sm font-black text-white leading-snug">
+              {{ item.mataPelajaran }}
+            </div>
+            <div class="mt-2 flex items-center gap-2">
+              <span class="px-3 py-1 rounded-full text-xs font-extrabold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 inline-flex items-center gap-1.5">
+                🏫 {{ item.kelas }}
+              </span>
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-white/5">
+            <button
+              @click="$emit('open-full-input-absensi', { kelas: item.kelas, tanggal: getTodayString() })"
+              class="w-full bg-gradient-to-r from-cyan-500 to-teal-500 text-slate-950 font-black text-xs px-4 py-2.5 rounded-xl shadow hover:opacity-90 active:scale-95 transition-all min-h-[42px] flex items-center justify-center gap-2"
+            >
+              <span>📋</span>
+              <span>Input Presensi {{ item.kelas }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="todayJadwal.length === 0" class="text-center py-8 text-xs text-gray-400 font-medium bg-slate-950/40 rounded-2xl border border-white/5 p-4">
+          Tidak ada jadwal mengajar pada hari {{ todayDayName }}.
+        </div>
       </div>
     </div>
 

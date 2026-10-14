@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 
 const props = defineProps({
@@ -32,6 +32,188 @@ const siswaForm = ref({ nis: '', nama: '', jenisKelamin: 'Laki-laki', kelas: '',
 const showImportModal = ref(false);
 const importFile = ref(null);
 
+function getTingkatFromKelas(namaKelas) {
+  if (!namaKelas || typeof namaKelas !== 'string') return 'X';
+  const upper = namaKelas.trim().toUpperCase();
+  if (upper.startsWith('XII') || upper.includes('XII')) return 'XII';
+  if (upper.startsWith('XI') || upper.includes('XI')) return 'XI';
+  if (upper.startsWith('X') || upper.includes('X')) return 'X';
+  return 'X';
+}
+
+const availableKelasOptions = computed(() => {
+  let list = props.kelasList;
+  if (selectedTingkatSiswaFilter.value !== 'Semua') {
+    list = props.kelasList.filter(k => {
+      const t = k.tingkat || getTingkatFromKelas(k.namaKelas);
+      return t === selectedTingkatSiswaFilter.value;
+    });
+  }
+  return [...list].sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }));
+});
+
+watch(selectedTingkatSiswaFilter, (newTingkat) => {
+  if (newTingkat !== 'Semua' && selectedKelasSiswaFilter.value !== 'Semua') {
+    const matchingKelas = props.kelasList.find(k => k.namaKelas === selectedKelasSiswaFilter.value);
+    const kelasTingkat = matchingKelas?.tingkat || getTingkatFromKelas(matchingKelas?.namaKelas);
+    if (kelasTingkat !== newTingkat) {
+      selectedKelasSiswaFilter.value = 'Semua';
+    }
+  }
+});
+
+watch(selectedKelasSiswaFilter, (newKelas) => {
+  if (newKelas && newKelas !== 'Semua') {
+    const matchingKelas = props.kelasList.find(k => k.namaKelas === newKelas);
+    const kelasTingkat = matchingKelas?.tingkat || getTingkatFromKelas(matchingKelas?.namaKelas);
+    if (kelasTingkat && selectedTingkatSiswaFilter.value !== kelasTingkat) {
+      selectedTingkatSiswaFilter.value = kelasTingkat;
+    }
+  }
+});
+
+// Unified Filter Dropdowns State
+const isTingkatDropdownOpen = ref(false);
+const tingkatDropdownRef = ref(null);
+
+const isKelasDropdownOpen = ref(false);
+const searchKelasDropdownQuery = ref('');
+const kelasDropdownRef = ref(null);
+
+const isStatusDropdownOpen = ref(false);
+const statusDropdownRef = ref(null);
+
+const isPerPageDropdownOpen = ref(false);
+const perPageDropdownRef = ref(null);
+
+const tingkatOptions = [
+  { value: 'Semua', label: 'Semua Tingkat' },
+  { value: 'X', label: 'Tingkat X' },
+  { value: 'XI', label: 'Tingkat XI' },
+  { value: 'XII', label: 'Tingkat XII' }
+];
+
+const statusOptions = [
+  { value: 'Semua', label: 'Semua Status' },
+  { value: 'Aktif', label: 'Aktif' },
+  { value: 'Pindah', label: 'Pindah' },
+  { value: 'Keluar', label: 'Keluar' }
+];
+
+const perPageOptions = [
+  { value: 10, label: '10 Data' },
+  { value: 20, label: '20 Data' },
+  { value: 30, label: '30 Data' },
+  { value: 50, label: '50 Data' },
+  { value: 100, label: '100 Data' },
+  { value: 200, label: '200 Data' },
+  { value: 'Semua', label: 'Semua Data' }
+];
+
+function closeAllDropdowns() {
+  isTingkatDropdownOpen.value = false;
+  isKelasDropdownOpen.value = false;
+  isStatusDropdownOpen.value = false;
+  isPerPageDropdownOpen.value = false;
+}
+
+function toggleTingkatDropdown() {
+  const willOpen = !isTingkatDropdownOpen.value;
+  closeAllDropdowns();
+  isTingkatDropdownOpen.value = willOpen;
+}
+
+function selectTingkat(val) {
+  selectedTingkatSiswaFilter.value = val;
+  isTingkatDropdownOpen.value = false;
+}
+
+function toggleKelasDropdown() {
+  const willOpen = !isKelasDropdownOpen.value;
+  closeAllDropdowns();
+  isKelasDropdownOpen.value = willOpen;
+  if (willOpen) {
+    searchKelasDropdownQuery.value = '';
+  }
+}
+
+function selectKelas(namaKelas) {
+  selectedKelasSiswaFilter.value = namaKelas;
+  isKelasDropdownOpen.value = false;
+  searchKelasDropdownQuery.value = '';
+}
+
+function toggleStatusDropdown() {
+  const willOpen = !isStatusDropdownOpen.value;
+  closeAllDropdowns();
+  isStatusDropdownOpen.value = willOpen;
+}
+
+function selectStatus(val) {
+  selectedStatusFilter.value = val;
+  isStatusDropdownOpen.value = false;
+}
+
+function togglePerPageDropdown() {
+  const willOpen = !isPerPageDropdownOpen.value;
+  closeAllDropdowns();
+  isPerPageDropdownOpen.value = willOpen;
+}
+
+function selectPerPage(val) {
+  perPage.value = val;
+  isPerPageDropdownOpen.value = false;
+}
+
+const filteredAvailableKelasOptions = computed(() => {
+  let list = availableKelasOptions.value;
+  if (searchKelasDropdownQuery.value.trim()) {
+    const q = searchKelasDropdownQuery.value.toLowerCase();
+    list = list.filter(k => k.namaKelas.toLowerCase().includes(q));
+  }
+  return list;
+});
+
+function handleClickOutside(event) {
+  const clickedInsideTingkat = tingkatDropdownRef.value && tingkatDropdownRef.value.contains(event.target);
+  const clickedInsideKelas = kelasDropdownRef.value && kelasDropdownRef.value.contains(event.target);
+  const clickedInsideStatus = statusDropdownRef.value && statusDropdownRef.value.contains(event.target);
+  const clickedInsidePerPage = perPageDropdownRef.value && perPageDropdownRef.value.contains(event.target);
+
+  if (!clickedInsideTingkat && !clickedInsideKelas && !clickedInsideStatus && !clickedInsidePerPage) {
+    closeAllDropdowns();
+  }
+}
+
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    document.addEventListener('click', handleClickOutside);
+  }
+});
+
+onUnmounted(() => {
+  if (typeof window !== 'undefined') {
+    document.removeEventListener('click', handleClickOutside);
+  }
+});
+
+const isFilterActive = computed(() => {
+  return searchSiswaName.value.trim() !== '' ||
+    selectedTingkatSiswaFilter.value !== 'Semua' ||
+    selectedKelasSiswaFilter.value !== 'Semua' ||
+    selectedStatusFilter.value !== 'Semua';
+});
+
+function resetFilters() {
+  searchSiswaName.value = '';
+  selectedTingkatSiswaFilter.value = 'Semua';
+  selectedKelasSiswaFilter.value = 'Semua';
+  selectedStatusFilter.value = 'Semua';
+  closeAllDropdowns();
+  searchKelasDropdownQuery.value = '';
+  currentPage.value = 1;
+}
+
 const filteredSiswaList = computed(() => {
   let list = [...props.siswaList];
 
@@ -41,7 +223,10 @@ const filteredSiswaList = computed(() => {
   }
 
   if (selectedTingkatSiswaFilter.value !== 'Semua') {
-    list = list.filter(s => s.tingkat === selectedTingkatSiswaFilter.value);
+    list = list.filter(s => {
+      const sTingkat = s.tingkat || getTingkatFromKelas(s.kelas);
+      return sTingkat === selectedTingkatSiswaFilter.value;
+    });
   }
 
   if (selectedKelasSiswaFilter.value !== 'Semua') {
@@ -125,7 +310,7 @@ function handleBulkDelete() {
 function openAddSiswaModal() {
   editingSiswa.value = null;
   siswaForm.value = {
-    nis: String(1000 + props.siswaList.length + 1),
+    nis: '',
     nama: '',
     jenisKelamin: 'Laki-laki',
     kelas: props.kelasList[0]?.namaKelas || 'X RPL 1',
@@ -140,6 +325,8 @@ function openEditSiswa(s) {
   editingSiswa.value = s;
   siswaForm.value = { 
     ...s,
+    nis: s.nis || '',
+    telepon: s.telepon || s.teleponSiswa || '',
     status: s.status || 'Aktif',
     tanggal_status: s.tanggal_status || ''
   };
@@ -346,73 +533,245 @@ function processImport() {
     </div>
 
     <!-- Search Bar & Class Filter Bar & Status Filter Bar & Limit Per Page -->
-    <div class="grid sm:grid-cols-2 md:grid-cols-5 gap-4">
-      <div class="relative">
-        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-          </svg>
+    <div class="space-y-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <!-- Search Input -->
+        <div class="space-y-1.5 sm:col-span-2 lg:col-span-1">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Cari Siswa</label>
+          <div class="relative">
+            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+              </svg>
+            </div>
+            <input
+              v-model="searchSiswaName"
+              type="text"
+              placeholder="Nama atau NIS siswa..."
+              class="w-full pl-10 pr-8 py-2.5 bg-slate-900 border border-white/10 rounded-2xl text-xs sm:text-sm text-white placeholder-gray-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 outline-none transition-all duration-200 min-h-[44px]"
+            />
+            <button v-if="searchSiswaName" @click="searchSiswaName = ''" class="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-gray-400 hover:text-white">✕</button>
+          </div>
         </div>
-        <input
-          v-model="searchSiswaName"
-          type="text"
-          placeholder="Cari nama atau NIS siswa..."
-          class="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-white/10 rounded-2xl text-xs sm:text-sm text-white placeholder-gray-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 outline-none transition-all duration-200 min-h-[44px]"
-        />
-        <button v-if="searchSiswaName" @click="searchSiswaName = ''" class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-xs text-gray-400 hover:text-white">✕</button>
+
+        <!-- Tingkat Filter (Custom Dropdown) -->
+        <div ref="tingkatDropdownRef" class="space-y-1.5 relative">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Tingkat</label>
+          <button
+            type="button"
+            @click="toggleTingkatDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isTingkatDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ selectedTingkatSiswaFilter === 'Semua' ? 'Semua Tingkat' : `Tingkat ${selectedTingkatSiswaFilter}` }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isTingkatDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isTingkatDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[170px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="space-y-1">
+              <button
+                v-for="opt in tingkatOptions"
+                :key="opt.value"
+                type="button"
+                @click="selectTingkat(opt.value)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedTingkatSiswaFilter === opt.value ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ opt.label }}</span>
+                <span v-if="selectedTingkatSiswaFilter === opt.value" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Kelas Filter (Custom Searchable & Scrollable Dropdown) -->
+        <div ref="kelasDropdownRef" class="space-y-1.5 relative">
+          <div class="flex items-center justify-between">
+            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Kelas</label>
+            <span v-if="selectedTingkatSiswaFilter !== 'Semua'" class="text-[10px] text-cyan-400 font-mono font-bold">
+              {{ availableKelasOptions.length }} Kelas
+            </span>
+          </div>
+
+          <!-- Trigger Button -->
+          <button
+            type="button"
+            @click="toggleKelasDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isKelasDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ selectedKelasSiswaFilter === 'Semua' ? 'Semua Kelas' : selectedKelasSiswaFilter }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isKelasDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isKelasDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[220px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-2 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <!-- Search Inside Dropdown -->
+            <div class="relative">
+              <input
+                v-model="searchKelasDropdownQuery"
+                type="text"
+                placeholder="Cari kelas (misal: TKR)..."
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:border-cyan-400 outline-none"
+                @click.stop
+              />
+              <button
+                v-if="searchKelasDropdownQuery"
+                type="button"
+                @click="searchKelasDropdownQuery = ''"
+                class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-xs text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <!-- Scrollable List Options (Guaranteed Scrollbar) -->
+            <div class="max-h-56 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+              <button
+                type="button"
+                @click="selectKelas('Semua')"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedKelasSiswaFilter === 'Semua' ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>Semua Kelas</span>
+                <span v-if="selectedKelasSiswaFilter === 'Semua'" class="text-cyan-400 font-bold">✓</span>
+              </button>
+
+              <button
+                v-for="k in filteredAvailableKelasOptions"
+                :key="k.id"
+                type="button"
+                @click="selectKelas(k.namaKelas)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedKelasSiswaFilter === k.namaKelas ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span class="truncate">{{ k.namaKelas }}</span>
+                <span v-if="selectedKelasSiswaFilter === k.namaKelas" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+
+              <div
+                v-if="filteredAvailableKelasOptions.length === 0"
+                class="text-center py-4 text-xs text-gray-500"
+              >
+                Tidak ada kelas yang cocok.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Status Filter (Custom Dropdown) -->
+        <div ref="statusDropdownRef" class="space-y-1.5 relative">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Status</label>
+          <button
+            type="button"
+            @click="toggleStatusDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isStatusDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ selectedStatusFilter === 'Semua' ? 'Semua Status' : selectedStatusFilter }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isStatusDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isStatusDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[170px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="space-y-1">
+              <button
+                v-for="opt in statusOptions"
+                :key="opt.value"
+                type="button"
+                @click="selectStatus(opt.value)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedStatusFilter === opt.value ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ opt.label }}</span>
+                <span v-if="selectedStatusFilter === opt.value" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Limit Per Page (Custom Dropdown) -->
+        <div ref="perPageDropdownRef" class="space-y-1.5 relative">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Tampilkan</label>
+          <button
+            type="button"
+            @click="togglePerPageDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isPerPageDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ perPage === 'Semua' ? 'Semua Data' : `${perPage} Data` }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isPerPageDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isPerPageDropdownOpen"
+            class="absolute right-0 top-full mt-1.5 w-full min-w-[170px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="max-h-56 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+              <button
+                v-for="opt in perPageOptions"
+                :key="opt.value"
+                type="button"
+                @click="selectPerPage(opt.value)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  perPage === opt.value ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ opt.label }}</span>
+                <span v-if="perPage === opt.value" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="flex items-center gap-3">
-        <label class="text-xs text-gray-400 font-bold shrink-0">Tingkat:</label>
-        <select
-          v-model="selectedTingkatSiswaFilter"
-          class="w-full bg-slate-900 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
+      <!-- Quick Reset Indicator when filters are active -->
+      <div v-if="isFilterActive" class="flex items-center justify-between text-xs bg-cyan-500/10 border border-cyan-500/20 px-3.5 py-2 rounded-xl">
+        <span class="text-cyan-300 font-medium">
+          Ditemukan <strong class="text-white">{{ filteredSiswaList.length }}</strong> siswa cocok dengan filter saat ini.
+        </span>
+        <button
+          @click="resetFilters"
+          class="text-xs text-cyan-400 hover:text-white font-bold underline flex items-center gap-1 active:scale-95 transition-all"
         >
-          <option value="Semua">Semua</option>
-          <option value="X">Tingkat X</option>
-          <option value="XI">Tingkat XI</option>
-          <option value="XII">Tingkat XII</option>
-        </select>
-      </div>
-
-      <div class="flex items-center gap-3">
-        <label class="text-xs text-gray-400 font-bold shrink-0">Kelas:</label>
-        <select
-          v-model="selectedKelasSiswaFilter"
-          class="w-full bg-slate-900 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
-        >
-          <option value="Semua">Semua Kelas</option>
-          <option v-for="k in kelasList" :key="k.id" :value="k.namaKelas">{{ k.namaKelas }}</option>
-        </select>
-      </div>
-
-      <div class="flex items-center gap-3">
-        <label class="text-xs text-gray-400 font-bold shrink-0">Status:</label>
-        <select
-          v-model="selectedStatusFilter"
-          class="w-full bg-slate-900 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
-        >
-          <option value="Semua">Semua Status</option>
-          <option value="Aktif">Aktif</option>
-          <option value="Pindah">Pindah</option>
-          <option value="Keluar">Keluar</option>
-        </select>
-      </div>
-
-      <div class="flex items-center gap-3">
-        <label class="text-xs text-gray-400 font-bold shrink-0">Tampilkan:</label>
-        <select
-          v-model="perPage"
-          class="w-full bg-slate-900 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
-        >
-          <option :value="10">10 Data</option>
-          <option :value="20">20 Data</option>
-          <option :value="30">30 Data</option>
-          <option :value="50">50 Data</option>
-          <option :value="100">100 Data</option>
-          <option :value="200">200 Data</option>
-          <option value="Semua">Semua</option>
-        </select>
+          🔄 Reset Filter
+        </button>
       </div>
     </div>
 
@@ -434,10 +793,8 @@ function processImport() {
                 />
               </th>
               <th class="px-4 py-4 text-center w-12">No.</th>
-              <th class="px-4 py-4">NIS</th>
               <th class="px-6 py-4">Nama Lengkap (A-Z)</th>
               <th class="px-6 py-4">Jenis Kelamin</th>
-              <th class="px-6 py-4">Tingkat</th>
               <th class="px-6 py-4">Kelas</th>
               <th class="px-6 py-4">Wali Kelas</th>
               <th class="px-6 py-4">No. WhatsApp</th>
@@ -465,10 +822,7 @@ function processImport() {
                   class="w-4 h-4 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-400"
                 />
               </td>
-              <td class="px-4 py-4 text-center font-mono text-gray-400 text-xs">{{ index + 1 }}</td>
-              <td class="px-4 py-4 font-mono text-cyan-300 text-xs font-bold">
-                {{ siswa.nis || '-' }}
-              </td>
+              <td class="px-4 py-4 text-center font-mono text-gray-400 text-xs">{{ startItem + index }}</td>
               <td class="px-6 py-4 font-bold text-white">
                 <div class="flex items-center gap-3">
                   <div
@@ -516,13 +870,8 @@ function processImport() {
                 </span>
               </td>
               <td class="px-6 py-4">
-                <span class="bg-purple-500/20 text-purple-300 text-xs font-black px-3.5 py-1 rounded-full border border-purple-500/30">
-                  Tingkat {{ siswa.tingkat || 'X' }}
-                </span>
-              </td>
-              <td class="px-6 py-4">
                 <span class="bg-cyan-500/20 text-cyan-300 text-xs font-bold px-3 py-1 rounded-full border border-cyan-500/30">
-                  Kelas {{ siswa.kelas }}
+                  {{ siswa.kelas }}
                 </span>
               </td>
               <td class="px-6 py-4">
@@ -531,8 +880,8 @@ function processImport() {
                 </span>
               </td>
               <td class="px-6 py-4 font-mono text-xs text-gray-300">
-                <a v-if="siswa.telepon" :href="'https://wa.me/' + siswa.telepon.replace(/[^0-9]/g, '')" target="_blank" class="text-emerald-400 hover:underline font-bold bg-emerald-500/10 px-3 py-1 rounded-xl border border-emerald-500/20 inline-flex items-center gap-1">
-                  💬 {{ siswa.telepon }}
+                <a v-if="siswa.telepon || siswa.teleponSiswa" :href="'https://wa.me/' + String(siswa.telepon || siswa.teleponSiswa).replace(/[^0-9]/g, '')" target="_blank" class="text-emerald-400 hover:underline font-bold bg-emerald-500/10 px-3 py-1 rounded-xl border border-emerald-500/20 inline-flex items-center gap-1">
+                  💬 {{ siswa.telepon || siswa.teleponSiswa }}
                 </a>
                 <span v-else class="text-gray-500">-</span>
               </td>
@@ -557,7 +906,7 @@ function processImport() {
               </td>
             </tr>
             <tr v-if="sortedFilteredSiswa.length === 0">
-              <td :colspan="canManage ? 11 : 9" class="px-6 py-12 text-center text-gray-400 font-medium">Tidak ada data siswa yang cocok.</td>
+              <td :colspan="canManage ? 9 : 7" class="px-6 py-12 text-center text-gray-400 font-medium">Tidak ada data siswa yang cocok.</td>
             </tr>
           </tbody>
         </table>
@@ -610,15 +959,15 @@ function processImport() {
                 @change="toggleSelectSiswa(siswa.id)"
                 class="w-5 h-5 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-400"
               />
-              <span class="font-mono text-xs font-bold text-gray-400">#{{ index + 1 }}</span>
+              <span class="font-mono text-xs font-bold text-gray-400">#{{ startItem + index }}</span>
             </div>
 
             <div class="flex flex-wrap items-center justify-end gap-1.5">
               <span :class="['text-[11px] px-2.5 py-0.5 rounded-full font-bold', siswa.jenisKelamin === 'Laki-laki' ? 'bg-blue-500/20 text-blue-300' : 'bg-pink-500/20 text-pink-300']">
                 {{ siswa.jenisKelamin }}
               </span>
-              <span class="bg-purple-500/20 text-purple-300 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-purple-500/30">
-                Tingkat {{ siswa.tingkat || 'X' }}
+              <span class="bg-purple-500/20 text-purple-300 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-purple-500/30 font-mono">
+                {{ siswa.tingkat || 'X' }}
               </span>
               <span class="bg-cyan-500/20 text-cyan-300 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full border border-cyan-500/30">
                 {{ siswa.kelas }}
@@ -643,8 +992,8 @@ function processImport() {
             </div>
             <div class="text-xs text-gray-400 mt-1.5 flex items-center justify-between font-medium">
               <span>NIS: <span class="font-mono text-cyan-300 font-bold bg-cyan-500/10 px-2 py-0.5 rounded-lg border border-cyan-500/20">{{ siswa.nis || '-' }}</span></span>
-              <a v-if="siswa.telepon" :href="'tel:' + siswa.telepon" class="text-cyan-400 font-mono flex items-center gap-1 font-bold">
-                📞 {{ siswa.telepon }}
+              <a v-if="siswa.telepon || siswa.teleponSiswa" :href="'tel:' + (siswa.telepon || siswa.teleponSiswa)" class="text-cyan-400 font-mono flex items-center gap-1 font-bold">
+                📞 {{ siswa.telepon || siswa.teleponSiswa }}
               </a>
             </div>
           </div>
@@ -712,6 +1061,11 @@ function processImport() {
 
         <form @submit.prevent="handleSaveSiswa" class="space-y-4 text-xs sm:text-sm">
           <div>
+            <label class="block text-gray-300 font-bold uppercase text-[11px] mb-1.5">NIS (Nomor Induk Siswa)</label>
+            <input v-model="siswaForm.nis" type="text" placeholder="Contoh: 1001" class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-sm min-h-[44px]" />
+          </div>
+
+          <div>
             <label class="block text-gray-300 font-bold uppercase text-[11px] mb-1.5">Nama Lengkap Siswa *</label>
             <input v-model="siswaForm.nama" type="text" placeholder="Masukkan nama lengkap siswa" class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-sm min-h-[44px]" required />
           </div>
@@ -730,11 +1084,11 @@ function processImport() {
               <option value="" disabled>-- Pilih Kelas --</option>
               <template v-for="tingkat in ['X','XI','XII']" :key="tingkat">
                 <optgroup
-                  v-if="kelasList.filter(k => k.tingkat === tingkat).length"
+                  v-if="kelasList.filter(k => (k.tingkat || getTingkatFromKelas(k.namaKelas)) === tingkat).length"
                   :label="'── Tingkat ' + tingkat + ' ──'"
                 >
                   <option
-                    v-for="k in kelasList.filter(kl => kl.tingkat === tingkat)"
+                    v-for="k in [...kelasList.filter(kl => (kl.tingkat || getTingkatFromKelas(kl.namaKelas)) === tingkat)].sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }))"
                     :key="k.id"
                     :value="k.namaKelas"
                   >{{ k.namaKelas }} ({{ k.jurusan }})</option>
@@ -798,7 +1152,7 @@ function processImport() {
               class="flex-1 inline-flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-500 to-green-600 text-white font-black text-xs px-4 py-2.5 rounded-xl shadow hover:opacity-90 active:scale-95 transition-all min-h-[38px]"
             >
               <span>📊</span>
-              <span>Template Excel (.xlsx)</span>
+              <span>Template CSV / Excel</span>
             </button>
           </div>
           <p class="text-xs text-gray-300 leading-relaxed font-medium">

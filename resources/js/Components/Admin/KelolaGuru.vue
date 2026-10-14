@@ -169,6 +169,61 @@ function handleDeleteGuru(id) {
           </tbody>
         </table>
       </div>
+
+      <!-- Mobile Cards View for Guru -->
+      <div class="block md:hidden divide-y divide-white/5">
+        <div
+          v-for="(g, idx) in filteredGuruList"
+          :key="'mob-guru-' + g.id"
+          class="p-4 space-y-3 hover:bg-white/5 transition-colors"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="font-mono text-xs font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
+                #{{ idx + 1 }}
+              </span>
+              <div class="min-w-0">
+                <h3 class="font-black text-white text-base truncate">{{ g.nama }}</h3>
+                <span class="text-xs text-gray-400 font-mono block">NIP: {{ g.nip || '-' }}</span>
+              </div>
+            </div>
+            <span v-if="g.hasAccount" class="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 shrink-0">
+              ✓ Ada Akun
+            </span>
+            <span v-else class="bg-amber-500/20 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-500/30 shrink-0">
+              Belum Ada Akun
+            </span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span class="bg-purple-500/20 text-purple-300 font-bold px-2.5 py-1 rounded-xl border border-purple-500/30">
+              📚 {{ g.mapelUtama || 'Umum' }}
+            </span>
+            <span v-if="g.telepon && g.telepon !== '-'" class="bg-slate-800 text-gray-300 px-2.5 py-1 rounded-xl border border-white/10 font-mono">
+              📞 {{ g.telepon }}
+            </span>
+          </div>
+
+          <div class="flex items-center gap-2 pt-2 border-t border-white/5">
+            <button
+              @click="openEditGuruModal(g)"
+              class="flex-1 py-2 text-center text-purple-300 font-bold text-xs bg-purple-500/15 hover:bg-purple-500/30 rounded-xl border border-purple-500/30 active:scale-95 transition-all min-h-[38px]"
+            >
+              ✏️ Edit
+            </button>
+            <button
+              @click="handleDeleteGuru(g.id)"
+              class="flex-1 py-2 text-center text-red-400 font-bold text-xs bg-red-500/15 hover:bg-red-500/30 rounded-xl border border-red-500/30 active:scale-95 transition-all min-h-[38px]"
+            >
+              🗑️ Hapus
+            </button>
+          </div>
+        </div>
+
+        <div v-if="filteredGuruList.length === 0" class="p-8 text-center text-gray-400 font-medium text-xs">
+          Belum ada data guru yang terdaftar.
+        </div>
+      </div>
     </div>
 
     <!-- Modal Form Master Guru -->

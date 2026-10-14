@@ -50,7 +50,7 @@ const tabDataMap = {
   dashboard: ['guruListProp', 'waliKelasListProp', 'siswaListProp', 'userAccountsListProp'],
   guru: ['guruListProp', 'mapelListProp'],
   mapel: ['mapelListProp', 'kelompokMapelListProp'],
-  kelas: ['kelasListProp', 'jurusanListProp', 'waliKelasListProp'],
+  kelas: ['kelasListProp', 'jurusanListProp', 'waliKelasListProp', 'guruListProp'],
   siswa: ['siswaListProp', 'kelasListProp'],
   users: ['userAccountsListProp', 'guruListProp', 'siswaListProp', 'mapelListProp', 'kelasListProp'],
   backup: [],
@@ -181,7 +181,7 @@ function onImportSiswa(importedList) {
 function onSaveKelas({ editing, data }) {
   router.post(route('admin.kelas.store'), data, {
     preserveScroll: true,
-    only: ['kelasListProp']
+    only: ['kelasListProp', 'waliKelasListProp']
   });
 }
 
@@ -194,7 +194,7 @@ function onDeleteKelas(id) {
     if (result.isConfirmed) {
       router.delete(route('admin.kelas.delete', id), {
         preserveScroll: true,
-        only: ['kelasListProp']
+        only: ['kelasListProp', 'waliKelasListProp']
       });
     }
   });
@@ -393,6 +393,7 @@ function onDeleteUser(id) {
           :kelasListWithCount="kelasList"
           :jurusanList="jurusanList"
           :waliKelasList="waliKelasList"
+          :guruList="guruList"
           @save-kelas="onSaveKelas"
           @delete-kelas="onDeleteKelas"
           @save-jurusan="onSaveJurusan"

@@ -24,6 +24,10 @@ const props = defineProps({
   masterWaliAdmin: {
     type: Array,
     default: () => []
+  },
+  guruList: {
+    type: Array,
+    default: () => []
   }
 });
 
@@ -213,7 +217,7 @@ function openEditKelas(k) {
     tingkat: k.tingkat || 'X',
     namaKelas: k.namaKelas || '',
     jurusan: k.jurusan || '',
-    waliKelas: k.guruId || '',
+    waliKelas: k.guruId ? String(k.guruId) : '',
   };
   showKelasModal.value = true;
 }
@@ -438,6 +442,8 @@ function handleSaveJurusan() {
                 <th class="px-6 py-4">Tingkat</th>
                 <th class="px-6 py-4">Nama Kelas</th>
                 <th class="px-6 py-4">Jurusan</th>
+                <th class="px-6 py-4">Wali Kelas</th>
+                <th class="px-6 py-4 text-center">Siswa</th>
                 <th class="px-6 py-4 text-right">Aksi</th>
               </tr>
             </thead>
@@ -448,8 +454,8 @@ function handleSaveJurusan() {
                 </td>
 
                 <td class="px-6 py-4">
-                  <span class="bg-purple-500/20 text-purple-300 text-xs font-black px-3 py-1 rounded-full border border-purple-500/30">
-                    Tingkat {{ k.tingkat || 'X' }}
+                  <span class="bg-purple-500/20 text-purple-300 text-xs font-black px-2.5 py-1 rounded-lg border border-purple-500/30 font-mono">
+                    {{ k.tingkat || 'X' }}
                   </span>
                 </td>
 
@@ -458,8 +464,23 @@ function handleSaveJurusan() {
                 </td>
 
                 <td class="px-6 py-4">
-                  <span class="bg-cyan-500/20 text-cyan-300 text-xs font-bold px-3 py-1 rounded-full border border-cyan-500/30">
-                    {{ k.jurusan || 'Teknologi Informasi' }}
+                  <span class="bg-cyan-500/20 text-cyan-300 text-xs font-bold px-2.5 py-1 rounded-lg border border-cyan-500/30" :title="k.jurusan">
+                    {{ k.jurusanKode || k.jurusan || 'Belum Diatur' }}
+                  </span>
+                </td>
+
+                <td class="px-6 py-4">
+                  <span v-if="k.waliKelas && k.waliKelas !== 'Belum Ditugaskan'" class="text-sm font-semibold text-white">
+                    {{ k.waliKelas }}
+                  </span>
+                  <span v-else class="text-xs text-gray-500 italic">
+                    Belum Ditugaskan
+                  </span>
+                </td>
+
+                <td class="px-6 py-4 text-center">
+                  <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs font-bold font-mono">
+                    👥 {{ k.jumlahSiswa ?? 0 }}
                   </span>
                 </td>
 
@@ -469,7 +490,7 @@ function handleSaveJurusan() {
                 </td>
               </tr>
               <tr v-if="!paginatedKelasList || paginatedKelasList.length === 0">
-                <td colspan="5" class="px-6 py-12 text-center text-gray-400 font-medium">
+                <td colspan="7" class="px-6 py-12 text-center text-gray-400 font-medium">
                   Belum ada data kelas yang sesuai dengan kriteria filter/pencarian.
                 </td>
               </tr>
@@ -483,17 +504,27 @@ function handleSaveJurusan() {
           <div class="flex items-center justify-between">
             <span class="text-xs font-mono font-bold text-indigo-300">#{{ perPage === 'Semua' ? idx + 1 : (currentPage - 1) * Number(perPage) + idx + 1 }}</span>
             <div class="flex gap-1.5">
-              <span class="bg-purple-500/20 text-purple-300 text-xs font-bold px-2.5 py-0.5 rounded-full border border-purple-500/30">
-                Tingkat {{ k.tingkat || 'X' }}
+              <span class="bg-purple-500/20 text-purple-300 text-xs font-bold px-2.5 py-0.5 rounded-full border border-purple-500/30 font-mono">
+                {{ k.tingkat || 'X' }}
               </span>
-              <span class="bg-cyan-500/20 text-cyan-300 text-xs font-extrabold px-2.5 py-0.5 rounded-full border border-cyan-500/30">
-                {{ k.jurusan || 'SMK' }}
+              <span class="bg-cyan-500/20 text-cyan-300 text-xs font-extrabold px-2.5 py-0.5 rounded-full border border-cyan-500/30" :title="k.jurusan">
+                {{ k.jurusanKode || k.jurusan || 'Belum Diatur' }}
               </span>
             </div>
           </div>
 
-          <div>
+          <div class="flex items-center justify-between">
             <h3 class="text-lg font-black text-white">{{ k.namaKelas }}</h3>
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-bold font-mono">
+              👥 {{ k.jumlahSiswa ?? 0 }} Siswa
+            </span>
+          </div>
+
+          <div class="text-xs text-gray-400 flex items-center gap-1.5 bg-white/5 px-3 py-2 rounded-xl">
+            <span class="text-gray-500">Wali:</span>
+            <span :class="k.waliKelas && k.waliKelas !== 'Belum Ditugaskan' ? 'font-bold text-white' : 'text-gray-500 italic'">
+              {{ k.waliKelas && k.waliKelas !== 'Belum Ditugaskan' ? k.waliKelas : 'Belum Ditugaskan' }}
+            </span>
           </div>
 
           <div class="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
@@ -665,10 +696,25 @@ function handleSaveJurusan() {
 
           <div v-if="isAdmin">
             <label class="block text-gray-300 font-bold uppercase text-[11px] mb-1.5">Pilih Jurusan *</label>
-            <select v-model="kelasForm.jurusan" class="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-2xl text-white outline-none focus:border-purple-400 text-sm font-semibold min-h-[44px]">
+            <select v-model="kelasForm.jurusan" class="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-2xl text-white outline-none focus:border-purple-400 text-sm font-semibold min-h-[44px]" required>
               <option value="">-- Pilih Jurusan --</option>
               <option v-for="j in jurusanList" :key="j.id" :value="j.nama">{{ j.nama }} ({{ j.kode }})</option>
             </select>
+          </div>
+
+          <!-- Input / Dropdown Wali Kelas (Admin Only) -->
+          <div v-if="isAdmin">
+            <label class="block text-gray-300 font-bold uppercase text-[11px] mb-1.5">Pilih Wali Kelas (Opsional)</label>
+            <select
+              v-model="kelasForm.waliKelas"
+              class="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-2xl text-white outline-none focus:border-purple-400 text-sm font-semibold min-h-[44px]"
+            >
+              <option value="">-- Belum Ditugaskan / Tidak Ada Wali Kelas --</option>
+              <option v-for="g in guruList" :key="g.id" :value="g.id">
+                {{ g.nama }} {{ g.nip ? `(NIP: ${g.nip})` : '' }}
+              </option>
+            </select>
+            <p class="text-[11px] text-gray-400 mt-1">Pilih guru yang akan ditugaskan sebagai wali kelas ini.</p>
           </div>
 
 

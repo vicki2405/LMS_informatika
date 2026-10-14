@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { usePage } from '@inertiajs/vue3';
 
 const page = usePage();
@@ -65,9 +65,78 @@ function getTodayString() {
 const now = new Date();
 const selectedYear = ref(now.getFullYear());
 const selectedMonth = ref(now.getMonth() + 1); // 1-12
+const selectedTingkatFilter = ref('Semua');
 const selectedKelasFilter = ref('Semua');
 const selectedMapelFilter = ref('Semua');
 const searchQuery = ref('');
+
+// Helper: Tingkat Resolver from Class Name
+function getTingkatFromKelas(namaKelas) {
+  if (!namaKelas || typeof namaKelas !== 'string') return 'X';
+  const upper = namaKelas.trim().toUpperCase();
+  if (upper.startsWith('XII') || upper.includes('XII')) return 'XII';
+  if (upper.startsWith('XI') || upper.includes('XI')) return 'XI';
+  if (upper.startsWith('X') || upper.includes('X')) return 'X';
+  return 'X';
+}
+
+// Comprehensive aggregation of all teacher classes (kelasList, jadwalList, jurnalList)
+const allAvailableKelasList = computed(() => {
+  const map = new Map();
+
+  // 1. Classes from props.kelasList
+  (props.kelasList || []).forEach(k => {
+    const name = typeof k === 'string' ? k : (k?.namaKelas || k?.nama);
+    if (name && !map.has(name)) {
+      const tingkat = (typeof k === 'object' && k?.tingkat) ? k.tingkat : getTingkatFromKelas(name);
+      map.set(name, { id: k?.id || name, namaKelas: name, tingkat });
+    }
+  });
+
+  // 2. Classes from props.jadwalList
+  (props.jadwalList || []).forEach(j => {
+    const name = j.kelas || j.namaKelas;
+    if (name && !map.has(name)) {
+      map.set(name, { id: name, namaKelas: name, tingkat: j.tingkat || getTingkatFromKelas(name) });
+    }
+  });
+
+  // 3. Classes from props.jurnalList
+  (props.jurnalList || []).forEach(j => {
+    const name = j.kelas;
+    if (name && !map.has(name)) {
+      map.set(name, { id: name, namaKelas: name, tingkat: getTingkatFromKelas(name) });
+    }
+  });
+
+  return Array.from(map.values());
+});
+
+// Available Classes for Dropdown (Filtered by Tingkat + Natural Numeric Sorted)
+const availableKelasOptions = computed(() => {
+  let list = allAvailableKelasList.value;
+  if (selectedTingkatFilter.value !== 'Semua') {
+    list = list.filter(k => (k.tingkat || getTingkatFromKelas(k.namaKelas)) === selectedTingkatFilter.value);
+  }
+  return [...list].sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }));
+});
+
+// Filtered options for the search box inside the custom dropdown
+const filteredDropdownKelasOptions = computed(() => {
+  let list = availableKelasOptions.value;
+  if (searchKelasDropdownQuery.value && searchKelasDropdownQuery.value.trim()) {
+    const q = searchKelasDropdownQuery.value.toLowerCase().trim();
+    list = list.filter(k => k.namaKelas.toLowerCase().includes(q));
+  }
+  return list;
+});
+
+// All classes for modal form (Always natural numeric sorted)
+const scheduledClasses = computed(() => {
+  return [...allAvailableKelasList.value]
+    .sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }))
+    .map(k => k.namaKelas);
+});
 
 // 1. MATA PELAJARAN RESMI GURU (MURNI DARI DATA GURU ADMIN: tab=guru / mapel_utama)
 const teacherAdminSubjects = computed(() => {
@@ -77,20 +146,146 @@ const teacherAdminSubjects = computed(() => {
   return ['Informatika'];
 });
 
-// 2. KELAS YANG SUDAH DIJADWALKAN OLEH GURU (DARI tab=jadwal)
-const scheduledClasses = computed(() => {
-  const set = new Set();
-  (props.jadwalList || []).forEach(j => {
-    const k = j.kelas;
-    if (k && typeof k === 'string' && k.trim()) set.add(k.trim());
-  });
+// Custom Dropdowns State
+const isMonthDropdownOpen = ref(false);
+const monthDropdownRef = ref(null);
 
-  if (set.size > 0) {
-    return [...set].sort();
+const isYearDropdownOpen = ref(false);
+const yearDropdownRef = ref(null);
+
+const isTingkatDropdownOpen = ref(false);
+const tingkatDropdownRef = ref(null);
+
+const isKelasDropdownOpen = ref(false);
+const searchKelasDropdownQuery = ref('');
+const kelasDropdownRef = ref(null);
+
+const isMapelDropdownOpen = ref(false);
+const mapelDropdownRef = ref(null);
+
+const tingkatOptions = [
+  { value: 'Semua', label: 'Semua Tingkat' },
+  { value: 'X', label: 'Tingkat X' },
+  { value: 'XI', label: 'Tingkat XI' },
+  { value: 'XII', label: 'Tingkat XII' }
+];
+
+const yearOptions = [
+  { value: 2025, label: 'Tahun 2025' },
+  { value: 2026, label: 'Tahun 2026' },
+  { value: 2027, label: 'Tahun 2027' }
+];
+
+function closeAllDropdowns() {
+  isMonthDropdownOpen.value = false;
+  isYearDropdownOpen.value = false;
+  isTingkatDropdownOpen.value = false;
+  isKelasDropdownOpen.value = false;
+  isMapelDropdownOpen.value = false;
+}
+
+function toggleMonthDropdown() {
+  const willOpen = !isMonthDropdownOpen.value;
+  closeAllDropdowns();
+  isMonthDropdownOpen.value = willOpen;
+}
+
+function selectMonth(mIdx) {
+  selectedMonth.value = mIdx;
+  isMonthDropdownOpen.value = false;
+}
+
+function toggleYearDropdown() {
+  const willOpen = !isYearDropdownOpen.value;
+  closeAllDropdowns();
+  isYearDropdownOpen.value = willOpen;
+}
+
+function selectYear(y) {
+  selectedYear.value = y;
+  isYearDropdownOpen.value = false;
+}
+
+function toggleTingkatDropdown() {
+  const willOpen = !isTingkatDropdownOpen.value;
+  closeAllDropdowns();
+  isTingkatDropdownOpen.value = willOpen;
+}
+
+function selectTingkat(val) {
+  selectedTingkatFilter.value = val;
+  isTingkatDropdownOpen.value = false;
+}
+
+function toggleKelasDropdown() {
+  const willOpen = !isKelasDropdownOpen.value;
+  closeAllDropdowns();
+  isKelasDropdownOpen.value = willOpen;
+  if (willOpen) {
+    searchKelasDropdownQuery.value = '';
   }
+}
 
-  // Fallback ke daftar kelas ampuan jika jadwal belum dibuat oleh guru
-  return (props.kelasList || []).map(k => k.namaKelas || k);
+function selectKelas(namaKelas) {
+  selectedKelasFilter.value = namaKelas;
+  isKelasDropdownOpen.value = false;
+  searchKelasDropdownQuery.value = '';
+}
+
+function toggleMapelDropdown() {
+  const willOpen = !isMapelDropdownOpen.value;
+  closeAllDropdowns();
+  isMapelDropdownOpen.value = willOpen;
+}
+
+function selectMapel(mapel) {
+  selectedMapelFilter.value = mapel;
+  isMapelDropdownOpen.value = false;
+}
+
+function handleClickOutside(event) {
+  const inMonth = monthDropdownRef.value && monthDropdownRef.value.contains(event.target);
+  const inYear = yearDropdownRef.value && yearDropdownRef.value.contains(event.target);
+  const inTingkat = tingkatDropdownRef.value && tingkatDropdownRef.value.contains(event.target);
+  const inKelas = kelasDropdownRef.value && kelasDropdownRef.value.contains(event.target);
+  const inMapel = mapelDropdownRef.value && mapelDropdownRef.value.contains(event.target);
+
+  if (!inMonth && !inYear && !inTingkat && !inKelas && !inMapel) {
+    closeAllDropdowns();
+  }
+}
+
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    document.addEventListener('click', handleClickOutside);
+  }
+});
+
+onUnmounted(() => {
+  if (typeof window !== 'undefined') {
+    document.removeEventListener('click', handleClickOutside);
+  }
+});
+
+// Reactive sync between Tingkat and Kelas Filter
+watch(selectedTingkatFilter, (newTingkat) => {
+  if (newTingkat !== 'Semua' && selectedKelasFilter.value !== 'Semua') {
+    const matchingKelas = allAvailableKelasList.value.find(k => k.namaKelas === selectedKelasFilter.value);
+    const kelasTingkat = matchingKelas?.tingkat || getTingkatFromKelas(matchingKelas?.namaKelas);
+    if (kelasTingkat !== newTingkat) {
+      selectedKelasFilter.value = 'Semua';
+    }
+  }
+});
+
+watch(selectedKelasFilter, (newKelas) => {
+  if (newKelas && newKelas !== 'Semua') {
+    const matchingKelas = allAvailableKelasList.value.find(k => k.namaKelas === newKelas);
+    const kelasTingkat = matchingKelas?.tingkat || getTingkatFromKelas(matchingKelas?.namaKelas);
+    if (kelasTingkat && selectedTingkatFilter.value !== 'Semua' && selectedTingkatFilter.value !== kelasTingkat) {
+      selectedTingkatFilter.value = kelasTingkat;
+    }
+  }
 });
 
 // Helper: Format Date String to Indonesian
@@ -128,6 +323,14 @@ const filteredJurnal = computed(() => {
     const jMonth = parseInt(parts[1], 10);
     return jYear === Number(selectedYear.value) && jMonth === Number(selectedMonth.value);
   });
+
+  // Filter Tingkat
+  if (selectedTingkatFilter.value && selectedTingkatFilter.value !== 'Semua') {
+    list = list.filter(j => {
+      const t = getTingkatFromKelas(j.kelas);
+      return t === selectedTingkatFilter.value;
+    });
+  }
 
   // Filter Kelas
   if (selectedKelasFilter.value !== 'Semua') {
@@ -207,9 +410,14 @@ const targetTahunPelajaran = computed(() => {
   return String(tp).startsWith('Tahun') ? tp : `Tahun Pelajaran ${tp}`;
 });
 
-// Modal Form State & Simplified Start/End Period Selection
-const showJurnalModal = ref(false);
+// Dedicated Form View State (Bukan Modal Popup)
+const isFormViewActive = ref(false);
 const editingJurnal = ref(null);
+
+function closeFormView() {
+  isFormViewActive.value = false;
+  editingJurnal.value = null;
+}
 
 const startPeriod = ref(1);
 const endPeriod = ref(3);
@@ -222,7 +430,7 @@ const jurnalForm = ref({
   materi: '',
   uraian: '',
   catatan: '',
-  tahunPelajaran: 'Tahun Pelajaran 2025/2026',
+  tahunPelajaran: 'Tahun Pelajaran 2026 - 2027',
   semester: 'Ganjil'
 });
 
@@ -244,7 +452,7 @@ const subjectsForSelectedKelas = computed(() => {
   return teacherAdminSubjects.value;
 });
 
-// Event saat guru mengganti Kelas di Modal: Otomatis kunci mapel & jam sesuai jadwal kelas tersebut!
+// Event saat guru mengganti Kelas di Form: Otomatis kunci mapel & jam sesuai jadwal kelas tersebut!
 function onKelasChange() {
   const mapels = subjectsForSelectedKelas.value;
   if (mapels.length > 0) {
@@ -275,7 +483,7 @@ const computedJamLabel = computed(() => {
   return minId === maxId ? `Jam ${minId}` : `Jam ${minId} - ${maxId}`;
 });
 
-// Shortcut Action: Pilih Langsung dari Kartu Jadwal Mengajar Guru
+// Shortcut Action: Pilih Langsung dari Jadwal (Bila dipanggil dari luar tab)
 function applyJadwalShortcut(jadwal) {
   if (!jadwal) return;
   if (jadwal.kelas) {
@@ -328,7 +536,7 @@ function openAddJurnalModal() {
     onKelasChange();
   }
 
-  showJurnalModal.value = true;
+  isFormViewActive.value = true;
 }
 
 function openEditJurnal(item) {
@@ -352,7 +560,7 @@ function openEditJurnal(item) {
     tahunPelajaran: item.tahunPelajaran || 'Tahun Pelajaran 2026 - 2027',
     semester: item.semester || 'Ganjil'
   };
-  showJurnalModal.value = true;
+  isFormViewActive.value = true;
 }
 
 function handleSaveJurnal() {
@@ -364,7 +572,8 @@ function handleSaveJurnal() {
   }
 
   emit('save-jurnal', { editing: editingJurnal.value, data: { ...jurnalForm.value } });
-  showJurnalModal.value = false;
+  isFormViewActive.value = false;
+  editingJurnal.value = null;
 }
 
 // Export Excel File (.xls Spreadsheet matching official template)
@@ -491,10 +700,13 @@ watch(() => props.shortcutJadwal, (shortcut) => {
 <template>
   <div class="space-y-6 animate-in fade-in duration-300">
     
-    <!-- Title & Top Actions Header -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-      <div>
-        <h1 class="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2">
+    <!-- TAMPILAN DAFTAR JURNAL (LIST VIEW) -->
+    <div v-if="!isFormViewActive" class="space-y-6">
+      
+      <!-- Title & Top Actions Header -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2">
           <span>Jurnal KBM Mengajar</span>
           <span class="text-cyan-400 text-base">📝</span>
         </h1>
@@ -606,59 +818,296 @@ watch(() => props.shortcutJadwal, (shortcut) => {
       </button>
     </div>
 
-    <!-- Filter Control Bar (5 Columns: Bulan, Tahun, Kelas Terjadwal, Mapel Guru, Cari) -->
-    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+    <!-- Filter Control Bar (6 Columns: Bulan, Tahun, Tingkat, Kelas Terjadwal, Mapel Guru, Cari) -->
+    <div class="relative z-40 bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
         
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Pilih Bulan</label>
-          <select v-model="selectedMonth" class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]">
-            <option v-for="(mName, idx) in monthNames" :key="idx" :value="idx + 1">
-              {{ mName }}
-            </option>
-          </select>
+        <!-- 1. Pilih Bulan (Custom Dropdown) -->
+        <div ref="monthDropdownRef" class="space-y-1.5 relative">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Pilih Bulan</label>
+          <button
+            type="button"
+            @click="toggleMonthDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isMonthDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ monthNames[selectedMonth - 1] }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isMonthDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isMonthDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[170px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="max-h-56 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+              <button
+                v-for="(mName, idx) in monthNames"
+                :key="idx"
+                type="button"
+                @click="selectMonth(idx + 1)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedMonth === (idx + 1) ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ mName }}</span>
+                <span v-if="selectedMonth === (idx + 1)" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Pilih Tahun</label>
-          <select v-model="selectedYear" class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]">
-            <option :value="2025">Tahun 2025</option>
-            <option :value="2026">Tahun 2026</option>
-            <option :value="2027">Tahun 2027</option>
-          </select>
+        <!-- 2. Pilih Tahun (Custom Dropdown) -->
+        <div ref="yearDropdownRef" class="space-y-1.5 relative">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Pilih Tahun</label>
+          <button
+            type="button"
+            @click="toggleYearDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isYearDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              Tahun {{ selectedYear }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isYearDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isYearDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[150px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="space-y-1">
+              <button
+                v-for="yOpt in yearOptions"
+                :key="yOpt.value"
+                type="button"
+                @click="selectYear(yOpt.value)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedYear === yOpt.value ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ yOpt.label }}</span>
+                <span v-if="selectedYear === yOpt.value" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Filter Kelas Terjadwal</label>
-          <select v-model="selectedKelasFilter" class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]">
-            <option value="Semua">Semua Kelas Terjadwal</option>
-            <option v-for="k in scheduledClasses" :key="k" :value="k">{{ k }}</option>
-          </select>
+        <!-- 3. Filter Tingkat (Custom Dropdown) -->
+        <div ref="tingkatDropdownRef" class="space-y-1.5 relative">
+          <label class="block text-[11px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
+            <span>🏷️</span>
+            <span>Tingkat</span>
+          </label>
+          <button
+            type="button"
+            @click="toggleTingkatDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isTingkatDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ selectedTingkatFilter === 'Semua' ? 'Semua Tingkat' : 'Tingkat ' + selectedTingkatFilter }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isTingkatDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isTingkatDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[170px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="space-y-1">
+              <button
+                v-for="opt in tingkatOptions"
+                :key="opt.value"
+                type="button"
+                @click="selectTingkat(opt.value)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedTingkatFilter === opt.value ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ opt.label }}</span>
+                <span v-if="selectedTingkatFilter === opt.value" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Filter Mata Pelajaran</label>
-          <select v-model="selectedMapelFilter" class="w-full bg-slate-800 border border-cyan-500/30 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-cyan-300 font-bold focus:border-cyan-400 outline-none min-h-[44px]">
-            <option value="Semua">Semua Mapel Guru</option>
-            <option v-for="m in teacherAdminSubjects" :key="m" :value="m">📖 {{ m }}</option>
-          </select>
+        <!-- 4. Filter Kelas Terjadwal (Custom Searchable & Scrollable Dropdown with Natural Numeric Sort) -->
+        <div ref="kelasDropdownRef" class="space-y-1.5 relative">
+          <div class="flex items-center justify-between">
+            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Kelas</label>
+            <span v-if="selectedTingkatFilter !== 'Semua'" class="text-[10px] text-cyan-400 font-mono font-bold">
+              {{ availableKelasOptions.length }} Kelas
+            </span>
+          </div>
+
+          <!-- Trigger Button -->
+          <button
+            type="button"
+            @click="toggleKelasDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isKelasDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ selectedKelasFilter === 'Semua' ? (selectedTingkatFilter !== 'Semua' ? 'Semua Kelas ' + selectedTingkatFilter : 'Semua Kelas Terjadwal') : selectedKelasFilter }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isKelasDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isKelasDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[220px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-2 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <!-- Search Inside Dropdown -->
+            <div class="relative">
+              <input
+                v-model="searchKelasDropdownQuery"
+                type="text"
+                placeholder="Cari kelas (misal: TKR 1)..."
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:border-cyan-400 outline-none"
+                @click.stop
+              />
+              <button
+                v-if="searchKelasDropdownQuery"
+                type="button"
+                @click="searchKelasDropdownQuery = ''"
+                class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-xs text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <!-- Scrollable List Options (Natural Numeric Ordered) -->
+            <div class="max-h-56 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+              <button
+                type="button"
+                @click="selectKelas('Semua')"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedKelasFilter === 'Semua' ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ selectedTingkatFilter !== 'Semua' ? 'Semua Kelas ' + selectedTingkatFilter : 'Semua Kelas Terjadwal' }}</span>
+                <span v-if="selectedKelasFilter === 'Semua'" class="text-cyan-400 font-bold">✓</span>
+              </button>
+
+              <button
+                v-for="k in filteredDropdownKelasOptions"
+                :key="k.id || k.namaKelas"
+                type="button"
+                @click="selectKelas(k.namaKelas)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedKelasFilter === k.namaKelas ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span class="truncate">{{ k.namaKelas }}</span>
+                <span v-if="selectedKelasFilter === k.namaKelas" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+
+              <div
+                v-if="filteredDropdownKelasOptions.length === 0"
+                class="text-center py-4 text-xs text-gray-500"
+              >
+                Tidak ada kelas yang cocok.
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Cari Materi / Catatan</label>
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Cari materi KBM..."
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-gray-400 focus:border-cyan-400 outline-none min-h-[44px]"
-          />
+        <!-- 5. Filter Mata Pelajaran (Custom Dropdown) -->
+        <div ref="mapelDropdownRef" class="space-y-1.5 relative">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Mata Pelajaran</label>
+          <button
+            type="button"
+            @click="toggleMapelDropdown"
+            class="w-full bg-slate-900 border border-cyan-500/30 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-cyan-300 font-bold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isMapelDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ selectedMapelFilter === 'Semua' ? 'Semua Mapel Guru' : selectedMapelFilter }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isMapelDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isMapelDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[190px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="max-h-56 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+              <button
+                type="button"
+                @click="selectMapel('Semua')"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedMapelFilter === 'Semua' ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>Semua Mapel Guru</span>
+                <span v-if="selectedMapelFilter === 'Semua'" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+              <button
+                v-for="m in teacherAdminSubjects"
+                :key="m"
+                type="button"
+                @click="selectMapel(m)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedMapelFilter === m ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span class="truncate">📖 {{ m }}</span>
+                <span v-if="selectedMapelFilter === m" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6. Cari Materi / Catatan -->
+        <div class="space-y-1.5">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Cari Materi / Catatan</label>
+          <div class="relative">
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Cari materi KBM..."
+              class="w-full bg-slate-900 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-gray-500 focus:border-cyan-400 outline-none min-h-[44px]"
+            />
+            <button
+              v-if="searchQuery"
+              type="button"
+              @click="searchQuery = ''"
+              class="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-gray-400 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
       </div>
     </div>
 
     <!-- JURNAL TABLE & MOBILE CARDS -->
-    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
+    <div class="relative z-10 bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
       
       <!-- Desktop & Tablet Table -->
       <div class="hidden md:block overflow-x-auto">
@@ -806,134 +1255,135 @@ watch(() => props.shortcutJadwal, (shortcut) => {
 
     </div>
 
-    <!-- MODAL FORM CRUD JURNAL MENGAJAR (TERIKAT JADWAL GURU & MAPEL ADMIN) -->
-    <div v-if="showJurnalModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
-      <div class="bg-slate-900 border border-white/10 rounded-t-3xl sm:rounded-3xl p-6 sm:p-8 max-w-xl w-full shadow-2xl max-h-[92vh] overflow-y-auto space-y-5 transform transition-all animate-in fade-in zoom-in-95">
-        <div class="w-12 h-1 bg-white/20 rounded-full mx-auto sm:hidden"></div>
-        
-        <div class="flex items-center justify-between border-b border-white/10 pb-4">
-          <div>
-            <h3 class="text-lg font-black text-white flex items-center gap-2">
-              <span>{{ editingJurnal ? 'Edit Jurnal Mengajar' : 'Catat Jurnal Mengajar Baru' }}</span>
-              <span class="text-cyan-400 text-sm">✍️</span>
-            </h3>
-            <p class="text-xs text-gray-400 mt-0.5">Diselaraskan dengan Jadwal Mengajar Guru &amp; Mapel Admin</p>
-          </div>
-          <button @click="showJurnalModal = false" class="text-gray-400 hover:text-white text-lg font-bold p-1">✕</button>
+    </div>
+    <!-- END TAMPILAN DAFTAR JURNAL (LIST VIEW) -->
+
+    <!-- TAMPILAN FORMULIR CATAT / EDIT JURNAL MENGAJAR (DEDICATED FULL VIEW) -->
+    <div v-else class="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+      
+      <!-- Top Navigation & Header -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/10">
+        <div>
+          <button
+            type="button"
+            @click="closeFormView"
+            class="inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-cyan-400 hover:text-cyan-300 transition-colors mb-2 group cursor-pointer"
+          >
+            <span class="text-base group-hover:-translate-x-1 transition-transform">←</span>
+            <span>Kembali ke Daftar Jurnal</span>
+          </button>
+          <h2 class="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2.5">
+            <span>{{ editingJurnal ? 'Edit Catatan Jurnal Mengajar' : 'Catat Jurnal Mengajar Baru' }}</span>
+            <span class="text-cyan-400 text-lg">✍️</span>
+          </h2>
+          <p class="text-gray-400 text-xs sm:text-sm mt-1">
+            Formulir pencatatan kegiatan belajar mengajar (KBM) harian guru diselaraskan dengan kurikulum &amp; data resmi.
+          </p>
         </div>
 
-        <!-- QUICK SHORTCUT: AUTO-FILL DARI JADWAL PELAJARAN BUATAN GURU -->
-        <div v-if="!editingJurnal && jadwalList && jadwalList.length > 0" class="p-3.5 bg-gradient-to-r from-cyan-950/40 via-slate-900 to-indigo-950/40 border border-cyan-500/30 rounded-2xl space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-black uppercase text-cyan-300 flex items-center gap-1.5">
-              <span>⚡</span>
-              <span>Pilih Cepat dari Jadwal Mengajar Anda:</span>
-            </span>
-            <span class="text-[10px] text-cyan-400/80 font-mono">1-Klik Auto-Fill</span>
-          </div>
-          <div class="flex flex-wrap gap-2 max-h-28 overflow-y-auto pr-1">
-            <button
-              v-for="j in jadwalList"
-              :key="j.id"
-              type="button"
-              @click="applyJadwalShortcut(j)"
-              class="px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-cyan-500/25 border border-white/10 hover:border-cyan-500/40 text-[11px] text-gray-200 hover:text-cyan-200 transition-all font-semibold flex items-center gap-1.5 shrink-0 active:scale-95"
-            >
-              <span class="text-cyan-400 font-bold">{{ j.hari }}</span>
-              <span>•</span>
-              <span class="font-bold text-white">{{ j.kelas }}</span>
-              <span>•</span>
-              <span class="text-teal-300">{{ j.mataPelajaran || j.mata_pelajaran }}</span>
-              <span class="text-gray-400 font-mono text-[10px]">({{ j.jamKe || j.jam_ke }})</span>
-            </button>
-          </div>
+        <div class="flex items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            @click="closeFormView"
+            class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-gray-300 hover:text-white rounded-2xl text-xs sm:text-sm font-bold transition-all border border-white/10 min-h-[44px]"
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            @click="handleSaveJurnal"
+            class="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-500 via-teal-600 to-indigo-600 hover:opacity-95 text-white rounded-2xl text-xs sm:text-sm font-extrabold shadow-lg shadow-cyan-500/25 active:scale-95 transition-all min-h-[44px]"
+          >
+            <span>💾</span>
+            <span>{{ editingJurnal ? 'Perbarui Jurnal' : 'Simpan Jurnal KBM' }}</span>
+          </button>
         </div>
-        
-        <form @submit.prevent="handleSaveJurnal" class="space-y-4 text-xs sm:text-sm">
+      </div>
+
+      <!-- Main Form Card -->
+      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-6 sm:p-8 border border-white/10 shadow-2xl space-y-6">
+        <form @submit.prevent="handleSaveJurnal" class="space-y-6">
           
-          <!-- Tanggal & Semester -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label class="block text-gray-300 font-bold uppercase text-[11px] mb-1.5">Tanggal Mengajar *</label>
-              <input
-                v-model="jurnalForm.tanggal"
-                type="date"
-                class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none min-h-[44px]"
-                required
-              />
-            </div>
+          <!-- Section 1: Pelaksanaan KBM -->
+          <div class="space-y-4">
+            <h3 class="text-xs sm:text-sm font-black uppercase text-cyan-400 tracking-wider flex items-center gap-2 pb-2 border-b border-white/5">
+              <span>📅</span>
+              <span>Waktu &amp; Sasaran Kelas</span>
+            </h3>
 
-            <div>
-              <label class="block text-gray-300 font-bold uppercase text-[11px] mb-1.5">Semester *</label>
-              <select
-                v-model="jurnalForm.semester"
-                class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-sm font-semibold min-h-[44px]"
-                required
-              >
-                <option value="Ganjil">Semester Ganjil</option>
-                <option value="Genap">Semester Genap</option>
-              </select>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <!-- Tanggal Mengajar -->
+              <div class="space-y-1.5">
+                <label class="block text-gray-300 font-bold uppercase text-[11px]">Tanggal Mengajar *</label>
+                <input
+                  v-model="jurnalForm.tanggal"
+                  type="date"
+                  class="w-full bg-slate-950 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-xs sm:text-sm min-h-[44px]"
+                  required
+                />
+              </div>
+
+              <!-- Semester -->
+              <div class="space-y-1.5">
+                <label class="block text-gray-300 font-bold uppercase text-[11px]">Semester *</label>
+                <select
+                  v-model="jurnalForm.semester"
+                  class="w-full bg-slate-950 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-xs sm:text-sm font-semibold min-h-[44px]"
+                  required
+                >
+                  <option value="Ganjil">Semester Ganjil</option>
+                  <option value="Genap">Semester Genap</option>
+                </select>
+              </div>
+
+              <!-- Kelas Target -->
+              <div class="space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <label class="block text-gray-300 font-bold uppercase text-[11px]">Kelas Ampuan *</label>
+                  <span class="text-[10px] text-cyan-400 font-mono font-bold">{{ scheduledClasses.length }} Kelas</span>
+                </div>
+                <select
+                  v-model="jurnalForm.kelas"
+                  @change="onKelasChange"
+                  class="w-full bg-slate-950 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-xs sm:text-sm font-semibold min-h-[44px]"
+                  required
+                >
+                  <option value="" disabled>-- Pilih Kelas Terjadwal --</option>
+                  <option v-for="k in scheduledClasses" :key="k" :value="k">
+                    🏫 Kelas {{ k }}
+                  </option>
+                </select>
+              </div>
+
+              <!-- Mata Pelajaran -->
+              <div class="space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <label class="block text-cyan-300 font-bold uppercase text-[11px]">Mata Pelajaran *</label>
+                  <span class="text-[10px] bg-cyan-500/15 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-500/30 font-mono font-bold">
+                    ✓ Baku
+                  </span>
+                </div>
+                <select
+                  v-model="jurnalForm.mataPelajaran"
+                  class="w-full bg-slate-950 border border-cyan-500/40 rounded-2xl px-4 py-3 text-cyan-300 font-bold outline-none text-xs sm:text-sm min-h-[44px] focus:border-cyan-400"
+                  required
+                >
+                  <option v-for="subj in subjectsForSelectedKelas" :key="subj" :value="subj">
+                    📖 {{ subj }}
+                  </option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <!-- Kelas Target (Dari Jadwal Guru) -->
-          <div>
-            <div class="flex items-center justify-between mb-1.5">
-              <label class="block text-gray-300 font-bold uppercase text-[11px]">
-                Pilih Kelas Terjadwal *
-              </label>
-              <span class="text-[10px] text-cyan-400 font-mono">
-                Terhubung ke Jadwal Guru
-              </span>
-            </div>
-            <select
-              v-model="jurnalForm.kelas"
-              @change="onKelasChange"
-              class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-sm font-semibold min-h-[44px]"
-              required
-            >
-              <option value="" disabled>-- Pilih Kelas Terjadwal --</option>
-              <option v-for="k in scheduledClasses" :key="k" :value="k">
-                🏫 Kelas {{ k }}
-              </option>
-            </select>
-          </div>
-
-          <!-- MATA PELAJARAN (TERIKAT JADWAL KELAS & MAPEL ADMIN GURU) -->
-          <div class="space-y-1.5">
-            <div class="flex items-center justify-between">
-              <label class="block text-cyan-300 font-bold uppercase text-[11px]">
-                Mata Pelajaran KBM *
-              </label>
-              <span class="text-[10px] bg-cyan-500/15 text-cyan-300 px-2.5 py-0.5 rounded-full border border-cyan-500/30 font-mono font-bold">
-                ✓ Baku (Setting Admin)
-              </span>
-            </div>
-
-            <!-- Dropdown Pilihan Mapel Resmi (Baku, Tanpa Ketik Bebas) -->
-            <div>
-              <select
-                v-model="jurnalForm.mataPelajaran"
-                class="w-full bg-slate-800 border border-cyan-500/40 rounded-2xl px-4 py-3 text-cyan-300 font-bold outline-none text-sm min-h-[44px] focus:border-cyan-400"
-                required
-              >
-                <option v-for="subj in subjectsForSelectedKelas" :key="subj" :value="subj">
-                  📖 {{ subj }}
-                </option>
-              </select>
-            </div>
-            <p class="text-[10px] text-gray-400">
-              Mata pelajaran terikat langsung dengan jadwal mengajar kelas dan data penugasan resmi dari Admin.
-            </p>
-          </div>
-
-          <!-- PILIHAN JAM MENGAJAR RINGKAS -->
+          <!-- Section 2: Pilihan Jam Mengajar -->
           <div class="bg-slate-950/60 rounded-3xl p-5 border border-white/10 space-y-4">
             <div class="flex items-center justify-between">
-              <label class="block text-xs font-extrabold text-cyan-300 uppercase">
-                Pilih Jam Mengajar
+              <label class="block text-xs font-extrabold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                <span>⏱️</span>
+                <span>Pilih Jam Pelajaran Mengajar</span>
               </label>
-              <span class="text-xs font-black text-emerald-300 bg-emerald-500/20 px-3 py-0.5 rounded-full border border-emerald-500/30 font-mono">
+              <span class="text-xs font-black text-emerald-300 bg-emerald-500/20 px-3 py-1 rounded-full border border-emerald-500/30 font-mono">
                 {{ (Math.max(startPeriod || 1, endPeriod || 1) - Math.min(startPeriod || 1, endPeriod || 1)) + 1 }} Jam Pelajaran
               </span>
             </div>
@@ -943,7 +1393,7 @@ watch(() => props.shortcutJadwal, (shortcut) => {
                 <label class="block text-gray-400 font-semibold text-[11px] mb-1.5">Dari Jam ke- *</label>
                 <select
                   v-model.number="startPeriod"
-                  class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-xs sm:text-sm font-semibold min-h-[44px]"
+                  class="w-full bg-slate-900 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-xs sm:text-sm font-semibold min-h-[44px]"
                 >
                   <option v-for="slot in schoolPeriodSlots" :key="slot.id" :value="slot.id">
                     {{ slot.label }} ({{ slot.time.split(' - ')[0] }})
@@ -955,7 +1405,7 @@ watch(() => props.shortcutJadwal, (shortcut) => {
                 <label class="block text-gray-400 font-semibold text-[11px] mb-1.5">Sampai Jam ke- *</label>
                 <select
                   v-model.number="endPeriod"
-                  class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-xs sm:text-sm font-semibold min-h-[44px]"
+                  class="w-full bg-slate-900 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-xs sm:text-sm font-semibold min-h-[44px]"
                 >
                   <option v-for="slot in schoolPeriodSlots" :key="slot.id" :value="slot.id">
                     {{ slot.label }} ({{ slot.time.split(' - ')[1] }})
@@ -964,56 +1414,77 @@ watch(() => props.shortcutJadwal, (shortcut) => {
               </div>
             </div>
 
-            <div class="p-3 bg-slate-900 rounded-2xl border border-white/10 text-xs font-mono text-cyan-300 font-bold flex items-center gap-2">
-              <span>⏱️</span>
-              <span>Hasil Jam Mengajar: <span class="text-white font-sans font-semibold">{{ computedJamLabel }}</span></span>
+            <div class="p-3 bg-slate-900 rounded-2xl border border-white/10 text-xs font-mono text-cyan-300 font-bold flex items-center justify-between">
+              <span class="flex items-center gap-2">
+                <span>⏱️</span>
+                <span>Hasil Format Jam: <span class="text-white font-sans font-semibold">{{ computedJamLabel }}</span></span>
+              </span>
+              <span class="text-[11px] text-gray-400">Otomatis dihitung untuk rekapitulasi jam KBM</span>
             </div>
           </div>
 
-          <!-- Pokok Bahasan / Materi -->
-          <div>
-            <label class="block text-gray-300 font-bold uppercase text-[11px] mb-1.5">Pokok Bahasan / Sub-Materi *</label>
-            <input
-              v-model="jurnalForm.materi"
-              type="text"
-              placeholder="Contoh: Pemrograman Web Lanjut — Vue.js Component"
-              class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none min-h-[44px]"
-              required
-            />
+          <!-- Section 3: Materi & Pelaksanaan -->
+          <div class="space-y-4">
+            <h3 class="text-xs sm:text-sm font-black uppercase text-cyan-400 tracking-wider flex items-center gap-2 pb-2 border-b border-white/5">
+              <span>💡</span>
+              <span>Materi &amp; Uraian KBM</span>
+            </h3>
+
+            <!-- Pokok Bahasan / Materi -->
+            <div class="space-y-1.5">
+              <label class="block text-gray-300 font-bold uppercase text-[11px]">Pokok Bahasan / Sub-Materi *</label>
+              <input
+                v-model="jurnalForm.materi"
+                type="text"
+                placeholder="Contoh: Pemrograman Web Lanjut — Vue.js Component & State"
+                class="w-full bg-slate-950 border border-white/10 rounded-2xl px-4 py-3 text-white placeholder-gray-500 focus:border-cyan-400 outline-none text-xs sm:text-sm min-h-[44px]"
+                required
+              />
+            </div>
+
+            <!-- Uraian Kegiatan Pembelajaran -->
+            <div class="space-y-1.5">
+              <label class="block text-gray-300 font-bold uppercase text-[11px]">Uraian Kegiatan Pembelajaran</label>
+              <textarea
+                v-model="jurnalForm.uraian"
+                rows="4"
+                placeholder="Jelaskan ringkas aktivitas KBM, diskusi materi, praktek di lab komputer/bengkel, atau hasil evaluasi siswa..."
+                class="w-full bg-slate-950 border border-white/10 rounded-2xl px-4 py-3 text-white placeholder-gray-500 focus:border-cyan-400 outline-none text-xs sm:text-sm font-medium leading-relaxed"
+              ></textarea>
+            </div>
+
+            <!-- Catatan Kendala / Tindak Lanjut -->
+            <div class="space-y-1.5">
+              <label class="block text-gray-300 font-bold uppercase text-[11px]">Catatan Kendala / Tindak Lanjut (Opsional)</label>
+              <textarea
+                v-model="jurnalForm.catatan"
+                rows="3"
+                placeholder="Contoh: 2 siswa izin lomba kejuruan / 1 siswa butuh pengayaan mandiri / Peralatan lab memadai..."
+                class="w-full bg-slate-950 border border-white/10 rounded-2xl px-4 py-3 text-white placeholder-gray-500 focus:border-cyan-400 outline-none text-xs sm:text-sm font-medium leading-relaxed"
+              ></textarea>
+            </div>
           </div>
 
-          <!-- Uraian Kegiatan Pembelajaran -->
-          <div>
-            <label class="block text-gray-300 font-bold uppercase text-[11px] mb-1.5">Uraian Kegiatan Pembelajaran</label>
-            <textarea
-              v-model="jurnalForm.uraian"
-              rows="3"
-              placeholder="Jelaskan ringkas aktivitas KBM, diskusi materi, praktek di lab, atau penugasan..."
-              class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-sm font-medium leading-relaxed"
-            ></textarea>
-          </div>
-
-          <!-- Catatan Kendala / Tindak Lanjut -->
-          <div>
-            <label class="block text-gray-300 font-bold uppercase text-[11px] mb-1.5">Catatan Kendala / Tindak Lanjut (Opsional)</label>
-            <textarea
-              v-model="jurnalForm.catatan"
-              rows="2"
-              placeholder="Contoh: 2 siswa izin dispensasi lomba / Perlu latihan pengayaan minggu depan..."
-              class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-sm font-medium leading-relaxed"
-            ></textarea>
-          </div>
-
-          <div class="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
-            <button type="button" @click="showJurnalModal = false" class="px-5 py-3 bg-white/5 hover:bg-white/10 text-gray-400 rounded-2xl text-xs font-bold min-h-[44px]">
-              Batal
+          <!-- Bottom Action Buttons -->
+          <div class="flex flex-col-reverse sm:flex-row items-center justify-end gap-3 pt-4 border-t border-white/10">
+            <button
+              type="button"
+              @click="closeFormView"
+              class="w-full sm:w-auto px-6 py-3 bg-slate-800 hover:bg-slate-700 text-gray-300 hover:text-white rounded-2xl text-xs sm:text-sm font-bold transition-all border border-white/10 min-h-[44px]"
+            >
+              Batal &amp; Kembali
             </button>
-            <button type="submit" class="px-6 py-3 bg-gradient-to-r from-cyan-500 to-teal-500 text-slate-950 rounded-2xl text-xs font-black shadow-lg hover:shadow-cyan-500/25 active:scale-95 transition-all min-h-[44px]">
-              Simpan Jurnal KBM
+            <button
+              type="submit"
+              class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3 bg-gradient-to-r from-cyan-500 via-teal-500 to-indigo-600 hover:opacity-95 text-white rounded-2xl text-xs sm:text-sm font-black shadow-lg shadow-cyan-500/25 active:scale-95 transition-all min-h-[44px]"
+            >
+              <span>💾</span>
+              <span>{{ editingJurnal ? 'Perbarui Jurnal Mengajar' : 'Simpan Jurnal KBM' }}</span>
             </button>
           </div>
         </form>
       </div>
+
     </div>
   </div>
 </template>

@@ -64,7 +64,7 @@ const filteredKelasByTingkat = computed(() => {
   return (props.kelasList || []).filter(k => {
     const t = k.tingkat || getTingkatFromKelas(k.namaKelas || k);
     return t === selectedTingkatFilter.value;
-  });
+  }).sort((a, b) => (a.namaKelas || a).localeCompare(b.namaKelas || b, undefined, { numeric: true, sensitivity: 'base' }));
 });
 
 function onTingkatFilterChange() {

@@ -61,7 +61,7 @@ class AdminDashboardController extends Controller
 
     private function getWaliKelasList(): array
     {
-        return \App\Models\Guru::has('kelasBinaan')->with('kelasBinaan', 'user')->limit(100)->get()->map(function ($g) {
+        return \App\Models\Guru::has('kelasBinaan')->with('kelasBinaan', 'user')->get()->map(function ($g) {
             return [
                 'id' => $g->id,
                 'nip' => $g->nip ?? ('19850110201' . sprintf('%03d', $g->id)),
@@ -76,20 +76,21 @@ class AdminDashboardController extends Controller
     private function getSiswaList(): array
     {
         return Siswa::query()
-            ->select(['id', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status'])
+            ->select(['id', 'nis', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status'])
             ->with(['kelas:id,nama_kelas,tingkat,guru_id', 'kelas.waliKelas:id,nama'])
             ->orderBy('nama', 'asc')
             ->get()
             ->map(function ($s) {
             return [
                 'id' => $s->id,
-                'nis' => '100' . $s->id,
+                'nis' => $s->nis ?: ('100' . $s->id),
                 'nama' => $s->nama,
                 'jenisKelamin' => $s->jenis_kelamin,
                 'kelas' => $s->kelas?->nama_kelas ?? 'X RPL 1',
                 'tingkat' => $s->kelas?->tingkat ?? 'X',
                 'waliKelas' => $s->kelas?->waliKelas?->nama ?? '-',
-                'teleponSiswa' => $s->telepon ?? '081234567890',
+                'telepon' => $s->telepon ?? '',
+                'teleponSiswa' => $s->telepon ?? '',
                 'namaOrangTua' => 'Bapak/Ibu ' . explode(' ', $s->nama)[0],
                 'teleponOrtu' => '081299887766',
                 'linkMaps' => 'https://maps.google.com/?q=-6.200000,106.816666',
@@ -101,16 +102,26 @@ class AdminDashboardController extends Controller
 
     private function getKelasList(): array
     {
-        return Kelas::query()->with(['jurusan', 'waliKelas'])->orderBy('nama_kelas', 'asc')->get()->map(function ($k) {
-            return [
-                'id' => $k->id,
-                'namaKelas' => $k->nama_kelas,
-                'tingkat' => $k->tingkat ?? 'X',
-                'jurusan' => $k->jurusan?->nama ?? $k->nama_kelas,
-                'waliKelas' => $k->waliKelas?->nama ?? 'Belum Ditugaskan',
-                'teleponWali' => $k->waliKelas?->telepon ?? '081234567890',
-            ];
-        })->toArray();
+        return Kelas::query()
+            ->with(['jurusan', 'waliKelas'])
+            ->withCount('siswas')
+            ->get()
+            ->sortBy('nama_kelas', SORT_NATURAL)
+            ->values()
+            ->map(function ($k) {
+                return [
+                    'id' => $k->id,
+                    'namaKelas' => $k->nama_kelas,
+                    'tingkat' => $k->tingkat ?? 'X',
+                    'jurusan' => $k->jurusan?->nama ?? 'Belum Diatur',
+                    'jurusanKode' => $k->jurusan?->kode ?? null,
+                    'jurusanId' => $k->jurusan_id,
+                    'guruId' => $k->guru_id,
+                    'waliKelas' => $k->waliKelas?->nama ?? 'Belum Ditugaskan',
+                    'teleponWali' => $k->waliKelas?->telepon ?? '-',
+                    'jumlahSiswa' => $k->siswas_count ?? 0,
+                ];
+            })->toArray();
     }
 
     private function getJurusanList(): array
@@ -140,7 +151,7 @@ class AdminDashboardController extends Controller
 
     private function getUserAccountsList(): array
     {
-        return User::query()->with(['roles', 'guru.kelasBinaan', 'kelas'])->orderBy('id', 'asc')->limit(200)->get()->map(function ($usr) {
+        return User::query()->with(['roles', 'guru.kelasBinaan', 'kelas'])->orderBy('id', 'asc')->get()->map(function ($usr) {
             $rolesList = $usr->roles->pluck('name')->toArray();
             
             $namaKelas = null;
@@ -412,30 +423,56 @@ class AdminDashboardController extends Controller
             'namaKelas' => 'required|string|max:255',
             'tingkat' => 'required|in:X,XI,XII',
             'jurusan' => 'nullable|string',
-            'waliKelas' => 'nullable|string',
+            'waliKelas' => 'nullable',
         ]);
 
-        $jurusanObj = Jurusan::query()
-            ->where('nama', '=', $validated['jurusan'])
-            ->orWhere('kode', '=', $validated['jurusan'])
-            ->first();
+        $jurusanObj = null;
+        if (!empty($validated['jurusan'])) {
+            $jurusanObj = Jurusan::query()
+                ->where('nama', '=', $validated['jurusan'])
+                ->orWhere('kode', '=', $validated['jurusan'])
+                ->first();
+        }
+
+        $guruId = (!empty($validated['waliKelas']) && is_numeric($validated['waliKelas'])) 
+            ? (int) $validated['waliKelas'] 
+            : null;
 
         if (!empty($validated['id'])) {
-            Kelas::query()->where('id', '=', $validated['id'])->update([
+            $existingKelas = Kelas::find($validated['id']);
+            if (!$existingKelas) {
+                return redirect()->back()->with('error', 'Data kelas tidak ditemukan!');
+            }
+
+            $duplicate = Kelas::where('nama_kelas', $validated['namaKelas'])
+                ->where('id', '!=', $validated['id'])
+                ->first();
+            if ($duplicate) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'namaKelas' => 'Nama kelas ' . $validated['namaKelas'] . ' sudah digunakan oleh kelas lain!'
+                ]);
+            }
+
+            $existingKelas->update([
                 'nama_kelas' => $validated['namaKelas'],
                 'tingkat' => $validated['tingkat'],
                 'jurusan_id' => $jurusanObj?->id,
-                'guru_id' => !empty($validated['waliKelas']) ? (int) $validated['waliKelas'] : null,
+                'guru_id' => $guruId,
             ]);
         } else {
-            Kelas::updateOrCreate(
-                ['nama_kelas' => $validated['namaKelas']],
-                [
-                    'tingkat' => $validated['tingkat'],
-                    'jurusan_id' => $jurusanObj?->id,
-                    'guru_id' => !empty($validated['waliKelas']) ? (int) $validated['waliKelas'] : null,
-                ]
-            );
+            $duplicate = Kelas::where('nama_kelas', $validated['namaKelas'])->first();
+            if ($duplicate) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'namaKelas' => 'Nama kelas ' . $validated['namaKelas'] . ' sudah terdaftar!'
+                ]);
+            }
+
+            Kelas::create([
+                'nama_kelas' => $validated['namaKelas'],
+                'tingkat' => $validated['tingkat'],
+                'jurusan_id' => $jurusanObj?->id,
+                'guru_id' => $guruId,
+            ]);
         }
 
         return redirect()->back()->with('message', 'Master Kelas berhasil disimpan ke database!');
@@ -497,9 +534,11 @@ class AdminDashboardController extends Controller
     {
         $validated = $request->validate([
             'id' => 'nullable|integer',
+            'nis' => 'nullable|string|max:50',
             'nama' => 'required|string|max:255',
             'jenisKelamin' => 'required|string',
             'kelas' => 'required|string',
+            'telepon' => 'nullable|string',
             'teleponSiswa' => 'nullable|string',
             'status' => 'nullable|string|in:Aktif,Pindah,Keluar',
             'tanggal_status' => 'nullable|date',
@@ -509,27 +548,29 @@ class AdminDashboardController extends Controller
 
         $status = $validated['status'] ?? 'Aktif';
         $tanggal_status = $status !== 'Aktif' ? ($validated['tanggal_status'] ?? null) : null;
+        $telepon = !empty($validated['telepon']) ? $validated['telepon'] : ($validated['teleponSiswa'] ?? null);
+        $nis = !empty($validated['nis']) ? trim($validated['nis']) : null;
 
         if (!empty($validated['id'])) {
             Siswa::query()->where('id', '=', $validated['id'])->update([
+                'nis' => $nis,
                 'nama' => $validated['nama'],
                 'jenis_kelamin' => $validated['jenisKelamin'],
                 'kelas_id' => $kelasObj?->id,
-                'telepon' => $validated['teleponSiswa'] ?? null,
+                'telepon' => $telepon,
                 'status' => $status,
                 'tanggal_status' => $tanggal_status,
             ]);
         } else {
-            Siswa::updateOrCreate(
-                ['nama' => $validated['nama']],
-                [
-                    'jenis_kelamin' => $validated['jenisKelamin'],
-                    'kelas_id' => $kelasObj?->id,
-                    'telepon' => $validated['teleponSiswa'] ?? null,
-                    'status' => $status,
-                    'tanggal_status' => $tanggal_status,
-                ]
-            );
+            Siswa::create([
+                'nis' => $nis,
+                'nama' => $validated['nama'],
+                'jenis_kelamin' => $validated['jenisKelamin'],
+                'kelas_id' => $kelasObj?->id,
+                'telepon' => $telepon,
+                'status' => $status,
+                'tanggal_status' => $tanggal_status,
+            ]);
         }
 
         return redirect()->back()->with('message', 'Data Siswa berhasil disimpan ke database!');
@@ -593,10 +634,18 @@ class AdminDashboardController extends Controller
                     }
                 }
 
+                $matchAttributes = [];
+                if (!empty($row['nis'])) {
+                    $matchAttributes = ['nis' => trim($row['nis'])];
+                } else {
+                    $matchAttributes = ['nama' => $nama, 'kelas_id' => $kelasObj?->id];
+                }
+
                 Siswa::updateOrCreate(
-                    ['nama' => $nama],
+                    $matchAttributes,
                     [
                         'nis' => !empty($row['nis']) ? trim($row['nis']) : null,
+                        'nama' => $nama,
                         'jenis_kelamin' => $jenisKelamin,
                         'kelas_id' => $kelasObj?->id,
                         'telepon' => !empty($row['telepon']) ? trim($row['telepon']) : null,
@@ -820,10 +869,18 @@ class AdminDashboardController extends Controller
                     }
                 }
 
+                $matchAttributes = [];
+                if (!empty($nis)) {
+                    $matchAttributes = ['nis' => $nis];
+                } else {
+                    $matchAttributes = ['nama' => $nama, 'kelas_id' => $kelasObj?->id];
+                }
+
                 Siswa::updateOrCreate(
-                    ['nama' => $nama],
+                    $matchAttributes,
                     [
                         'nis'          => $nis ?: null,
+                        'nama'         => $nama,
                         'jenis_kelamin' => $jenisKelamin,
                         'kelas_id'     => $kelasObj?->id,
                         'telepon'      => $telepon ?: null,

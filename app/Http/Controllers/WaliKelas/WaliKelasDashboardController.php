@@ -81,19 +81,21 @@ class WaliKelasDashboardController extends Controller
     {
         return Siswa::query()
             ->where('kelas_id', '=', $kelasId)
+            ->select(['id', 'nis', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status'])
             ->with(['kelas:id,nama_kelas,tingkat,guru_id', 'kelas.waliKelas:id,nama'])
             ->orderBy('nama', 'asc')
             ->get()
             ->map(function ($s) {
             return [
                 'id' => $s->id,
-                'nis' => '100'.$s->id,
+                'nis' => $s->nis ?: ('100'.$s->id),
                 'nama' => $s->nama,
                 'jenisKelamin' => $s->jenis_kelamin,
                 'kelas' => $s->kelas?->nama_kelas ?? 'X RPL 1',
                 'tingkat' => $s->kelas?->tingkat ?? 'X',
                 'waliKelas' => $s->kelas?->waliKelas?->nama ?? '-',
-                'teleponSiswa' => $s->telepon ?? '081234567890',
+                'telepon' => $s->telepon ?? '',
+                'teleponSiswa' => $s->telepon ?? '',
                 'namaOrangTua' => 'Bapak/Ibu '.explode(' ', $s->nama)[0],
                 'teleponOrtu' => '081299887766',
                 'linkMaps' => 'https://maps.google.com/?q=-6.200000,106.816666',
@@ -336,9 +338,11 @@ class WaliKelasDashboardController extends Controller
     {
         $validated = $request->validate([
             'id' => 'nullable|integer',
+            'nis' => 'nullable|string|max:50',
             'nama' => 'required|string|max:255',
             'jenisKelamin' => 'required|string',
             'kelas' => 'required|string',
+            'telepon' => 'nullable|string',
             'teleponSiswa' => 'nullable|string',
             'status' => 'nullable|string|in:Aktif,Pindah,Keluar',
             'tanggal_status' => 'nullable|date',
@@ -348,27 +352,29 @@ class WaliKelasDashboardController extends Controller
 
         $status = $validated['status'] ?? 'Aktif';
         $tanggal_status = $status !== 'Aktif' ? ($validated['tanggal_status'] ?? null) : null;
+        $telepon = !empty($validated['telepon']) ? $validated['telepon'] : ($validated['teleponSiswa'] ?? null);
+        $nis = !empty($validated['nis']) ? trim($validated['nis']) : null;
 
         if (! empty($validated['id'])) {
             Siswa::query()->where('id', '=', $validated['id'])->update([
+                'nis' => $nis,
                 'nama' => $validated['nama'],
                 'jenis_kelamin' => $validated['jenisKelamin'],
                 'kelas_id' => $kelasObj?->id,
-                'telepon' => $validated['teleponSiswa'] ?? null,
+                'telepon' => $telepon,
                 'status' => $status,
                 'tanggal_status' => $tanggal_status,
             ]);
         } else {
-            Siswa::updateOrCreate(
-                ['nama' => $validated['nama']],
-                [
-                    'jenis_kelamin' => $validated['jenisKelamin'],
-                    'kelas_id' => $kelasObj?->id,
-                    'telepon' => $validated['teleponSiswa'] ?? null,
-                    'status' => $status,
-                    'tanggal_status' => $tanggal_status,
-                ]
-            );
+            Siswa::create([
+                'nis' => $nis,
+                'nama' => $validated['nama'],
+                'jenis_kelamin' => $validated['jenisKelamin'],
+                'kelas_id' => $kelasObj?->id,
+                'telepon' => $telepon,
+                'status' => $status,
+                'tanggal_status' => $tanggal_status,
+            ]);
         }
 
         return redirect()->back()->with('message', 'Data Siswa kelas binaan berhasil disimpan ke database!');

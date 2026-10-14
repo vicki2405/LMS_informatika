@@ -71,8 +71,132 @@ const now = new Date();
 const selectedYear = ref(now.getFullYear());
 const selectedMonth = ref(now.getMonth() + 1); // 1-12
 const selectedKelasFilter = ref(resolveInitialKelas());
+const selectedTingkatFilter = ref('Semua');
 const searchQuery = ref('');
 const debouncedSearch = ref('');
+
+function getTingkatFromKelas(namaKelas) {
+  if (!namaKelas || typeof namaKelas !== 'string') return 'X';
+  const upper = namaKelas.trim().toUpperCase();
+  if (upper.startsWith('XII') || upper.includes('XII')) return 'XII';
+  if (upper.startsWith('XI') || upper.includes('XI')) return 'XI';
+  if (upper.startsWith('X') || upper.includes('X')) return 'X';
+  return 'X';
+}
+
+// Sync Tingkat and Kelas Filter
+watch(selectedTingkatFilter, (newTingkat) => {
+  if (newTingkat !== 'Semua' && selectedKelasFilter.value !== 'Semua') {
+    const matchingKelas = availableKelasOptions.value.find(k => k.namaKelas === selectedKelasFilter.value);
+    const kelasTingkat = matchingKelas?.tingkat || getTingkatFromKelas(matchingKelas?.namaKelas);
+    if (kelasTingkat !== newTingkat) {
+      selectedKelasFilter.value = 'Semua';
+    }
+  }
+});
+
+watch(selectedKelasFilter, (newKelas) => {
+  if (newKelas && newKelas !== 'Semua') {
+    const matchingKelas = availableKelasOptions.value.find(k => k.namaKelas === newKelas);
+    const kelasTingkat = matchingKelas?.tingkat || getTingkatFromKelas(matchingKelas?.namaKelas);
+    if (kelasTingkat && selectedTingkatFilter.value !== 'Semua' && selectedTingkatFilter.value !== kelasTingkat) {
+      selectedTingkatFilter.value = kelasTingkat;
+    }
+  }
+});
+
+// Custom Dropdowns State
+const isMonthDropdownOpen = ref(false);
+const monthDropdownRef = ref(null);
+
+const isYearDropdownOpen = ref(false);
+const yearDropdownRef = ref(null);
+
+const isTingkatDropdownOpen = ref(false);
+const tingkatDropdownRef = ref(null);
+
+const isKelasDropdownOpen = ref(false);
+const searchKelasDropdownQuery = ref('');
+const kelasDropdownRef = ref(null);
+
+const tingkatOptions = [
+  { value: 'Semua', label: 'Semua Tingkat' },
+  { value: 'X', label: 'Tingkat X' },
+  { value: 'XI', label: 'Tingkat XI' },
+  { value: 'XII', label: 'Tingkat XII' }
+];
+
+const yearOptions = [
+  { value: 2025, label: 'Tahun 2025' },
+  { value: 2026, label: 'Tahun 2026' },
+  { value: 2027, label: 'Tahun 2027' }
+];
+
+function closeAllDropdowns() {
+  isMonthDropdownOpen.value = false;
+  isYearDropdownOpen.value = false;
+  isTingkatDropdownOpen.value = false;
+  isKelasDropdownOpen.value = false;
+}
+
+function toggleMonthDropdown() {
+  const willOpen = !isMonthDropdownOpen.value;
+  closeAllDropdowns();
+  isMonthDropdownOpen.value = willOpen;
+}
+
+function selectMonth(mIdx) {
+  selectedMonth.value = mIdx;
+  isMonthDropdownOpen.value = false;
+}
+
+function toggleYearDropdown() {
+  const willOpen = !isYearDropdownOpen.value;
+  closeAllDropdowns();
+  isYearDropdownOpen.value = willOpen;
+}
+
+function selectYear(y) {
+  selectedYear.value = y;
+  isYearDropdownOpen.value = false;
+}
+
+function toggleTingkatDropdown() {
+  const willOpen = !isTingkatDropdownOpen.value;
+  closeAllDropdowns();
+  isTingkatDropdownOpen.value = willOpen;
+}
+
+function selectTingkat(val) {
+  selectedTingkatFilter.value = val;
+  isTingkatDropdownOpen.value = false;
+}
+
+function toggleKelasDropdown() {
+  const willOpen = !isKelasDropdownOpen.value;
+  closeAllDropdowns();
+  isKelasDropdownOpen.value = willOpen;
+  if (willOpen) {
+    searchKelasDropdownQuery.value = '';
+  }
+}
+
+function selectKelas(namaKelas) {
+  selectedKelasFilter.value = namaKelas;
+  isKelasDropdownOpen.value = false;
+  searchKelasDropdownQuery.value = '';
+}
+
+function handleClickOutside(event) {
+  const inMonth = monthDropdownRef.value && monthDropdownRef.value.contains(event.target);
+  const inYear = yearDropdownRef.value && yearDropdownRef.value.contains(event.target);
+  const inTingkat = tingkatDropdownRef.value && tingkatDropdownRef.value.contains(event.target);
+  const inKelas = kelasDropdownRef.value && kelasDropdownRef.value.contains(event.target);
+
+  if (!inMonth && !inYear && !inTingkat && !inKelas) {
+    closeAllDropdowns();
+  }
+}
 
 // Debounce search input to avoid re-rendering the whole matrix on every keystroke
 let searchTimer = null;
@@ -119,6 +243,10 @@ onMounted(() => {
   syncViewport(mq);
   mq.addEventListener('change', syncViewport);
 
+  if (typeof window !== 'undefined') {
+    document.addEventListener('click', handleClickOutside);
+  }
+
   const initial = resolveInitialKelas();
   if (initial && (selectedKelasFilter.value === 'Semua' || selectedKelasFilter.value !== initial)) {
     selectedKelasFilter.value = initial;
@@ -126,6 +254,9 @@ onMounted(() => {
 });
 onUnmounted(() => {
   if (mq) mq.removeEventListener('change', syncViewport);
+  if (typeof window !== 'undefined') {
+    document.removeEventListener('click', handleClickOutside);
+  }
 });
 
 // Safe Array Fallbacks
@@ -133,9 +264,67 @@ const safeSiswaList = computed(() => Array.isArray(props.siswaList) ? props.sisw
 const safeAbsensiList = computed(() => Array.isArray(props.absensiList) ? props.absensiList : []);
 const safeKelasList = computed(() => Array.isArray(props.kelasList) ? props.kelasList : []);
 
+// Comprehensive list of available classes for the teacher
+const allAvailableKelasList = computed(() => {
+  const map = new Map();
+
+  // 1. Classes from props.kelasList
+  (props.kelasList || []).forEach(k => {
+    const name = typeof k === 'string' ? k : (k?.namaKelas || k?.nama);
+    if (name && !map.has(name)) {
+      const tingkat = (typeof k === 'object' && k?.tingkat) ? k.tingkat : getTingkatFromKelas(name);
+      map.set(name, { id: k?.id || name, namaKelas: name, tingkat });
+    }
+  });
+
+  // 2. Classes from props.siswaList
+  (props.siswaList || []).forEach(s => {
+    const name = s.kelas || s.namaKelas;
+    if (name && !map.has(name)) {
+      map.set(name, { id: name, namaKelas: name, tingkat: s.tingkat || getTingkatFromKelas(name) });
+    }
+  });
+
+  // 3. Classes from props.jadwalList
+  (props.jadwalList || []).forEach(j => {
+    const name = j.kelas || j.namaKelas;
+    if (name && !map.has(name)) {
+      map.set(name, { id: name, namaKelas: name, tingkat: j.tingkat || getTingkatFromKelas(name) });
+    }
+  });
+
+  return Array.from(map.values());
+});
+
+const availableKelasOptions = computed(() => {
+  let list = allAvailableKelasList.value;
+  if (selectedTingkatFilter.value !== 'Semua') {
+    list = list.filter(k => (k.tingkat || getTingkatFromKelas(k.namaKelas)) === selectedTingkatFilter.value);
+  }
+  return [...list].sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }));
+});
+
+const filteredDropdownKelasOptions = computed(() => {
+  let list = availableKelasOptions.value;
+  if (searchKelasDropdownQuery.value && searchKelasDropdownQuery.value.trim()) {
+    const q = searchKelasDropdownQuery.value.toLowerCase().trim();
+    list = list.filter(k => k.namaKelas.toLowerCase().includes(q));
+  }
+  return list;
+});
+
+const sortedKelasList = availableKelasOptions;
+
 // Filtered Students List for Main Table Matrix
 const filteredSiswa = computed(() => {
   let list = [...safeSiswaList.value];
+
+  if (selectedTingkatFilter.value && selectedTingkatFilter.value !== 'Semua') {
+    list = list.filter(s => {
+      const t = s.tingkat || getTingkatFromKelas(s.kelas || s.namaKelas);
+      return t === selectedTingkatFilter.value;
+    });
+  }
 
   if (selectedKelasFilter.value && selectedKelasFilter.value !== 'Semua') {
     list = list.filter(s => s && (s.kelas === selectedKelasFilter.value || s.namaKelas === selectedKelasFilter.value));
@@ -165,7 +354,7 @@ const paginatedSiswa = computed(() => {
   if (perPage.value === 'Semua') return filteredSiswa.value;
   return filteredSiswa.value.slice(startIndex.value, startIndex.value + effectivePageSize.value);
 });
-watch([selectedKelasFilter, debouncedSearch, perPage], () => { currentPage.value = 1; });
+watch([selectedTingkatFilter, selectedKelasFilter, debouncedSearch, perPage], () => { currentPage.value = 1; });
 watch(totalPages, (tp) => { if (currentPage.value > tp) currentPage.value = tp; });
 function changePage(p) {
   if (p >= 1 && p <= totalPages.value) currentPage.value = p;
@@ -678,50 +867,244 @@ function exportPdf() {
     </div>
 
     <!-- Filter Control Bar -->
-    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="relative z-40 bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10">
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Pilih Bulan</label>
-          <select v-model="selectedMonth" class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]">
-            <option v-for="(mName, idx) in monthNames" :key="idx" :value="idx + 1">
-              {{ mName }}
-            </option>
-          </select>
+        <!-- 1. Pilih Bulan (Custom Dropdown) -->
+        <div ref="monthDropdownRef" class="space-y-1.5 relative">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Pilih Bulan</label>
+          <button
+            type="button"
+            @click="toggleMonthDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isMonthDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ monthNames[selectedMonth - 1] }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isMonthDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isMonthDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[170px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="max-h-56 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+              <button
+                v-for="(mName, idx) in monthNames"
+                :key="idx"
+                type="button"
+                @click="selectMonth(idx + 1)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedMonth === (idx + 1) ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ mName }}</span>
+                <span v-if="selectedMonth === (idx + 1)" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Pilih Tahun</label>
-          <select v-model="selectedYear" class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]">
-            <option :value="2025">Tahun 2025</option>
-            <option :value="2026">Tahun 2026</option>
-            <option :value="2027">Tahun 2027</option>
-          </select>
+        <!-- 2. Pilih Tahun (Custom Dropdown) -->
+        <div ref="yearDropdownRef" class="space-y-1.5 relative">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Pilih Tahun</label>
+          <button
+            type="button"
+            @click="toggleYearDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isYearDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              Tahun {{ selectedYear }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isYearDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isYearDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[150px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="space-y-1">
+              <button
+                v-for="yOpt in yearOptions"
+                :key="yOpt.value"
+                type="button"
+                @click="selectYear(yOpt.value)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedYear === yOpt.value ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ yOpt.label }}</span>
+                <span v-if="selectedYear === yOpt.value" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Filter Kelas Ampuan</label>
-          <select v-model="selectedKelasFilter" class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]">
-            <option value="Semua">Semua Kelas Ampuan</option>
-            <option v-for="k in kelasList" :key="k.id" :value="k.namaKelas">{{ k.namaKelas }}</option>
-          </select>
+        <!-- 3. Filter Tingkat (Custom Dropdown) -->
+        <div ref="tingkatDropdownRef" class="space-y-1.5 relative">
+          <label class="block text-[11px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
+            <span>🏷️</span>
+            <span>Tingkat</span>
+          </label>
+          <button
+            type="button"
+            @click="toggleTingkatDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isTingkatDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ selectedTingkatFilter === 'Semua' ? 'Semua Tingkat' : 'Tingkat ' + selectedTingkatFilter }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isTingkatDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isTingkatDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[170px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="space-y-1">
+              <button
+                v-for="opt in tingkatOptions"
+                :key="opt.value"
+                type="button"
+                @click="selectTingkat(opt.value)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedTingkatFilter === opt.value ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ opt.label }}</span>
+                <span v-if="selectedTingkatFilter === opt.value" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Cari Nama Siswa</label>
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Cari nama atau NIS..."
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-gray-400 focus:border-cyan-400 outline-none min-h-[44px]"
-          />
+        <!-- 4. Filter Kelas Ampuan (Custom Searchable & Scrollable Dropdown with Natural Numeric Sort) -->
+        <div ref="kelasDropdownRef" class="space-y-1.5 relative">
+          <div class="flex items-center justify-between">
+            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Kelas</label>
+            <span v-if="selectedTingkatFilter !== 'Semua'" class="text-[10px] text-cyan-400 font-mono font-bold">
+              {{ availableKelasOptions.length }} Kelas
+            </span>
+          </div>
+
+          <!-- Trigger Button -->
+          <button
+            type="button"
+            @click="toggleKelasDropdown"
+            class="w-full bg-slate-900 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold flex items-center justify-between min-h-[44px] cursor-pointer hover:border-cyan-400/50 focus:border-cyan-400 transition-all text-left"
+            :class="isKelasDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-400/20' : ''"
+          >
+            <span class="truncate">
+              {{ selectedKelasFilter === 'Semua' ? (selectedTingkatFilter !== 'Semua' ? 'Semua Kelas ' + selectedTingkatFilter : 'Semua Kelas Ampuan') : selectedKelasFilter }}
+            </span>
+            <span class="text-gray-400 text-xs ml-2 transition-transform duration-200" :class="isKelasDropdownOpen ? 'rotate-180 text-cyan-400' : ''">
+              ▼
+            </span>
+          </button>
+
+          <!-- Floating Dropdown Menu -->
+          <div
+            v-if="isKelasDropdownOpen"
+            class="absolute left-0 top-full mt-1.5 w-full min-w-[220px] z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-2 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <!-- Search Inside Dropdown -->
+            <div class="relative">
+              <input
+                v-model="searchKelasDropdownQuery"
+                type="text"
+                placeholder="Cari kelas (misal: TKR 1)..."
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:border-cyan-400 outline-none"
+                @click.stop
+              />
+              <button
+                v-if="searchKelasDropdownQuery"
+                type="button"
+                @click="searchKelasDropdownQuery = ''"
+                class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-xs text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <!-- Scrollable List Options (Natural Numeric Ordered) -->
+            <div class="max-h-56 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+              <button
+                type="button"
+                @click="selectKelas('Semua')"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedKelasFilter === 'Semua' ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span>{{ selectedTingkatFilter !== 'Semua' ? 'Semua Kelas ' + selectedTingkatFilter : 'Semua Kelas Ampuan' }}</span>
+                <span v-if="selectedKelasFilter === 'Semua'" class="text-cyan-400 font-bold">✓</span>
+              </button>
+
+              <button
+                v-for="k in filteredDropdownKelasOptions"
+                :key="k.id || k.namaKelas"
+                type="button"
+                @click="selectKelas(k.namaKelas)"
+                :class="[
+                  'w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all min-h-[36px]',
+                  selectedKelasFilter === k.namaKelas ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                ]"
+              >
+                <span class="truncate">{{ k.namaKelas }}</span>
+                <span v-if="selectedKelasFilter === k.namaKelas" class="text-cyan-400 font-bold ml-2">✓</span>
+              </button>
+
+              <div
+                v-if="filteredDropdownKelasOptions.length === 0"
+                class="text-center py-4 text-xs text-gray-500"
+              >
+                Tidak ada kelas yang cocok.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Cari Nama Siswa -->
+        <div class="space-y-1.5">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Cari Nama Siswa</label>
+          <div class="relative">
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Cari nama atau NIS..."
+              class="w-full bg-slate-900 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-gray-500 focus:border-cyan-400 outline-none min-h-[44px]"
+            />
+            <button
+              v-if="searchQuery"
+              type="button"
+              @click="searchQuery = ''"
+              class="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-gray-400 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
       </div>
     </div>
 
     <!-- MONTHLY ATTENDANCE MATRIX TABLE -->
-    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
+    <div class="relative z-10 bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
       
       <!-- Table Matrix (rendered only on desktop) -->
       <div v-if="!isMobile" class="overflow-x-auto max-h-[70vh] overflow-y-auto custom-scrollbar">
