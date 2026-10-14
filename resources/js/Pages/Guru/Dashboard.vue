@@ -69,7 +69,7 @@ const isLoading = ref(false);
 
 const tabDataMap = {
   dashboard: ['kelasListProp', 'siswaListProp', 'jadwalListProp', 'absensiListProp', 'jurnalListProp', 'tpListProp', 'nilaiListProp', 'materiListProp'],
-  jadwal: ['jadwalListProp', 'kelasListProp', 'mapelListProp'],
+  jadwal: ['jadwalListProp', 'kelasListProp', 'masterKelasListProp', 'mapelListProp'],
   kelas: ['kelasListProp', 'jurusanListProp', 'masterKelasListProp'],
   siswa: ['siswaListProp', 'kelasListProp'],
   absensi: ['absensiListProp', 'siswaListProp', 'kelasListProp'],
@@ -188,7 +188,7 @@ function onSaveJadwal({ editing, data }) {
 
   router.post(route('guru.jadwal.store'), payload, {
     preserveScroll: true,
-    only: ['jadwalListProp'],
+    only: ['jadwalListProp', 'kelasListProp'],
     onSuccess: () => showToast('Jadwal pelajaran berhasil disimpan!'),
     onError: (errors) => {
       const msg = errors.jadwal || errors.kelas || errors.guru || Object.values(errors)[0] || 'Gagal menyimpan jadwal.';
@@ -209,7 +209,7 @@ function onDeleteJadwal(id) {
 
       router.delete(route('guru.jadwal.delete', id), {
         preserveScroll: true,
-        only: ['jadwalListProp'],
+        only: ['jadwalListProp', 'kelasListProp'],
         onError: () => {
           jadwalList.value = backup;
           showToast('Gagal menghapus jadwal. Data dikembalikan.', 'error');
@@ -672,11 +672,14 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
           v-if="activeView === 'jadwal'"
           :jadwalList="jadwalList"
           :kelasList="kelasList"
+          :masterKelasList="props.masterKelasListProp"
           :teacherSubject="teacherSubject"
           :mapelList="mapelListProp"
           @save-jadwal="onSaveJadwal"
           @delete-jadwal="onDeleteJadwal"
           @change-view="v => activeView = v"
+          @go-to-absensi="onOpenFullInputAbsensi"
+          @go-to-jurnal="onGoToJurnal"
         />
 
         <!-- KELAS VIEW -->
@@ -708,6 +711,7 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
           :absensiList="absensiList"
           :siswaList="siswaList"
           :kelasList="kelasList"
+          :jadwalList="jadwalList"
           :initialKelas="activeAbsensiKelas"
           @update:selected-kelas="(k) => {
             activeAbsensiKelas = k;
@@ -725,6 +729,7 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
           :absensiList="absensiList"
           :siswaList="siswaList"
           :kelasList="kelasList"
+          :jadwalList="jadwalList"
           :initialKelas="activeAbsensiKelas || inputAbsensiKelas"
           :initialTanggal="inputAbsensiTanggal"
           @save-batch-absensi="onSaveFullBatchAbsensi"
@@ -739,6 +744,8 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
           :jadwalList="jadwalList"
           :mapelList="mapelListProp"
           :teacherSubject="teacherSubject"
+          :shortcutJadwal="pendingJurnalShortcut"
+          @clear-shortcut="pendingJurnalShortcut = null"
           @save-jurnal="onSaveJurnal"
           @delete-jurnal="onDeleteJurnal"
         />

@@ -7,7 +7,20 @@ const props = defineProps({
   absensiList: { type: Array, default: () => [] },
   siswaList: { type: Array, default: () => [] },
   kelasList: { type: Array, default: () => [] },
+  jadwalList: { type: Array, default: () => [] },
   initialKelas: { type: String, default: '' },
+});
+
+const indoDaysList = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const todayDayName = computed(() => indoDaysList[new Date().getDay()] || 'Senin');
+
+const todayScheduledClasses = computed(() => {
+  const set = new Set();
+  (props.jadwalList || []).filter(j => j.hari === todayDayName.value).forEach(j => {
+    const kName = j.kelas || j.namaKelas;
+    if (kName) set.add(kName);
+  });
+  return Array.from(set);
 });
 
 const emit = defineEmits(['save-absensi', 'save-batch-absensi', 'delete-absensi', 'open-full-input-absensi', 'update:selected-kelas']);
@@ -36,6 +49,10 @@ function getTodayString() {
 function resolveInitialKelas() {
   if (props.initialKelas) {
     return props.initialKelas;
+  }
+  // Smart Default 1: Jadwal Mengajar Hari Ini
+  if (todayScheduledClasses.value && todayScheduledClasses.value.length > 0) {
+    return todayScheduledClasses.value[0];
   }
   if (typeof window !== 'undefined') {
     const cached = localStorage.getItem('guru_active_absensi_kelas');
@@ -78,6 +95,12 @@ watch(selectedKelasFilter, (newVal) => {
 watch(() => props.initialKelas, (newVal) => {
   if (newVal && newVal !== selectedKelasFilter.value) {
     selectedKelasFilter.value = newVal;
+  }
+});
+
+watch(() => props.jadwalList, () => {
+  if (!props.initialKelas && todayScheduledClasses.value.length > 0 && (selectedKelasFilter.value === 'Semua' || !selectedKelasFilter.value)) {
+    selectedKelasFilter.value = todayScheduledClasses.value[0];
   }
 });
 

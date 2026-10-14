@@ -6,8 +6,21 @@ const props = defineProps({
   absensiList: { type: Array, default: () => [] },
   siswaList: { type: Array, default: () => [] },
   kelasList: { type: Array, default: () => [] },
+  jadwalList: { type: Array, default: () => [] },
   initialKelas: String,
   initialTanggal: String
+});
+
+const indoDays = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const todayDayName = computed(() => indoDays[new Date().getDay()] || 'Senin');
+
+const todayScheduledClasses = computed(() => {
+  const set = new Set();
+  (props.jadwalList || []).filter(j => j.hari === todayDayName.value).forEach(j => {
+    const kName = j.kelas || j.namaKelas;
+    if (kName) set.add(kName);
+  });
+  return Array.from(set);
 });
 
 const emit = defineEmits(['save-batch-absensi', 'back-to-matrix']);
@@ -35,6 +48,10 @@ function getTingkatFromKelas(className) {
 
 function getInitialKelas() {
   if (props.initialKelas) return props.initialKelas;
+  // Smart default to today's scheduled class
+  if (todayScheduledClasses.value && todayScheduledClasses.value.length > 0) {
+    return todayScheduledClasses.value[0];
+  }
   try {
     const saved = localStorage.getItem('guru_active_absensi_kelas');
     if (saved) return saved;
@@ -515,7 +532,25 @@ function handleSaveBatchAttendance() {
           <span class="text-emerald-400 font-extrabold" v-else>✓ Semua Dipanggil</span>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+            <!-- Quick Pills Jadwal Hari Ini -->
+            <div v-if="todayScheduledClasses.length > 0" class="hidden sm:flex items-center gap-1.5 mr-2">
+              <span class="text-[11px] font-bold text-cyan-300">Hari ini:</span>
+              <button
+                v-for="k in todayScheduledClasses"
+                :key="k"
+                type="button"
+                @click="batchKelas = k; selectedTingkat = getTingkatFromKelas(k);"
+                :class="[
+                  'px-2.5 py-1 rounded-xl text-xs font-bold transition-all border',
+                  batchKelas === k
+                    ? 'bg-cyan-500 text-slate-950 border-cyan-400'
+                    : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+                ]"
+              >
+                {{ k }}
+              </button>
+            </div>
           <!-- Status on desktop -->
           <div class="hidden sm:flex flex-1 items-center gap-3 text-xs font-bold">
             <span class="text-gray-300">Total: <strong class="text-white font-black">{{ batchRows.length }} Siswa</strong></span>

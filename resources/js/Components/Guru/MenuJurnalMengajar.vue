@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { usePage } from '@inertiajs/vue3';
 
 const page = usePage();
@@ -10,10 +10,27 @@ const props = defineProps({
   kelasList: { type: Array, default: () => [] },
   jadwalList: { type: Array, default: () => [] },
   mapelList: { type: Array, default: () => [] },
-  teacherSubject: { type: String, default: 'Informatika' }
+  teacherSubject: { type: String, default: 'Informatika' },
+  shortcutJadwal: { type: Object, default: null }
 });
 
-const emit = defineEmits(['save-jurnal', 'delete-jurnal']);
+const emit = defineEmits(['save-jurnal', 'delete-jurnal', 'clear-shortcut']);
+
+const dayNamesIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const todayDayName = computed(() => dayNamesIndo[new Date().getDay()] || 'Senin');
+
+const todaySchedules = computed(() => {
+  return (props.jadwalList || []).filter(j => j.hari === todayDayName.value);
+});
+
+const todayScheduledClasses = computed(() => {
+  const set = new Set();
+  todaySchedules.value.forEach(j => {
+    const kName = j.kelas || j.namaKelas;
+    if (kName) set.add(kName);
+  });
+  return Array.from(set);
+});
 
 // Indonesian Month Names
 const monthNames = [
@@ -287,15 +304,17 @@ function openAddJurnalModal() {
   startPeriod.value = 1;
   endPeriod.value = 3;
   
-  const defaultKelas = selectedKelasFilter.value !== 'Semua' 
-    ? selectedKelasFilter.value 
-    : (scheduledClasses.value[0] || 'X RPL 1');
+  // Smart Default: Cek jadwal hari ini terlebih dahulu
+  const schedToday = todaySchedules.value && todaySchedules.value.length > 0 ? todaySchedules.value[0] : null;
+
+  const defaultKelas = schedToday?.kelas 
+    || (selectedKelasFilter.value !== 'Semua' ? selectedKelasFilter.value : (todayScheduledClasses.value[0] || scheduledClasses.value[0] || 'X RPL 1'));
 
   jurnalForm.value = {
     tanggal: getTodayString(),
     jamKe: '',
     kelas: defaultKelas,
-    mataPelajaran: teacherAdminSubjects.value[0] || 'Informatika',
+    mataPelajaran: schedToday?.mataPelajaran || schedToday?.mata_pelajaran || teacherAdminSubjects.value[0] || 'Informatika',
     materi: '',
     uraian: '',
     catatan: '',
@@ -303,8 +322,11 @@ function openAddJurnalModal() {
     semester: 'Ganjil'
   };
 
-  // Sesuaikan mapel dan jam dengan kelas default
-  onKelasChange();
+  if (schedToday) {
+    applyJadwalShortcut(schedToday);
+  } else {
+    onKelasChange();
+  }
 
   showJurnalModal.value = true;
 }
@@ -456,6 +478,14 @@ function exportPdf() {
   });
   window.open(url, '_blank');
 }
+watch(() => props.shortcutJadwal, (shortcut) => {
+  if (shortcut) {
+    openAddJurnalModal();
+    applyJadwalShortcut(shortcut);
+    emit('clear-shortcut');
+  }
+}, { immediate: true });
+
 </script>
 
 <template>
@@ -546,6 +576,34 @@ function exportPdf() {
           {{ teacherAdminSubjects.join(', ') }}
         </div>
       </div>
+    </div>
+
+    <!-- Quick Switch Pills untuk Jadwal Hari Ini -->
+    <div v-if="todayScheduledClasses.length > 0" class="flex flex-wrap items-center gap-2 p-3 rounded-2xl bg-cyan-950/30 border border-cyan-500/20">
+      <span class="text-xs font-bold text-cyan-300 flex items-center gap-1 shrink-0">
+        📅 Jadwal Hari Ini ({{ todayDayName }}):
+      </span>
+      <button
+        v-for="kName in todayScheduledClasses"
+        :key="kName"
+        type="button"
+        @click="selectedKelasFilter = kName"
+        :class="[
+          'px-3 py-1 rounded-xl text-xs font-bold transition-all border min-h-[32px]',
+          selectedKelasFilter === kName
+            ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-sm shadow-cyan-500/25'
+            : 'bg-slate-800 text-gray-300 border-white/10 hover:bg-slate-700'
+        ]"
+      >
+        🏫 {{ kName }}
+      </button>
+      <button
+        type="button"
+        @click="selectedKelasFilter = 'Semua'"
+        class="text-xs text-gray-400 hover:text-white underline ml-auto"
+      >
+        Lihat Semua
+      </button>
     </div>
 
     <!-- Filter Control Bar (5 Columns: Bulan, Tahun, Kelas Terjadwal, Mapel Guru, Cari) -->

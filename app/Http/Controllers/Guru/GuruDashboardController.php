@@ -1053,8 +1053,37 @@ HTML;
             throw ValidationException::withMessages(['kelas' => 'Kelas "'.$validated['kelas'].'" tidak ditemukan di database!']);
         }
 
+        // Validasi bentrok: pastikan kelas pada hari & jam tersebut belum diisi oleh guru lain
+        $classConflict = Jadwal::query()
+            ->with('guru')
+            ->where('kelas_id', $kelasObj->id)
+            ->where('hari', $validated['hari'])
+            ->where('jam_ke', $validated['jam_ke'])
+            ->where('guru_id', '!=', $guruId)
+            ->first();
+
+        if ($classConflict) {
+            $conflictGuruName = $classConflict->guru?->nama ?? 'Guru lain';
+            throw ValidationException::withMessages([
+                'kelas' => "Kelas {$kelasObj->nama_kelas} pada hari {$validated['hari']} Jam ke-{$validated['jam_ke']} sudah terisi oleh {$conflictGuruName} ({$classConflict->mata_pelajaran})!"
+            ]);
+        }
+
+        // Tentukan ID target jika user belum mengoper ID (mencegah dobel slot di jam yang sama untuk guru ini)
+        $targetId = $validated['id'] ?? null;
+        if (! $targetId) {
+            $existingSlot = Jadwal::query()
+                ->where('guru_id', $guruId)
+                ->where('hari', $validated['hari'])
+                ->where('jam_ke', $validated['jam_ke'])
+                ->first();
+            if ($existingSlot) {
+                $targetId = $existingSlot->id;
+            }
+        }
+
         Jadwal::query()->updateOrCreate(
-            ['id' => $validated['id'] ?? null],
+            ['id' => $targetId],
             [
                 'guru_id' => $guruId,
                 'kelas_id' => $kelasObj->id,
@@ -1062,10 +1091,20 @@ HTML;
                 'jam_ke' => $validated['jam_ke'],
                 'waktu' => $validated['waktu'],
                 'mata_pelajaran' => $validated['mata_pelajaran'],
-                'ruangan' => $validated['ruangan'] ?? 'Lab Komputer 1',
+                'ruangan' => $validated['ruangan'] ?: 'Ruang Kelas',
                 'keterangan' => $validated['keterangan'] ?? null,
             ]
         );
+
+        // Otomatis hubungkan kelas ke tabel pivot guru_kelas jika belum terhubung
+        if (! DB::table('guru_kelas')->where('guru_id', $guruId)->where('kelas_id', $kelasObj->id)->exists()) {
+            DB::table('guru_kelas')->insert([
+                'guru_id' => $guruId,
+                'kelas_id' => $kelasObj->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
         return redirect()->route('guru.dashboard', ['tab' => 'jadwal'])->with('message', 'Jadwal pelajaran berhasil disimpan!');
     }
