@@ -878,7 +878,7 @@ class GuruCbtController extends Controller
             $tpJudul = !empty($validated['judul']) ? $validated['judul'] : ('Ujian CBT - ' . $jadwal->judul_ujian);
             $tpKode = !empty($validated['kode']) ? $validated['kode'] : ('TP-CBT' . rand(10, 99));
 
-            $activeTa = TahunAjaran::where('is_aktif', true)->first();
+            $activeTa = TahunAjaran::getActive();
             $taId = !empty($validated['tahun_ajaran_id']) ? $validated['tahun_ajaran_id'] : ($activeTa?->id ?? 1);
 
             $tp = TujuanPembelajaran::create([

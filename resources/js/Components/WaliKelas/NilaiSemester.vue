@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 
 const props = defineProps({
   rekapNilaiSemester: { type: Array, default: () => [] },
@@ -8,9 +8,28 @@ const props = defineProps({
   mapelList:          { type: Array, default: () => [] },
 });
 
+function getInitialSemester() {
+  try {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('wali_active_semester') : null;
+    if (saved && ['Ganjil', 'Genap'].includes(saved)) {
+      return saved;
+    }
+  } catch (e) {}
+  const currentMonth = new Date().getMonth() + 1;
+  return (currentMonth >= 1 && currentMonth <= 6) ? 'Genap' : 'Ganjil';
+}
+
 const searchNilai      = ref('');
-const selectedSemester = ref('Ganjil');
+const selectedSemester = ref(getInitialSemester());
 const selectedMapel    = ref('');
+
+watch(selectedSemester, (newVal) => {
+  if (typeof window !== 'undefined' && newVal) {
+    try {
+      localStorage.setItem('wali_active_semester', newVal);
+    } catch (e) {}
+  }
+});
 
 // ─── Daftar mapel untuk dropdown ─────────────────────────────────────────────
 const mapelOptions = computed(() => {

@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\TahunAjaran;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -48,6 +49,8 @@ class HandleInertiaRequests extends Middleware
                         : [],
                 ]) : null,
             ],
+            'activeTahunAjaran' => fn () => rescue(fn () => TahunAjaran::getActive(), null, false),
+            'tahunAjaranList' => fn () => rescue(fn () => TahunAjaran::query()->orderBy('is_aktif', 'desc')->orderBy('id', 'desc')->get(), [], false),
         ];
     }
 }

@@ -78,7 +78,7 @@ function getTodayString() {
               📖 Mata Pelajaran: {{ teacherSubject }}
             </span>
             <span class="px-3.5 py-1 rounded-full bg-teal-500/20 border border-teal-500/40 text-teal-300 text-xs font-extrabold shadow-inner">
-              Semester Ganjil 2025/2026
+              Semester Ganjil {{ $page.props.activeTahunAjaran?.kode || '2025/2026' }}
             </span>
           </div>
           

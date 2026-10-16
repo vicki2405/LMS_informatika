@@ -457,8 +457,8 @@ function onSaveJurnal({ editing, data }) {
     materi: data.materi,
     uraian: data.uraian || '',
     catatan: data.catatan || '',
-    tahun_pelajaran: data.tahunPelajaran || '2025/2026',
-    tahunPelajaran: data.tahunPelajaran || '2025/2026',
+    tahun_pelajaran: data.tahunPelajaran || page.props.activeTahunAjaran?.kode || '2025/2026',
+    tahunPelajaran: data.tahunPelajaran || page.props.activeTahunAjaran?.kode || '2025/2026',
     semester: data.semester || 'Ganjil',
   };
 
@@ -492,11 +492,12 @@ function onDeleteJurnal(id) {
 }
 
 // Student Assessment & TP State (Penilaian Tujuan Pembelajaran per Semester)
-const tahunAjaranList = ref([
-  { id: 1, kode: '2024/2025', isAktif: false },
-  { id: 2, kode: '2025/2026', isAktif: true },
-  { id: 3, kode: '2026/2027', isAktif: false }
-]);
+const tahunAjaranList = ref(props.tahunAjaranListProp && props.tahunAjaranListProp.length ? props.tahunAjaranListProp : (page.props.tahunAjaranList || []));
+watch(() => props.tahunAjaranListProp, (newVal) => {
+  if (newVal && newVal.length) {
+    tahunAjaranList.value = newVal;
+  }
+}, { immediate: true });
 
 function onSaveTahunAjaran({ editing, data }) {
   if (editing) {

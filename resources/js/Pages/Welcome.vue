@@ -235,7 +235,7 @@ const systemFeatures = [
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400"></span>
           </span>
-          <span class="text-xs sm:text-sm font-extrabold text-emerald-300 tracking-wide">Penggunaan Internal • Semester Ganjil TA 2025/2026</span>
+          <span class="text-xs sm:text-sm font-extrabold text-emerald-300 tracking-wide">Penggunaan Internal • Semester Ganjil TA {{ $page.props.activeTahunAjaran?.kode || '2025/2026' }}</span>
         </div>
 
         <!-- Main Animated Headline (Without 'Selamat Datang di Portal') -->

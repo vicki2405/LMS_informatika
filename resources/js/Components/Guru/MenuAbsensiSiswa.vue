@@ -299,16 +299,16 @@ const allAvailableKelasList = computed(() => {
 const availableKelasOptions = computed(() => {
   let list = allAvailableKelasList.value;
   if (selectedTingkatFilter.value !== 'Semua') {
-    list = list.filter(k => (k.tingkat || getTingkatFromKelas(k.namaKelas)) === selectedTingkatFilter.value);
+    list = list.filter(k => (k?.tingkat || getTingkatFromKelas(k?.namaKelas || k?.nama)) === selectedTingkatFilter.value);
   }
-  return [...list].sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }));
+  return [...list].sort((a, b) => (a?.namaKelas || a?.nama || a || '').toString().localeCompare((b?.namaKelas || b?.nama || b || '').toString(), undefined, { numeric: true, sensitivity: 'base' }));
 });
 
 const filteredDropdownKelasOptions = computed(() => {
   let list = availableKelasOptions.value;
   if (searchKelasDropdownQuery.value && searchKelasDropdownQuery.value.trim()) {
     const q = searchKelasDropdownQuery.value.toLowerCase().trim();
-    list = list.filter(k => k.namaKelas.toLowerCase().includes(q));
+    list = list.filter(k => (k?.namaKelas || k?.nama || '').toLowerCase().includes(q));
   }
   return list;
 });

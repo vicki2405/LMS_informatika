@@ -31,14 +31,15 @@ class AdminDashboardController extends Controller
     public function index(Request $request): Response
     {
         return Inertia::render('Admin/Dashboard', [
-            'guruListProp' => $this->getGuruList(),
-            'waliKelasListProp' => $this->getWaliKelasList(),
-            'siswaListProp' => $this->getSiswaList(),
-            'kelasListProp' => $this->getKelasList(),
-            'jurusanListProp' => $this->getJurusanList(),
-            'mapelListProp' => $this->getMapelList(),
-            'kelompokMapelListProp' => $this->getKelompokMapelList(),
-            'userAccountsListProp' => $this->getUserAccountsList(),
+            'guruListProp' => fn () => $this->getGuruList(),
+            'waliKelasListProp' => fn () => $this->getWaliKelasList(),
+            'siswaListProp' => fn () => $this->getSiswaList(),
+            'kelasListProp' => fn () => $this->getKelasList(),
+            'jurusanListProp' => fn () => $this->getJurusanList(),
+            'mapelListProp' => fn () => $this->getMapelList(),
+            'kelompokMapelListProp' => fn () => $this->getKelompokMapelList(),
+            'userAccountsListProp' => fn () => $this->getUserAccountsList(),
+            'tahunAjaranListProp' => fn () => $this->getTahunAjaranList(),
         ]);
     }
 
@@ -891,5 +892,87 @@ class AdminDashboardController extends Controller
         });
 
         return redirect()->back()->with('message', "Berhasil mengimpor {$insertedCount} data siswa dari file Excel/CSV!");
+    }
+
+    private function getTahunAjaranList(): array
+    {
+        return TahunAjaran::query()
+            ->orderBy('is_aktif', 'desc')
+            ->orderBy('id', 'desc')
+            ->get()
+            ->map(function ($ta) {
+                return [
+                    'id' => $ta->id,
+                    'kode' => $ta->kode,
+                    'is_aktif' => (bool) $ta->is_aktif,
+                    'created_at' => $ta->created_at?->format('d M Y') ?? '-',
+                ];
+            })
+            ->toArray();
+    }
+
+    /**
+     * Store or update Tahun Ajaran.
+     */
+    public function storeTahunAjaran(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'id' => 'nullable|integer',
+            'kode' => 'required|string|max:50',
+            'is_aktif' => 'nullable|boolean',
+        ]);
+
+        $isAktif = !empty($validated['is_aktif']);
+
+        DB::transaction(function () use ($validated, $isAktif) {
+            if ($isAktif) {
+                TahunAjaran::query()->update(['is_aktif' => false]);
+            }
+
+            if (!empty($validated['id'])) {
+                $ta = TahunAjaran::findOrFail($validated['id']);
+                $ta->update([
+                    'kode' => trim($validated['kode']),
+                    'is_aktif' => $isAktif,
+                ]);
+            } else {
+                TahunAjaran::create([
+                    'kode' => trim($validated['kode']),
+                    'is_aktif' => $isAktif,
+                ]);
+            }
+        });
+
+        return redirect()->back()->with('message', 'Tahun Pelajaran berhasil disimpan!');
+    }
+
+    /**
+     * Set a Tahun Ajaran as active / default.
+     */
+    public function setDefaultTahunAjaran(int $id): RedirectResponse
+    {
+        DB::transaction(function () use ($id) {
+            TahunAjaran::query()->update(['is_aktif' => false]);
+            $ta = TahunAjaran::findOrFail($id);
+            $ta->update(['is_aktif' => true]);
+        });
+
+        return redirect()->back()->with('message', 'Tahun Pelajaran berhasil dijadikan default aktif sistem!');
+    }
+
+    /**
+     * Delete a Tahun Ajaran.
+     */
+    public function deleteTahunAjaran(int $id): RedirectResponse
+    {
+        $ta = TahunAjaran::findOrFail($id);
+
+        if ($ta->is_aktif) {
+            return redirect()->back()->withErrors(['error' => 'Tahun Pelajaran yang sedang aktif tidak dapat dihapus! Silakan jadikan tahun pelajaran lain sebagai default terlebih dahulu.']);
+        }
+
+        $ta->delete();
+
+        return redirect()->back()->with('message', 'Tahun Pelajaran berhasil dihapus!');
     }
 }

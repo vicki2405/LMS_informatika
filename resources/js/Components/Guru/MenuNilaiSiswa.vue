@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { showToast } from '@/Utils/sweetalert';
 
 const props = defineProps({
@@ -10,11 +10,7 @@ const props = defineProps({
   kelasList: { type: Array, default: () => [] },
   tahunAjaranList: {
     type: Array,
-    default: () => [
-      { id: 1, kode: '2024/2025', isAktif: false },
-      { id: 2, kode: '2025/2026', isAktif: true },
-      { id: 3, kode: '2026/2027', isAktif: false }
-    ]
+    default: () => []
   },
   teacherSubject: { type: String, default: 'Informatika' },
   mapelList: { type: Array, default: () => [] },
@@ -24,6 +20,8 @@ const props = defineProps({
 
 const emit = defineEmits(['save-tp', 'delete-tp', 'save-nilai-batch', 'save-ta', 'delete-ta', 'set-active-ta']);
 
+const page = usePage();
+
 // View Mode State: 'matrix' (Ledger Matriks Nilai) | 'batch-input' (Input Massal Nilai per TP)
 const viewMode = ref('matrix');
 
@@ -31,9 +29,45 @@ const viewMode = ref('matrix');
 const showTpPanel = ref(false);
 
 // Academic Period Filters State
-const selectedSemester = ref('Ganjil'); // 'Ganjil' | 'Genap'
-const activeTaObj = computed(() => props.tahunAjaranList.find(t => t.isAktif) || props.tahunAjaranList[0]);
-const selectedTahunAjaran = ref(activeTaObj.value?.kode || '2025/2026');
+function getInitialSemester() {
+  try {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('guru_active_semester') : null;
+    if (saved && ['Ganjil', 'Genap'].includes(saved)) {
+      return saved;
+    }
+  } catch (e) {}
+  const currentMonth = new Date().getMonth() + 1;
+  return (currentMonth >= 1 && currentMonth <= 6) ? 'Genap' : 'Ganjil';
+}
+
+const selectedSemester = ref(getInitialSemester());
+
+watch(selectedSemester, (newVal) => {
+  if (typeof window !== 'undefined' && newVal) {
+    try {
+      localStorage.setItem('guru_active_semester', newVal);
+    } catch (e) {}
+  }
+}, { immediate: true });
+
+function setSemester(sem) {
+  if (selectedSemester.value === sem) return;
+  selectedSemester.value = sem;
+  try {
+    localStorage.setItem('guru_active_semester', sem);
+  } catch (e) {}
+  initBatchRows();
+  showToast(`Beralih ke Semester ${sem}`, 'info');
+}
+
+const activeTaObj = computed(() => props.tahunAjaranList.find(t => t.isAktif || t.is_aktif) || page.props.activeTahunAjaran || props.tahunAjaranList[0]);
+const selectedTahunAjaran = ref(activeTaObj.value?.kode || page.props.activeTahunAjaran?.kode || '2026/2027');
+
+watch(activeTaObj, (newVal) => {
+  if (newVal?.kode && (!selectedTahunAjaran.value || selectedTahunAjaran.value === '2025/2026')) {
+    selectedTahunAjaran.value = newVal.kode;
+  }
+}, { immediate: true });
 
 function getInitialKelas() {
   try {
@@ -48,7 +82,6 @@ function getInitialKelas() {
 // Class & Student Filters State
 const selectedKelasFilter = ref(getInitialKelas());
 const selectedMapelFilter = ref('Semua');
-const selectedTpFilter = ref('Semua');
 const searchQuery = ref('');
 
 const selectedTingkatFilter = ref('X');
@@ -62,9 +95,9 @@ function getTingkatFromKelas(className) {
 
 const filteredKelasByTingkat = computed(() => {
   return (props.kelasList || []).filter(k => {
-    const t = k.tingkat || getTingkatFromKelas(k.namaKelas || k);
+    const t = k?.tingkat || getTingkatFromKelas(k?.namaKelas || k?.nama || k);
     return t === selectedTingkatFilter.value;
-  }).sort((a, b) => (a.namaKelas || a).localeCompare(b.namaKelas || b, undefined, { numeric: true, sensitivity: 'base' }));
+  }).sort((a, b) => (a?.namaKelas || a?.nama || a || '').toString().localeCompare((b?.namaKelas || b?.nama || b || '').toString(), undefined, { numeric: true, sensitivity: 'base' }));
 });
 
 function onTingkatFilterChange() {
@@ -163,22 +196,72 @@ function getStatusNilai(nilai, kktp = 75) {
     : { label: 'Belum Tuntas', color: 'bg-red-500/20 text-red-300 border-red-500/30' };
 }
 
-// Helper: Calculate Average Score for a Student for Active Semester & TA
-function getStudentAverage(siswaId) {
-  const activeTpIds = activeTpList.value.map(t => t.id);
-  const studentScores = props.nilaiList.filter(n => n.siswaId === siswaId && activeTpIds.includes(n.tpId) && n.nilai !== null && !isNaN(n.nilai));
-  if (studentScores.length === 0) return 0;
-  const sum = studentScores.reduce((acc, curr) => acc + Number(curr.nilai), 0);
-  return Math.round((sum / studentScores.length) * 10) / 10;
+// O(1) Memoized Student Statistics Map (Algoritma Opsi 1: Pembagi Total Target TP Aktif)
+const studentStatsMap = computed(() => {
+  const map = new Map();
+  const activeTps = activeTpList.value || [];
+  const totalTps = activeTps.length;
+  const siswaArr = props.siswaList || [];
+
+  for (let i = 0; i < siswaArr.length; i++) {
+    const s = siswaArr[i];
+    let sum = 0;
+    let filledCount = 0;
+
+    for (let j = 0; j < totalTps; j++) {
+      const tp = activeTps[j];
+      const rec = nilaiMap.value.get(`${s.id}_${tp.id}`);
+      if (rec && rec.nilai !== null && rec.nilai !== undefined && rec.nilai !== '' && !isNaN(rec.nilai)) {
+        sum += Number(rec.nilai);
+        filledCount++;
+      }
+    }
+
+    // Opsi 1: Pembagi adalah TOTAL TARGET TP semester ini.
+    // TP yang belum dikerjakan otomatis bernilai 0 sehingga adil bagi siswa yang rajin mengerjakan semua TP.
+    const finalScore = totalTps > 0 ? Math.round((sum / totalTps) * 10) / 10 : 0;
+    const isComplete = totalTps > 0 && filledCount === totalTps;
+
+    map.set(s.id, {
+      siswaId: s.id,
+      finalScore,
+      filledCount,
+      totalTps,
+      isComplete,
+      sum
+    });
+  }
+  return map;
+});
+
+// Helper: Get Student Statistics Object (O(1))
+function getStudentStats(siswaId) {
+  return studentStatsMap.value.get(siswaId) || {
+    finalScore: 0,
+    filledCount: 0,
+    totalTps: activeTpList.value.length,
+    isComplete: false,
+    sum: 0
+  };
 }
 
-// Helper: Get Predikat Badge from Score
-function getPredikat(score) {
-  if (score === null || score === undefined || score === 0) return { label: 'Belum Dinilai', color: 'bg-gray-500/20 text-gray-400 border-gray-500/30' };
-  if (score >= 90) return { label: 'A (Sangat Baik)', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
-  if (score >= 80) return { label: 'B (Baik)', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' };
-  if (score >= 75) return { label: 'C (Cukup)', color: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
-  return { label: 'D (Perlu Bimbingan)', color: 'bg-red-500/20 text-red-300 border-red-500/30' };
+// Helper: Calculate Final Score for a Student (Opsi 1)
+function getStudentAverage(siswaId) {
+  return getStudentStats(siswaId).finalScore;
+}
+
+// Helper: Get Predikat Badge from Score & Completeness
+function getPredikat(score, isComplete = true) {
+  if (score === null || score === undefined || score === 0) {
+    return { label: '-', color: 'bg-gray-500/10 text-gray-400 border-gray-500/20' };
+  }
+  if (!isComplete && score < 75) {
+    return { label: 'Remedial', color: 'bg-rose-500/15 text-rose-300 border-rose-500/30' };
+  }
+  if (score >= 90) return { label: 'A (Sangat Baik)', color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' };
+  if (score >= 80) return { label: 'B (Baik)', color: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' };
+  if (score >= 75) return { label: 'C (Cukup)', color: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
+  return { label: 'Remedial', color: 'bg-rose-500/15 text-rose-300 border-rose-500/30' };
 }
 
 // Stat Calculations for Active Class & Semester
@@ -192,22 +275,39 @@ const classAverage = computed(() => {
 
 const topStudent = computed(() => {
   if (filteredSiswa.value.length === 0) return '-';
+  
+  // Prioritas 1: Siswa yang sudah menuntaskan seluruh TP secara lengkap
+  const completedStudents = filteredSiswa.value.filter(s => getStudentStats(s.id).isComplete);
+  if (completedStudents.length > 0) {
+    let best = completedStudents[0];
+    let maxScore = getStudentAverage(best.id);
+    for (let i = 1; i < completedStudents.length; i++) {
+      const score = getStudentAverage(completedStudents[i].id);
+      if (score > maxScore) {
+        maxScore = score;
+        best = completedStudents[i];
+      }
+    }
+    return maxScore > 0 ? `${best.nama} (${maxScore})` : '-';
+  }
+
+  // Jika belum ada siswa yang 100% lengkap (semester masih berjalan)
   let best = null;
-  let maxAvg = -1;
+  let maxScore = -1;
   filteredSiswa.value.forEach(s => {
-    const avg = getStudentAverage(s.id);
-    if (avg > maxAvg) {
-      maxAvg = avg;
+    const stats = getStudentStats(s.id);
+    if (stats.finalScore > maxScore && stats.filledCount > 0) {
+      maxScore = stats.finalScore;
       best = s;
     }
   });
-  return best && maxAvg > 0 ? `${best.nama} (${maxAvg})` : '-';
+  return best && maxScore > 0 ? `${best.nama} (${maxScore})*` : '-';
 });
 
 const totalRemidialCount = computed(() => {
   return filteredSiswa.value.filter(s => {
-    const avg = getStudentAverage(s.id);
-    return avg > 0 && avg < 75;
+    const stats = getStudentStats(s.id);
+    return stats.filledCount > 0 && (stats.finalScore < 75 || !stats.isComplete);
   }).length;
 });
 
@@ -474,38 +574,42 @@ function submitPullCbt() {
   });
 }
 
-// Export CSV Ledger Nilai
+// Export CSV Ledger Nilai (Format Universal dengan UTF-8 BOM)
 function exportCsv() {
-  let csvContent = "data:text/csv;charset=utf-8,";
+  let csvContent = "";
   csvContent += `"REKAPITULASI LEDGER NILAI TP SISWA KELAS ${selectedKelasFilter.value}"\n`;
   csvContent += `"Mata Pelajaran: ${props.teacherSubject || 'Informatika'}"\n`;
-  csvContent += `"Periode: Semester ${selectedSemester.value} — T.A. ${selectedTahunAjaran.value}"\n\n`;
+  csvContent += `"Periode: Semester ${selectedSemester.value} — T.A. ${selectedTahunAjaran.value}"\n`;
+  csvContent += `"Metode Penilaian: Rata-Rata Seluruh Target TP (Opsi 1 / Standar Rapor)"\n\n`;
 
   let header = ["No", "NIS", "Nama Siswa"];
   activeTpList.value.forEach(tp => header.push(`"${tp.kode}: ${tp.judul}"`));
-  header.push("Nilai Akhir Rata-Rata", "Predikat");
+  header.push("Nilai Akhir", "Kelengkapan TP", "Predikat Capaian");
 
   csvContent += header.join(",") + "\n";
 
   filteredSiswa.value.forEach((s, idx) => {
-    let row = [idx + 1, `"${s.nis}"`, `"${s.nama}"`];
+    let cleanName = (s.nama || '').replace(/"/g, '""');
+    let row = [idx + 1, `"${s.nis || '-'}"`, `"${cleanName}"`];
     activeTpList.value.forEach(tp => {
       const score = getScore(s.id, tp.id);
       row.push(score !== null ? score : '-');
     });
-    const avg = getStudentAverage(s.id);
-    const pred = getPredikat(avg);
-    row.push(avg, `"${pred.label}"`);
+    const stats = getStudentStats(s.id);
+    const pred = getPredikat(stats.finalScore, stats.isComplete);
+    row.push(stats.finalScore, `"${stats.filledCount}/${stats.totalTps} TP"`, `"${pred.label}"`);
     csvContent += row.join(",") + "\n";
   });
 
-  const encodedUri = encodeURI(csvContent);
+  const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
+  link.setAttribute("href", url);
   link.setAttribute("download", `ledger_nilai_${selectedKelasFilter.value}_sem_${selectedSemester.value}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 </script>
 
@@ -520,7 +624,10 @@ function exportCsv() {
             <span>Penilaian TP Siswa</span>
             <span class="text-cyan-400 text-base">📊</span>
           </h1>
-          <span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-extrabold px-3 py-1 rounded-full">
+          <span
+            class="text-xs font-black px-3 py-1 rounded-full border transition-all"
+            :class="selectedSemester === 'Genap' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/20' : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'"
+          >
             Semester {{ selectedSemester }}
           </span>
         </div>
@@ -569,131 +676,119 @@ function exportCsv() {
       </div>
     </div>
 
-    <!-- Stat Summary Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-9 h-9 rounded-2xl bg-cyan-500/20 text-cyan-300 font-black text-sm flex items-center justify-center border border-cyan-500/30 shadow-md">📊</span>
-          <span class="text-[11px] font-extrabold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-3 py-1 rounded-full font-mono">RATA-RATA</span>
+    <!-- Compact Metrics Bar (1 Baris Ringkas & Rapi) -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="bg-slate-900/90 border border-white/10 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-md">
+        <span class="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-sm border border-cyan-500/30 shrink-0">📊</span>
+        <div class="min-w-0">
+          <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Rata-Rata Kelas</p>
+          <p class="text-lg font-black text-white truncate">{{ classAverage }}</p>
         </div>
-        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ classAverage }}</div>
-        <div class="text-xs text-gray-400 font-semibold">Rata-Rata Kelas Ampuan</div>
       </div>
 
-      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-9 h-9 rounded-2xl bg-emerald-500/20 text-emerald-300 font-black text-sm flex items-center justify-center border border-emerald-500/30 shadow-md">🏆</span>
-          <span class="text-[11px] font-extrabold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 rounded-full font-mono">TERTINGGI</span>
+      <div class="bg-slate-900/90 border border-white/10 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-md">
+        <span class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-sm border border-emerald-500/30 shrink-0">🏆</span>
+        <div class="min-w-0">
+          <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Nilai Tertinggi</p>
+          <p class="text-sm font-black text-white truncate" :title="topStudent">{{ topStudent }}</p>
         </div>
-        <div class="text-base font-black text-white tracking-tight mb-1 truncate">{{ topStudent }}</div>
-        <div class="text-xs text-gray-400 font-semibold">Nilai Terbaik Siswa</div>
       </div>
 
-      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-9 h-9 rounded-2xl bg-purple-500/20 text-purple-300 font-black text-sm flex items-center justify-center border border-purple-500/30 shadow-md">🎯</span>
-          <span class="text-[11px] font-extrabold text-purple-300 bg-purple-500/15 border border-purple-500/30 px-3 py-1 rounded-full font-mono">INDIKATOR</span>
+      <div class="bg-slate-900/90 border border-white/10 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-md">
+        <span class="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 flex items-center justify-center text-sm border border-purple-500/30 shrink-0">🎯</span>
+        <div class="min-w-0">
+          <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Target TP</p>
+          <p class="text-lg font-black text-white truncate">{{ activeTpList.length }} <span class="text-xs font-normal text-gray-400">Sasaran</span></p>
         </div>
-        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ activeTpList.length }} TP</div>
-        <div class="text-xs text-gray-400 font-semibold">Tujuan Pembelajaran</div>
       </div>
 
-      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-300 font-black text-sm flex items-center justify-center border border-amber-500/30 shadow-md">⚠️</span>
-          <span class="text-[11px] font-extrabold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-3 py-1 rounded-full font-mono">REMIDIAL</span>
+      <div class="bg-slate-900/90 border border-white/10 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-md">
+        <span class="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center text-sm border border-amber-500/30 shrink-0">⚠️</span>
+        <div class="min-w-0">
+          <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Remedial / Belum Lengkap</p>
+          <p class="text-lg font-black text-amber-300 truncate">{{ totalRemidialCount }} <span class="text-xs font-normal text-gray-400">Siswa</span></p>
         </div>
-        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ totalRemidialCount }} Siswa</div>
-        <div class="text-xs text-gray-400 font-semibold">Nilai &lt; KKTP (75)</div>
       </div>
     </div>
 
-    <!-- Filter Controls Bar -->
-    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-        
-        <div>
-          <label class="block text-[11px] font-bold text-cyan-300 uppercase mb-1.5">📅 Semester</label>
-          <select
-            v-model="selectedSemester"
-            @change="initBatchRows"
-            class="w-full bg-slate-800 border border-cyan-500/40 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-cyan-300 font-extrabold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option value="Ganjil">Semester Ganjil (1)</option>
-            <option value="Genap">Semester Genap (2)</option>
-          </select>
+    <!-- Filter Controls Bar (Ringkas & Bebas Ramai) -->
+    <div class="bg-slate-900/80 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-lg">
+      <div class="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <!-- Grup Kiri: Pilih Tingkat & Kelas -->
+        <div class="flex items-center gap-2 flex-1 flex-wrap sm:flex-nowrap">
+          <div class="w-28 shrink-0">
+            <select
+              v-model="selectedTingkatFilter"
+              @change="onTingkatFilterChange(); initBatchRows();"
+              class="w-full bg-slate-800 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none min-h-[42px]"
+              title="Pilih Tingkat Kelas"
+            >
+              <option value="X">Kelas X</option>
+              <option value="XI">Kelas XI</option>
+              <option value="XII">Kelas XII</option>
+            </select>
+          </div>
+
+          <div class="flex-1 min-w-[150px]">
+            <select
+              v-model="selectedKelasFilter"
+              @change="initBatchRows"
+              class="w-full bg-slate-800 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none min-h-[42px]"
+            >
+              <option v-for="k in filteredKelasByTingkat" :key="k.id" :value="k.namaKelas">
+                {{ k.namaKelas }} ({{ k.jurusan }})
+              </option>
+            </select>
+          </div>
+
+          <!-- Dropdown Mapel jika mengajar > 1 mapel -->
+          <div v-if="teacherAssignedMapels.length > 1" class="w-44 shrink-0">
+            <select
+              v-model="selectedMapelFilter"
+              @change="initBatchRows"
+              class="w-full bg-slate-800 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none min-h-[42px]"
+            >
+              <option value="Semua">Semua Mapel</option>
+              <option v-for="name in teacherAssignedMapels" :key="name" :value="name">{{ name }}</option>
+            </select>
+          </div>
         </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🎓 Tahun Ajaran</label>
-          <select
-            v-model="selectedTahunAjaran"
-            @change="initBatchRows"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-bold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option v-for="ta in tahunAjaranList" :key="ta.id" :value="ta.kode">
-              {{ ta.kode }} {{ ta.isAktif ? '(Aktif)' : '' }}
-            </option>
-          </select>
-        </div>
+        <!-- Grup Kanan: Semester Switcher & Cari Siswa -->
+        <div class="flex items-center gap-2 flex-1 md:justify-end">
+          <!-- Semester Toggle Pills with Active Glow -->
+          <div class="inline-flex items-center rounded-xl bg-slate-950 p-1 border border-white/10 shrink-0">
+            <button
+              type="button"
+              @click="setSemester('Ganjil')"
+              class="px-3 py-1.5 rounded-lg text-xs font-black transition-all min-h-[34px] flex items-center gap-1.5"
+              :class="selectedSemester === 'Ganjil' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-md shadow-cyan-500/20' : 'text-gray-400 hover:text-white'"
+            >
+              <span v-if="selectedSemester === 'Ganjil'" class="w-1.5 h-1.5 rounded-full bg-slate-950"></span>
+              <span>Ganjil</span>
+            </button>
+            <button
+              type="button"
+              @click="setSemester('Genap')"
+              class="px-3 py-1.5 rounded-lg text-xs font-black transition-all min-h-[34px] flex items-center gap-1.5"
+              :class="selectedSemester === 'Genap' ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 shadow-md shadow-amber-500/20' : 'text-gray-400 hover:text-white'"
+            >
+              <span v-if="selectedSemester === 'Genap'" class="w-1.5 h-1.5 rounded-full bg-slate-950"></span>
+              <span>Genap</span>
+            </button>
+          </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">📗 Mata Pelajaran</label>
-          <select
-            v-model="selectedMapelFilter"
-            @change="initBatchRows"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-bold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option value="Semua">Semua Mapel</option>
-            <option v-for="name in teacherAssignedMapels" :key="name" :value="name">{{ name }}</option>
-          </select>
+          <!-- Cari Nama Siswa -->
+          <div class="relative w-full sm:w-56">
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Cari nama siswa..."
+              class="w-full pl-8 pr-3 py-2 bg-slate-950 border border-white/15 focus:border-cyan-400 rounded-xl text-xs text-white placeholder-gray-500 outline-none min-h-[42px]"
+            />
+            <span class="absolute left-2.5 top-3 text-xs text-gray-400">🔍</span>
+          </div>
         </div>
-
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🏫 Tingkat Kelas</label>
-          <select
-            v-model="selectedTingkatFilter"
-            @change="onTingkatFilterChange(); initBatchRows();"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-bold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option value="X">Tingkat X</option>
-            <option value="XI">Tingkat XI</option>
-            <option value="XII">Tingkat XII</option>
-          </select>
-        </div>
-
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🏫 Pilih Kelas</label>
-          <select
-            v-model="selectedKelasFilter"
-            @change="initBatchRows"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-bold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option v-for="k in filteredKelasByTingkat" :key="k.id" :value="k.namaKelas">{{ k.namaKelas }} ({{ k.jurusan }})</option>
-          </select>
-        </div>
-
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🎯 Filter TP</label>
-          <select
-            v-model="selectedTpFilter"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option value="Semua">Semua TP (Semester {{ selectedSemester }})</option>
-            <option v-for="tp in activeTpList" :key="tp.id" :value="tp.id">{{ tp.kode }}: {{ tp.judul }}</option>
-          </select>
-        </div>
-
-        <div class="col-span-1 sm:col-span-2 lg:col-span-1">
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🔍 Cari Nama Siswa</label>
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Cari nama..."
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-gray-400 focus:border-cyan-400 outline-none min-h-[44px]"
-          />
-        </div>
-
       </div>
     </div>
 
@@ -702,7 +797,7 @@ function exportCsv() {
       
       <div class="p-4 sm:p-5 border-b border-white/10 bg-slate-950/60 flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <span class="text-sm font-black text-white">📊 Matriks Ledger Penilaian TP — Semester {{ selectedSemester }} ({{ selectedTahunAjaran }})</span>
+          <span class="text-sm font-black text-white">📊 Matriks Ledger Penilaian — Kelas {{ selectedKelasFilter }}</span>
         </div>
 
         <a
@@ -711,54 +806,54 @@ function exportCsv() {
           title="Buka Menu Khusus Kelola Tujuan Pembelajaran"
         >
           <span>🎯</span>
-          <span>Master TP ({{ activeTpList.length }} Sasaran) ↗</span>
+          <span>Master TP ({{ activeTpList.length }}) ↗</span>
         </a>
       </div>
-
-
 
       <!-- Desktop Table Matriks Ledger Nilai -->
       <div class="hidden md:block overflow-x-auto">
         <table class="w-full text-left text-xs sm:text-sm text-gray-300">
           <thead class="bg-slate-950/60 text-gray-400 uppercase text-[11px] font-extrabold tracking-wider border-b border-white/10">
             <tr>
-              <th class="px-4 py-4 text-center w-12 border-r border-white/5">No</th>
-              <th class="px-6 py-4 w-56 border-r border-white/5">Nama Siswa</th>
+              <th class="px-4 py-3.5 text-center w-12 border-r border-white/5">No</th>
+              <th class="px-6 py-3.5 w-56 border-r border-white/5 sticky left-0 z-20 bg-slate-950">Nama Siswa</th>
               
               <th
-                v-for="tp in (selectedTpFilter === 'Semua' ? activeTpList : activeTpList.filter(t => t.id === Number(selectedTpFilter)))"
+                v-for="tp in activeTpList"
                 :key="tp.id"
-                class="px-4 py-4 text-center w-36 border-r border-white/5"
+                class="px-3 py-3.5 text-center w-28 border-r border-white/5"
+                :title="`${tp.kode}: ${tp.judul} (KKTP: ${tp.kktp || 75})`"
               >
-                <div class="flex items-center justify-center gap-1.5">
-                  <span class="text-cyan-300 font-black">{{ tp.kode }}</span>
-                  <button
-                    @click="editClassTpScores(tp.id)"
-                    class="text-xs text-cyan-300 hover:text-white bg-cyan-500/20 hover:bg-cyan-500/40 p-1 rounded-lg border border-cyan-500/30 transition-all"
-                    title="Klik untuk Edit Nilai Sekelas pada TP ini"
-                  >
-                    ✏️
-                  </button>
+                <div class="text-cyan-300 font-black text-xs cursor-help">
+                  {{ tp.kode }}
                 </div>
-                <div class="text-[9px] font-normal text-gray-400 truncate max-w-[120px] mt-0.5">{{ tp.judul }}</div>
+                <div class="text-[10px] text-gray-500 font-mono mt-0.5">
+                  KKTP {{ tp.kktp || 75 }}
+                </div>
               </th>
 
-              <th class="px-6 py-4 text-center w-28 border-r border-white/5">Nilai Akhir</th>
-              <th class="px-6 py-4 text-center w-40">Predikat Capaian</th>
+              <th class="px-6 py-3.5 text-center w-36 border-r border-white/5">
+                <div>Nilai Akhir</div>
+                <div class="text-[9px] text-cyan-400 font-semibold normal-case">Target {{ activeTpList.length }} TP</div>
+              </th>
+              <th class="px-6 py-3.5 text-center w-44">
+                <div>Predikat Capaian</div>
+                <div class="text-[9px] text-gray-400 font-semibold normal-case">Standar KKTP &ge; 75</div>
+              </th>
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5 font-medium">
-            <tr v-for="(siswa, index) in filteredSiswa" :key="siswa.id" class="hover:bg-white/5 transition-colors">
+            <tr v-for="(siswa, index) in filteredSiswa" :key="siswa.id" class="group hover:bg-white/5 transition-colors">
               <td class="px-4 py-4 text-center font-mono text-gray-400 text-xs border-r border-white/5">
                 {{ index + 1 }}
               </td>
-              <td class="px-6 py-4 font-black text-white text-xs border-r border-white/5">
+              <td class="px-6 py-4 font-black text-white text-xs border-r border-white/5 sticky left-0 z-10 bg-slate-900 group-hover:bg-slate-800 transition-colors shadow-sm">
                 {{ siswa.nama }}
               </td>
 
               <!-- Dynamic Score Cells -->
               <td
-                v-for="tp in (selectedTpFilter === 'Semua' ? activeTpList : activeTpList.filter(t => t.id === Number(selectedTpFilter)))"
+                v-for="tp in activeTpList"
                 :key="tp.id"
                 class="px-4 py-4 text-center border-r border-white/5"
               >
@@ -772,15 +867,20 @@ function exportCsv() {
                 </button>
               </td>
 
+              <!-- Nilai Akhir (Opsi 1: Pembagi Total Seluruh Target TP) -->
               <td class="px-6 py-4 text-center border-r border-white/5">
-                <span class="font-black text-base text-cyan-300">
-                  {{ getStudentAverage(siswa.id) }}
+                <span
+                  class="font-black text-base"
+                  :class="getStudentStats(siswa.id).finalScore >= 75 ? 'text-cyan-300' : 'text-rose-400'"
+                >
+                  {{ getStudentStats(siswa.id).finalScore }}
                 </span>
               </td>
 
+              <!-- Predikat Capaian -->
               <td class="px-6 py-4 text-center">
-                <span :class="['text-xs font-extrabold px-3.5 py-1 rounded-full border shadow-sm', getPredikat(getStudentAverage(siswa.id)).color]">
-                  {{ getPredikat(getStudentAverage(siswa.id)).label }}
+                <span :class="['text-xs font-extrabold px-3.5 py-1 rounded-full border shadow-sm inline-block', getPredikat(getStudentStats(siswa.id).finalScore, getStudentStats(siswa.id).isComplete).color]">
+                  {{ getPredikat(getStudentStats(siswa.id).finalScore, getStudentStats(siswa.id).isComplete).label }}
                 </span>
               </td>
             </tr>
@@ -817,10 +917,18 @@ function exportCsv() {
             </div>
           </div>
 
-          <div class="flex items-center justify-between pt-2 border-t border-white/10">
-            <div class="text-xs font-extrabold text-white">Rata-Rata: <span class="text-cyan-300">{{ getStudentAverage(siswa.id) }}</span></div>
-            <span :class="['text-[11px] font-black px-3 py-0.5 rounded-full border', getPredikat(getStudentAverage(siswa.id)).color]">
-              {{ getPredikat(getStudentAverage(siswa.id)).label }}
+          <div class="flex items-center justify-between pt-2 border-t border-white/10 flex-wrap gap-2">
+            <div class="text-xs font-extrabold text-white flex items-center gap-1.5">
+              <span>Nilai Akhir:</span>
+              <span
+                class="font-black text-sm"
+                :class="getStudentStats(siswa.id).finalScore >= 75 ? 'text-cyan-300' : 'text-rose-400'"
+              >
+                {{ getStudentStats(siswa.id).finalScore }}
+              </span>
+            </div>
+            <span :class="['text-[10px] font-black px-2.5 py-0.5 rounded-full border', getPredikat(getStudentStats(siswa.id).finalScore, getStudentStats(siswa.id).isComplete).color]">
+              {{ getPredikat(getStudentStats(siswa.id).finalScore, getStudentStats(siswa.id).isComplete).label }}
             </span>
           </div>
         </div>

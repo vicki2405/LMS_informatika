@@ -14,6 +14,7 @@ use App\Models\MateriRead;
 use App\Models\NilaiTp;
 use App\Models\PengumpulanTugas;
 use App\Models\Siswa;
+use App\Models\TahunAjaran;
 use App\Models\Tugas;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -32,17 +33,18 @@ class SiswaDashboardController extends Controller
         $user = $request->user();
 
         // 1. Find Student Record in Database
-        $siswaObj = Siswa::query()->where('nama', '=', $user->name)->first();
+        $userName = trim($user->name);
+        $siswaObj = Siswa::query()->where('nama', '=', $userName)->first();
 
         if (! $siswaObj) {
-            $siswaObj = Siswa::all()->first(fn ($s) => mb_strtolower(trim($s->nama)) === mb_strtolower(trim($user->name)));
+            $siswaObj = Siswa::query()->whereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)])->first();
         }
 
         if (! $siswaObj && $user->kelas_id) {
             $siswaObj = Siswa::query()
                 ->where('kelas_id', $user->kelas_id)
-                ->get()
-                ->first(fn ($s) => mb_strtolower(trim($s->nama)) === mb_strtolower(trim($user->name)));
+                ->whereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)])
+                ->first();
         }
 
         $siswaId = $siswaObj?->id;
@@ -75,6 +77,7 @@ class SiswaDashboardController extends Controller
             'materiListProp' => $this->getMateriData($kelasId),
             'tugasListProp' => $this->getTugasData($kelasId, $siswaId),
             'nilaiTpListProp' => $this->getNilaiTpData($siswaId),
+            'tahunAjaranAktifProp' => fn () => TahunAjaran::getActive(),
         ]);
     }
 
@@ -104,6 +107,10 @@ class SiswaDashboardController extends Controller
 
     private function getJadwalData(?int $kelasId): array
     {
+        if (! $kelasId) {
+            return [];
+        }
+
         return Jadwal::query()->with('guru')->where('kelas_id', '=', $kelasId)->orderBy('jam_ke', 'asc')->get()->map(function ($j) {
             return [
                 'id' => $j->id,
@@ -119,13 +126,15 @@ class SiswaDashboardController extends Controller
 
     private function getMateriData(?int $kelasId): array
     {
+        if (! $kelasId) {
+            return [];
+        }
+
         return Materi::query()
             ->with(['tp', 'mapel', 'kegiatans', 'cbtJadwal', 'reads'])
             ->where('is_published', '=', true)
             ->where(function ($q) use ($kelasId) {
-                if ($kelasId) {
-                    $q->where('kelas_id', '=', $kelasId)->orWhereNull('kelas_id');
-                }
+                $q->where('kelas_id', '=', $kelasId)->orWhereNull('kelas_id');
             })
             ->orderBy('id', 'desc')
             ->get()
@@ -174,12 +183,12 @@ class SiswaDashboardController extends Controller
 
     private function getTugasData(?int $kelasId, ?int $siswaId): array
     {
+        if (! $kelasId) {
+            return [];
+        }
+
         $tugasList = Tugas::query()
-            ->where(function ($q) use ($kelasId) {
-                if ($kelasId) {
-                    $q->where('kelas_id', '=', $kelasId);
-                }
-            })
+            ->where('kelas_id', '=', $kelasId)
             ->with(['pengumpulans' => function ($q) use ($siswaId) {
                 if ($siswaId) {
                     $q->where('siswa_id', '=', $siswaId);

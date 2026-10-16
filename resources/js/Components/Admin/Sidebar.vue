@@ -92,7 +92,24 @@ function selectView(view) {
             </div>
             <div class="space-y-1.5">
               
-              <!-- 1. Jurusan & Kelas -->
+              <!-- 1. Master Tahun Pelajaran -->
+              <button
+                @click="selectView('tahun-ajaran')"
+                :class="[
+                  'w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all duration-200 group relative',
+                  activeView === 'tahun-ajaran'
+                    ? 'bg-gradient-to-r from-purple-500/25 via-indigo-500/20 to-purple-500/10 text-white border border-purple-500/40 shadow-lg shadow-purple-950/30'
+                    : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'
+                ]"
+              >
+                <span v-if="activeView === 'tahun-ajaran'" class="absolute left-0 top-2 bottom-2 w-1.5 bg-gradient-to-b from-purple-400 to-indigo-500 rounded-r-full shadow-md"></span>
+                <div :class="['p-2 rounded-xl transition-colors', activeView === 'tahun-ajaran' ? 'bg-purple-500/20 text-purple-300' : 'bg-white/5 text-gray-400 group-hover:text-purple-400 group-hover:bg-white/10']">
+                  <span class="text-base">📅</span>
+                </div>
+                <span class="truncate">Tahun Pelajaran (Default)</span>
+              </button>
+
+              <!-- 2. Jurusan & Kelas -->
               <button
                 @click="selectView('kelas')"
                 :class="[

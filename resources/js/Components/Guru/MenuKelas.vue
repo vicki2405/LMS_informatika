@@ -95,14 +95,14 @@ const filteredKelasList = computed(() => {
   if (searchKelasQuery.value.trim()) {
     const q = searchKelasQuery.value.toLowerCase();
     list = list.filter(k =>
-      k.namaKelas.toLowerCase().includes(q) ||
-      (k.tingkat && k.tingkat.toLowerCase().includes(q)) ||
-      (k.jurusan && k.jurusan.toLowerCase().includes(q)) ||
-      (k.waliKelas && k.waliKelas.toLowerCase().includes(q))
+      (k?.namaKelas || k?.nama || '').toLowerCase().includes(q) ||
+      (k?.tingkat && String(k.tingkat).toLowerCase().includes(q)) ||
+      (k?.jurusan && String(k.jurusan).toLowerCase().includes(q)) ||
+      (k?.waliKelas && String(k.waliKelas).toLowerCase().includes(q))
     );
   }
 
-  return list.sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }));
+  return list.sort((a, b) => (a?.namaKelas || a?.nama || a || '').toString().localeCompare((b?.namaKelas || b?.nama || b || '').toString(), undefined, { numeric: true, sensitivity: 'base' }));
 });
 
 // Computed Total Pages
@@ -178,7 +178,7 @@ const groupedMasterKelas = computed(() => {
     if (groups[t] && groups[t].length > 0) {
       result.push({
         tingkat: t,
-        classes: groups[t].sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }))
+        classes: groups[t].sort((a, b) => (a?.namaKelas || a?.nama || a || '').toString().localeCompare((b?.namaKelas || b?.nama || b || '').toString(), undefined, { numeric: true, sensitivity: 'base' }))
       });
     }
   });

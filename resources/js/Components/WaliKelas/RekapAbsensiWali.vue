@@ -717,9 +717,10 @@ function downloadCSV() {
         <!-- Header Dokumen (Tampil di Print/Cetak) -->
         <div class="text-center space-y-2 mb-6">
           <h2 class="text-lg font-black text-white uppercase tracking-wider print:text-slate-950">DAFTAR HADIR SISWA</h2>
-          <div class="flex justify-between text-xs font-bold text-gray-300 print:text-slate-950 px-2 pt-2 border-b border-white/10 print:border-slate-300 pb-2">
+          <div class="flex justify-between items-center text-xs font-bold text-gray-300 print:text-slate-950 px-2 pt-2 border-b border-white/10 print:border-slate-300 pb-2">
             <span>Bulan : <span class="underline">{{ selectedMonthName }} {{ new Date().getFullYear() }}</span></span>
             <span>NAMA KELAS : <span class="underline">{{ kelasBinaan }}</span></span>
+            <span>TAHUN PELAJARAN : <span class="underline">{{ $page.props.activeTahunAjaran?.kode || '2025/2026' }}</span></span>
           </div>
         </div>
 

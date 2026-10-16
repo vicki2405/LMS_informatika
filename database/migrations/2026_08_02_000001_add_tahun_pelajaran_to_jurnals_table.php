@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('jurnals', function (Blueprint $table) {
-            $table->string('tahun_pelajaran')->nullable()->default('2025/2026');
+            $table->string('tahun_pelajaran')->nullable()->default('2026/2027');
         });
     }
 

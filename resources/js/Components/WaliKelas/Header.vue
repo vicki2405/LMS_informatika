@@ -93,7 +93,7 @@ function navigateTo(view) {
 
           <span class="hidden md:inline-flex items-center gap-2 bg-indigo-500/20 text-indigo-300 text-xs font-black px-3.5 py-1 rounded-full border border-indigo-500/30 shadow-inner ml-1">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-            WALI KELAS {{ kelasBinaan }}
+            WALI KELAS {{ kelasBinaan }} • TA {{ $page.props.activeTahunAjaran?.kode || '2025/2026' }}
           </span>
 
           <!-- Role Switcher Button for Dual-Role Teachers (Only rendered when user has BOTH Guru and Wali Kelas roles) -->

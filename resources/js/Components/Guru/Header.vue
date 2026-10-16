@@ -94,7 +94,7 @@ function navigateTo(view) {
 
           <span class="hidden md:inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500/15 via-teal-500/15 to-indigo-500/15 text-cyan-300 text-xs font-extrabold px-3.5 py-1 rounded-full border border-cyan-500/30 shadow-inner ml-2">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            PANEL TENAGA PENGAJAR
+            PANEL GURU • TA {{ $page.props.activeTahunAjaran?.kode || '2025/2026' }}
           </span>
 
           <!-- Role Switcher Button (Only rendered when user has BOTH Guru and Wali Kelas roles) -->

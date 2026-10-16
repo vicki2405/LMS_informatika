@@ -159,6 +159,23 @@ class GuruApiController extends Controller
         return response()->json(['success' => true, 'data' => $materi]);
     }
 
+    public function toggleMateriStatus(int $id, Request $request): JsonResponse
+    {
+        $materi = Materi::findOrFail($id);
+        if ($request->has('is_published')) {
+            $materi->is_published = $request->boolean('is_published');
+        } else {
+            $materi->is_published = ! (bool) $materi->is_published;
+        }
+        $materi->save();
+
+        return response()->json([
+            'success' => true,
+            'isPublished' => (bool) $materi->is_published,
+            'message' => 'Status materi berhasil diubah menjadi ' . ($materi->is_published ? 'ON (Rilis)' : 'OFF (Draft)')
+        ]);
+    }
+
     // --- CBT REST API Endpoints ---
 
     public function getCbtBankSoal(): JsonResponse

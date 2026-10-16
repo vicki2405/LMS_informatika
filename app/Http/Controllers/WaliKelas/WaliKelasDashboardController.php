@@ -12,6 +12,7 @@ use App\Models\MataPelajaran;
 use App\Models\NilaiTp;
 use App\Models\PengumpulanTugas;
 use App\Models\Siswa;
+use App\Models\TahunAjaran;
 use App\Models\Tugas;
 use App\Models\TujuanPembelajaran;
 use App\Models\User;
@@ -41,16 +42,18 @@ class WaliKelasDashboardController extends Controller
             'kelasBinaanProp' => $kelasBinaan,
             'tingkatKelasBinaanProp' => $assignedClassObj?->tingkat ?? 'X',
             'kelasIdProp' => $kelasId,
-            'siswaListProp' => $this->getSiswaList($kelasId),
-            'absensiListProp' => $this->getAbsensiList($kelasId),
-            'rekapTugasListProp' => $this->getRekapTugasList($kelasId),
-            'rekapNilaiCatatanListProp' => $this->getRekapNilaiCatatanList($kelasId),
-            'rekapNilaiSemesterProp' => $this->getRekapNilaiSemester($kelasId),
-            'jadwalListProp' => $this->getJadwalList($kelasId),
-            'guruListProp' => $this->getGuruList(),
-            'tpListProp' => $this->getTpList(),
-            'mapelListProp' => $this->getMapelList(),
-            'kasusListProp' => $this->getKasusList($kelasId),
+            'siswaListProp' => fn () => $this->getSiswaList($kelasId),
+            'absensiListProp' => fn () => $this->getAbsensiList($kelasId),
+            'rekapTugasListProp' => fn () => $this->getRekapTugasList($kelasId),
+            'rekapNilaiCatatanListProp' => fn () => $this->getRekapNilaiCatatanList($kelasId),
+            'rekapNilaiSemesterProp' => fn () => $this->getRekapNilaiSemester($kelasId),
+            'jadwalListProp' => fn () => $this->getJadwalList($kelasId),
+            'guruListProp' => fn () => $this->getGuruList(),
+            'tpListProp' => fn () => $this->getTpList(),
+            'mapelListProp' => fn () => $this->getMapelList(),
+            'kasusListProp' => fn () => $this->getKasusList($kelasId),
+            'tahunAjaranAktifProp' => fn () => TahunAjaran::getActive(),
+            'tahunAjaranListProp' => fn () => TahunAjaran::query()->orderBy('is_aktif', 'desc')->orderBy('id', 'desc')->get(),
         ]);
     }
 
@@ -79,6 +82,10 @@ class WaliKelasDashboardController extends Controller
 
     private function getSiswaList(?int $kelasId)
     {
+        if (! $kelasId) {
+            return [];
+        }
+
         return Siswa::query()
             ->where('kelas_id', '=', $kelasId)
             ->select(['id', 'nis', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status'])
@@ -205,8 +212,9 @@ class WaliKelasDashboardController extends Controller
             $semesters = $items->pluck('tp.semester')->filter()->unique()->values();
             $catatans = $items->pluck('catatan')->filter()->map('trim')->unique();
 
+            $uniqueSuffix = substr(md5($mapel.'-'.($first->guru_id ?? 'all')), 0, 8);
             $result[] = [
-                'id' => 'nilai-avg-'.$first->siswa_id,
+                'id' => 'nilai-avg-'.$first->siswa_id.'-'.$uniqueSuffix,
                 'source' => 'Nilai TP',
                 'nis' => '100'.$first->siswa_id,
                 'namaSiswa' => $first->siswa?->nama ?? '-',
@@ -227,6 +235,10 @@ class WaliKelasDashboardController extends Controller
 
     private function getRekapNilaiSemester(?int $kelasId)
     {
+        if (! $kelasId) {
+            return collect();
+        }
+
         $siswasInClass = Siswa::query()->where('kelas_id', '=', $kelasId)->get();
         $siswaIds = $siswasInClass->pluck('id')->toArray();
 
@@ -437,14 +449,15 @@ class WaliKelasDashboardController extends Controller
 
     private function getAbsensiList(?int $kelasId)
     {
+        if (! $kelasId) {
+            return [];
+        }
+
         $query = Absensi::query()
             ->select(['id', 'tanggal', 'kelas_id', 'siswa_id', 'status', 'keterangan'])
             ->with(['siswa:id,nama', 'kelas:id,nama_kelas'])
+            ->where('kelas_id', '=', $kelasId)
             ->orderBy('tanggal', 'desc');
-
-        if ($kelasId) {
-            $query->where('kelas_id', '=', $kelasId);
-        }
 
         // Ambil data absensi tahun berjalan (12 bulan) agar rekapan bulanan wali kelas lengkap
         $query->where('tanggal', '>=', now()->subMonths(12)->format('Y-m-d'));

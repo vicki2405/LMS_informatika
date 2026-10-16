@@ -25,6 +25,7 @@ class MataPelajaranSeeder extends Seeder
             ['kode' => 'MP-TEI', 'nama' => 'Teknik Elektronika Industri', 'kelompok' => 'Kelompok Kejuruan TEI', 'deskripsi' => 'Rangkaian mikroprosesor, sensor industri, dan kendali otomatis'],
             ['kode' => 'MP-ANM', 'nama' => 'Dasar-Dasar Animasi', 'kelompok' => 'Kelompok Kejuruan ANIMASI', 'deskripsi' => 'Prinsip animasi 2D/3D, sketsa karakter, dan produksi storyboard'],
             ['kode' => 'MP-KUL', 'nama' => 'Tata Boga & Seni Kuliner', 'kelompok' => 'Kelompok Kejuruan KULINER', 'deskripsi' => 'Teknik pengolahan makanan, hygiene sanitasi, dan penyajian masakan'],
+            ['kode' => 'MP-SEJ', 'nama' => 'Sejarah Indonesia', 'kelompok' => 'Kelompok A (Umum)', 'deskripsi' => 'Sejarah Kebangsaan & Peradaban Nasional'],
         ];
 
         foreach ($mapels as $m) {

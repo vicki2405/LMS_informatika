@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
 import { renderFormulaContent } from '@/Utils/formulaRenderer';
+import { showToast } from '@/Utils/sweetalert';
 
 const props = defineProps({
   materiList: { type: Array, default: () => [] },
@@ -13,11 +14,63 @@ const props = defineProps({
 
 const emit = defineEmits(['delete-materi']);
 
+function getInitialSemester() {
+  try {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('guru_active_semester') : null;
+    if (saved && ['Ganjil', 'Genap'].includes(saved)) {
+      return saved;
+    }
+  } catch (e) {}
+  const currentMonth = new Date().getMonth() + 1;
+  return (currentMonth >= 1 && currentMonth <= 6) ? 'Genap' : 'Ganjil';
+}
+
 // Filter Controls State
-const selectedSemester = ref('Ganjil');
+const selectedSemester = ref(getInitialSemester());
 const selectedTpFilter = ref('Semua');
 const selectedTipeFilter = ref('Semua');
+const selectedStatusFilter = ref('Semua'); // 'Semua', 'ON', 'OFF'
 const searchQuery = ref('');
+
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.setItem('guru_active_semester', selectedSemester.value);
+  } catch (e) {}
+}
+
+// Toggle Status Loading State
+const togglingId = ref(null);
+
+async function togglePublishStatus(materi) {
+  if (togglingId.value) return;
+  togglingId.value = materi.id;
+
+  const oldStatus = materi.isPublished !== false;
+  const newStatus = !oldStatus;
+
+  // Optimistic update
+  materi.isPublished = newStatus;
+
+  try {
+    const res = await axios.post(route('guru.materi.toggle-status', materi.id), {
+      is_published: newStatus
+    });
+    if (res.data?.success) {
+      showToast(
+        newStatus
+          ? `Materi "${materi.judul}" sekarang AKTIF (ON) dan rilis ke siswa.`
+          : `Materi "${materi.judul}" dinonaktifkan (OFF / Draft).`,
+        'success'
+      );
+    }
+  } catch (err) {
+    // Rollback on error
+    materi.isPublished = oldStatus;
+    showToast(err.response?.data?.message || 'Gagal mengubah status materi. Silakan coba lagi.', 'error');
+  } finally {
+    togglingId.value = null;
+  }
+}
 
 // Filtered Materi List
 const filteredMateriList = computed(() => {
@@ -35,9 +88,15 @@ const filteredMateriList = computed(() => {
     list = list.filter(m => m.tipe === selectedTipeFilter.value);
   }
 
+  if (selectedStatusFilter.value === 'ON') {
+    list = list.filter(m => m.isPublished !== false);
+  } else if (selectedStatusFilter.value === 'OFF') {
+    list = list.filter(m => m.isPublished === false);
+  }
+
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.toLowerCase();
-    list = list.filter(m => m.judul.toLowerCase().includes(q) || (m.deskripsiSingkat && m.deskripsiSingkat.toLowerCase().includes(q)));
+    list = list.filter(m => (m.judul || '').toLowerCase().includes(q) || (m.deskripsiSingkat && m.deskripsiSingkat.toLowerCase().includes(q)));
   }
 
   return list;
@@ -206,7 +265,7 @@ function getTypeBadge(tipe) {
 
     <!-- Filter Controls Bar -->
     <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <div>
           <label class="block text-[11px] font-bold text-cyan-300 uppercase mb-1.5">📅 Semester</label>
           <select
@@ -240,6 +299,18 @@ function getTypeBadge(tipe) {
             <option value="Slider PPT">🖥️ Slider PPT Interaktif</option>
             <option value="Dokumen PDF/PPT">📄 Dokumen PDF / PPT</option>
             <option value="Video YouTube">🎥 Video Pembelajaran</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">⚡ Status Rilis Siswa</label>
+          <select
+            v-model="selectedStatusFilter"
+            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
+          >
+            <option value="Semua">Semua Status</option>
+            <option value="ON">🟢 ON (Rilis Siswa)</option>
+            <option value="OFF">⚪ OFF (Draft / Sembunyi)</option>
           </select>
         </div>
 
@@ -343,14 +414,35 @@ function getTypeBadge(tipe) {
                 </button>
               </td>
 
-              <!-- Status Publikasi -->
+              <!-- Status Publikasi (Setting ON / OFF) -->
               <td class="px-4 py-4 text-center border-r border-white/5">
-                <span v-if="materi.isPublished !== false" class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-black px-2.5 py-1 rounded-full">
-                  🟢 Rilis
-                </span>
-                <span v-else class="bg-gray-500/20 text-gray-400 border border-gray-500/30 text-[11px] font-bold px-2.5 py-1 rounded-full">
-                  ⚪ Draft
-                </span>
+                <button
+                  type="button"
+                  @click="togglePublishStatus(materi)"
+                  :disabled="togglingId === materi.id"
+                  class="group inline-flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-200 active:scale-95 focus:outline-none min-h-[36px]"
+                  :class="[
+                    materi.isPublished !== false
+                      ? 'bg-emerald-500/15 border-emerald-500/40 hover:bg-emerald-500/25 text-emerald-300'
+                      : 'bg-slate-800/80 border-slate-700 hover:bg-slate-800 text-slate-400'
+                  ]"
+                  :title="materi.isPublished !== false ? 'Materi sedang ON (Rilis). Klik untuk mematikan ke OFF (Draft)' : 'Materi sedang OFF (Draft). Klik untuk mengaktifkan ke ON (Rilis)'"
+                >
+                  <!-- Switch Track & Thumb -->
+                  <div
+                    class="w-8 h-4 rounded-full p-0.5 transition-colors duration-200 flex items-center relative"
+                    :class="materi.isPublished !== false ? 'bg-emerald-500 justify-end' : 'bg-slate-600 justify-start'"
+                  >
+                    <div
+                      class="w-3 h-3 rounded-full bg-white shadow-sm transform transition-transform duration-200"
+                      :class="{'animate-pulse': togglingId === materi.id}"
+                    ></div>
+                  </div>
+                  <!-- Label Text -->
+                  <span class="text-[11px] font-black tracking-wide">
+                    {{ materi.isPublished !== false ? 'ON (Rilis)' : 'OFF (Draft)' }}
+                  </span>
+                </button>
               </td>
 
               <!-- Action Buttons -->
@@ -396,12 +488,32 @@ function getTypeBadge(tipe) {
                 {{ materi.mapelNama }}
               </span>
             </div>
-            <span v-if="materi.isPublished !== false" class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-2 py-0.5 rounded-full shrink-0">
-              🟢 Rilis
-            </span>
-            <span v-else class="bg-gray-500/20 text-gray-400 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">
-              ⚪ Draft
-            </span>
+            <!-- Switch Toggle ON / OFF Mobile -->
+            <button
+              type="button"
+              @click="togglePublishStatus(materi)"
+              :disabled="togglingId === materi.id"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all duration-200 active:scale-95 min-h-[38px]"
+              :class="[
+                materi.isPublished !== false
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                  : 'bg-slate-800/90 border-slate-700 text-slate-400'
+              ]"
+              :title="materi.isPublished !== false ? 'Status ON: Klik untuk Nonaktifkan (OFF)' : 'Status OFF: Klik untuk Rilis (ON)'"
+            >
+              <div
+                class="w-7 h-3.5 rounded-full p-0.5 transition-colors duration-200 flex items-center relative"
+                :class="materi.isPublished !== false ? 'bg-emerald-500 justify-end' : 'bg-slate-600 justify-start'"
+              >
+                <div
+                  class="w-2.5 h-2.5 rounded-full bg-white shadow-sm transition-transform duration-200"
+                  :class="{'animate-pulse': togglingId === materi.id}"
+                ></div>
+              </div>
+              <span class="text-[10px] font-extrabold tracking-tight">
+                {{ materi.isPublished !== false ? 'ON' : 'OFF' }}
+              </span>
+            </button>
           </div>
 
           <div>

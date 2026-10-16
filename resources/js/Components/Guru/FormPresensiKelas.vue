@@ -71,9 +71,9 @@ const selectedTingkat = ref(getTingkatFromKelas(batchKelas.value));
 
 const filteredKelasByTingkat = computed(() => {
   return (props.kelasList || []).filter(k => {
-    const t = k.tingkat || getTingkatFromKelas(k.namaKelas || k);
+    const t = k?.tingkat || getTingkatFromKelas(k?.namaKelas || k?.nama || k);
     return t === selectedTingkat.value;
-  }).sort((a, b) => (a.namaKelas || a).localeCompare(b.namaKelas || b, undefined, { numeric: true, sensitivity: 'base' }));
+  }).sort((a, b) => (a?.namaKelas || a?.nama || a || '').toString().localeCompare((b?.namaKelas || b?.nama || b || '').toString(), undefined, { numeric: true, sensitivity: 'base' }));
 });
 
 function onTingkatChange() {

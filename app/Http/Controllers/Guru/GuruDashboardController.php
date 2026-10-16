@@ -84,21 +84,21 @@ class GuruDashboardController extends Controller
 
         return Inertia::render('Guru/Dashboard', [
             'teacherSubjectProp' => $guru?->mapel_utama ?? 'Informatika',
-            'tahunAjaranListProp' => TahunAjaran::query()->orderBy('id', 'asc')->get(),
-            'jurusanListProp' => Jurusan::query()->orderBy('id', 'asc')->get(),
-            'kelasListProp' => $this->getKelasData($guruId),
-            'masterKelasListProp' => $this->getMasterKelasData(),
-            'siswaListProp' => $this->getSiswaData($guruId, $kelasIds),
-            'jadwalListProp' => $this->getJadwalData($guruId),
-            'absensiListProp' => $this->getAbsensiData($guruId, $kelasIds),
-            'jurnalListProp' => $this->getJurnalData($guruId),
-            'tpListProp' => $this->getTpData($guru?->mapel_utama),
-            'nilaiListProp' => $this->getNilaiData($guruId, $kelasIds),
-            'materiListProp' => $this->getMateriData($guruId, $kelasIds, $teacherMapelIds),
-            'mapelListProp' => $teacherMapels,
-            'cbtBankSoalListProp' => GuruCbtController::getBankSoalsList($guruId),
-            'cbtJadwalListProp' => GuruCbtController::getJadwalsList($guruId),
-            'cbtNilaiListProp' => GuruCbtController::getNilaisList($guruId),
+            'tahunAjaranListProp' => fn () => TahunAjaran::query()->orderBy('is_aktif', 'desc')->orderBy('id', 'desc')->get(),
+            'jurusanListProp' => fn () => Jurusan::query()->orderBy('id', 'asc')->get(),
+            'kelasListProp' => fn () => $this->getKelasData($guruId),
+            'masterKelasListProp' => fn () => $this->getMasterKelasData(),
+            'siswaListProp' => fn () => $this->getSiswaData($guruId, $kelasIds),
+            'jadwalListProp' => fn () => $this->getJadwalData($guruId),
+            'absensiListProp' => fn () => $this->getAbsensiData($guruId, $kelasIds),
+            'jurnalListProp' => fn () => $this->getJurnalData($guruId),
+            'tpListProp' => fn () => $this->getTpData($guru?->mapel_utama),
+            'nilaiListProp' => fn () => $this->getNilaiData($guruId, $kelasIds),
+            'materiListProp' => fn () => $this->getMateriData($guruId, $kelasIds, $teacherMapelIds),
+            'mapelListProp' => fn () => $teacherMapels,
+            'cbtBankSoalListProp' => fn () => GuruCbtController::getBankSoalsList($guruId),
+            'cbtJadwalListProp' => fn () => GuruCbtController::getJadwalsList($guruId),
+            'cbtNilaiListProp' => fn () => GuruCbtController::getNilaisList($guruId),
         ]);
     }
 
@@ -339,7 +339,7 @@ class GuruDashboardController extends Controller
                 'materi' => $ju->materi,
                 'uraian' => $ju->uraian,
                 'catatan' => $ju->catatan,
-                'tahunPelajaran' => $ju->tahun_pelajaran ?? '2025/2026',
+                'tahunPelajaran' => $ju->tahun_pelajaran ?? '2026/2027',
                 'semester' => $ju->semester ?? 'Ganjil',
             ];
         })->toArray();
@@ -371,7 +371,7 @@ class GuruDashboardController extends Controller
                 'jenis' => $t->jenis,
                 'kktp' => $t->kktp,
                 'semester' => $t->semester,
-                'tahunAjaran' => $t->tahunAjaran?->kode ?? '2025/2026',
+                'tahunAjaran' => $t->tahunAjaran?->kode ?? '2026/2027',
             ];
         })->toArray();
     }
@@ -488,6 +488,7 @@ class GuruDashboardController extends Controller
             'materiProp' => $materi ? $this->serializeMateri($materi) : null,
             'mapelListProp' => $teacherMapels,
             'kelasListProp' => $teacherKelas,
+            'masterKelasListProp' => $this->getMasterKelasData(),
             'jadwalListProp' => $this->getJadwalData($guruId),
             'tpListProp' => $this->getTpData($teacherMapelNames ?: $guru?->mapel_utama),
             'cbtJadwalListProp' => collect($teacherCbtJadwals)->map(fn ($j) => [
@@ -652,7 +653,8 @@ class GuruDashboardController extends Controller
 
         $jamKe = $request->input('jam_ke') ?? $request->input('jamKe') ?? 'Jam 1 - 2';
         $mataPelajaran = $request->input('mata_pelajaran') ?? $request->input('mataPelajaran') ?? 'Informatika';
-        $tahunPelajaran = $request->input('tahun_pelajaran') ?? $request->input('tahunPelajaran') ?? '2025/2026';
+        $defaultTaKode = TahunAjaran::getActive()?->kode ?? '2026/2027';
+        $tahunPelajaran = $request->input('tahun_pelajaran') ?? $request->input('tahunPelajaran') ?? $defaultTaKode;
         $semester = $request->input('semester') ?? 'Ganjil';
 
         $validated = $request->validate([
@@ -985,6 +987,31 @@ HTML;
         Materi::destroy($id);
 
         return redirect()->back()->with('message', 'Materi pembelajaran berhasil dihapus!');
+    }
+
+    /**
+     * Toggle active publish status (ON/OFF) of a Materi.
+     */
+    public function toggleMateriStatus(int $id, Request $request)
+    {
+        $materi = Materi::query()->findOrFail($id);
+
+        if ($request->has('is_published')) {
+            $materi->is_published = $request->boolean('is_published');
+        } else {
+            $materi->is_published = ! (bool) $materi->is_published;
+        }
+        $materi->save();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'isPublished' => (bool) $materi->is_published,
+                'message' => 'Status materi berhasil diubah menjadi ' . ($materi->is_published ? 'ON (Rilis)' : 'OFF (Draft)') . '!'
+            ]);
+        }
+
+        return redirect()->back()->with('message', 'Status materi berhasil diubah!');
     }
 
     /**

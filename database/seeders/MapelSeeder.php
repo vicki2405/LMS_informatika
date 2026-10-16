@@ -27,20 +27,20 @@ class MapelSeeder extends Seeder
             );
         }
 
-        // 2. Seed Master Mata Pelajaran
+        // 2. Seed Master Mata Pelajaran (Only if not already created)
         $mapels = [
-            ['kode' => 'INF', 'nama' => 'Informatika', 'kelompok' => 'Kejuruan / Produktif', 'deskripsi' => 'Pemrograman, Pemikiran Komputasional & Algoritma'],
-            ['kode' => 'MATH', 'nama' => 'Matematika', 'kelompok' => 'Mata Pelajaran Umum', 'deskripsi' => 'Matematika Terapan & Logika'],
-            ['kode' => 'BINDO', 'nama' => 'Bahasa Indonesia', 'kelompok' => 'Mata Pelajaran Umum', 'deskripsi' => 'Literasi & Kebahasaan Indonesia'],
-            ['kode' => 'BING', 'nama' => 'Bahasa Inggris', 'kelompok' => 'Mata Pelajaran Umum', 'deskripsi' => 'English Communication & Grammar'],
-            ['kode' => 'SEJ', 'nama' => 'Sejarah Indonesia', 'kelompok' => 'Mata Pelajaran Umum', 'deskripsi' => 'Sejarah Kebangsaan & Peradaban'],
-            ['kode' => 'PAI', 'nama' => 'Pendidikan Agama Islam', 'kelompok' => 'Muatan Lokal', 'deskripsi' => 'Aqidah, Akhlaq & Fiqih Syafii'],
+            ['kode' => 'MP-INF', 'nama' => 'Informatika', 'kelompok' => 'Kelompok Kejuruan', 'deskripsi' => 'Pemrograman, Pemikiran Komputasional & Algoritma'],
+            ['kode' => 'MP-MTK', 'nama' => 'Matematika', 'kelompok' => 'Kelompok A (Umum)', 'deskripsi' => 'Matematika Terapan & Logika'],
+            ['kode' => 'MP-IND', 'nama' => 'Bahasa Indonesia', 'kelompok' => 'Kelompok A (Umum)', 'deskripsi' => 'Literasi & Kebahasaan Indonesia'],
+            ['kode' => 'MP-BIG', 'nama' => 'Bahasa Inggris', 'kelompok' => 'Kelompok A (Umum)', 'deskripsi' => 'English Communication & Grammar'],
+            ['kode' => 'MP-SEJ', 'nama' => 'Sejarah Indonesia', 'kelompok' => 'Kelompok A (Umum)', 'deskripsi' => 'Sejarah Kebangsaan & Peradaban'],
+            ['kode' => 'MP-PAI', 'nama' => 'Pendidikan Agama & Budi Pekerti', 'kelompok' => 'Kelompok A (Umum)', 'deskripsi' => 'Aqidah, Akhlaq & Fiqih Syafii'],
         ];
 
         foreach ($mapels as $m) {
             MataPelajaran::firstOrCreate(
-                ['kode' => $m['kode']],
-                ['nama' => $m['nama'], 'kelompok' => $m['kelompok'], 'deskripsi' => $m['deskripsi']]
+                ['nama' => $m['nama']],
+                ['kode' => $m['kode'], 'kelompok' => $m['kelompok'], 'deskripsi' => $m['deskripsi']]
             );
         }
     }

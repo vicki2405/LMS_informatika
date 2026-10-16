@@ -33,6 +33,10 @@ Route::prefix('v1')->group(function () {
             Route::get('/kelas', [AdminApiController::class, 'getKelas']);
             Route::get('/jurusan', [AdminApiController::class, 'getJurusan']);
             Route::get('/users', [AdminApiController::class, 'getUsers']);
+            Route::get('/tahun-ajaran', [AdminApiController::class, 'getTahunAjaran']);
+            Route::post('/tahun-ajaran', [AdminApiController::class, 'storeTahunAjaran']);
+            Route::post('/tahun-ajaran/{id}/set-default', [AdminApiController::class, 'setDefaultTahunAjaran']);
+            Route::delete('/tahun-ajaran/{id}', [AdminApiController::class, 'deleteTahunAjaran']);
         });
 
         // 3. Guru API Endpoints
@@ -49,6 +53,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/nilai', [GuruApiController::class, 'getNilai']);
             Route::post('/nilai/batch', [GuruApiController::class, 'storeNilaiBatch']);
             Route::get('/materi', [GuruApiController::class, 'getMateri']);
+            Route::post('/materi/{id}/toggle-status', [GuruApiController::class, 'toggleMateriStatus']);
             
             // CBT API
             Route::get('/cbt/bank-soal', [GuruApiController::class, 'getCbtBankSoal']);

@@ -1,6 +1,9 @@
 <script setup>
 import { ref, computed } from 'vue';
+import { usePage } from '@inertiajs/vue3';
 import { confirmDelete, showToast } from '@/Utils/sweetalert';
+
+const page = usePage();
 
 const props = defineProps({
   tpList: { type: Array, default: () => [] },
@@ -80,17 +83,26 @@ const stats = computed(() => {
   return { total, ganjil, genap, avgKktp };
 });
 
+function getActiveSemester() {
+  try {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('guru_active_semester') : null;
+    if (saved && ['Ganjil', 'Genap'].includes(saved)) return saved;
+  } catch (e) {}
+  const currentMonth = new Date().getMonth() + 1;
+  return (currentMonth >= 1 && currentMonth <= 6) ? 'Genap' : 'Ganjil';
+}
+
 function openCreateModal() {
   editingTp.value = null;
   const defaultMapel = availableMapels.value[0] || props.teacherSubject || 'Informatika';
-  const activeTa = props.tahunAjaranList.find(t => t.isAktif)?.kode || '2025/2026';
+  const activeTa = props.tahunAjaranList.find(t => t.isAktif || t.is_aktif)?.kode || page.props.activeTahunAjaran?.kode || '2026/2027';
   
   form.value = {
     kode: `TP.${props.tpList.length + 1}`,
     judul: '',
     mapel: defaultMapel,
     kktp: 75,
-    semester: 'Ganjil',
+    semester: getActiveSemester(),
     jenis: 'Formatif',
     tahunAjaran: activeTa
   };

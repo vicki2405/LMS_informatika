@@ -150,4 +150,82 @@ class AdminApiController extends Controller
             'data' => UserResource::collection($users),
         ]);
     }
+
+    public function getTahunAjaran(): JsonResponse
+    {
+        $tahunAjaran = \App\Models\TahunAjaran::orderBy('is_aktif', 'desc')->orderBy('id', 'desc')->get();
+        return response()->json([
+            'success' => true,
+            'data' => $tahunAjaran,
+        ]);
+    }
+
+    public function storeTahunAjaran(\Illuminate\Http\Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'id' => 'nullable|integer',
+            'kode' => 'required|string|max:50',
+            'is_aktif' => 'nullable|boolean',
+        ]);
+
+        $isAktif = !empty($validated['is_aktif']);
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($validated, $isAktif, &$ta) {
+            if ($isAktif) {
+                \App\Models\TahunAjaran::query()->update(['is_aktif' => false]);
+            }
+
+            if (!empty($validated['id'])) {
+                $ta = \App\Models\TahunAjaran::findOrFail($validated['id']);
+                $ta->update([
+                    'kode' => trim($validated['kode']),
+                    'is_aktif' => $isAktif,
+                ]);
+            } else {
+                $ta = \App\Models\TahunAjaran::create([
+                    'kode' => trim($validated['kode']),
+                    'is_aktif' => $isAktif,
+                ]);
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tahun Pelajaran berhasil disimpan',
+            'data' => $ta,
+        ]);
+    }
+
+    public function setDefaultTahunAjaran(int $id): JsonResponse
+    {
+        \Illuminate\Support\Facades\DB::transaction(function () use ($id, &$ta) {
+            \App\Models\TahunAjaran::query()->update(['is_aktif' => false]);
+            $ta = \App\Models\TahunAjaran::findOrFail($id);
+            $ta->update(['is_aktif' => true]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tahun Pelajaran berhasil dijadikan default aktif sistem',
+            'data' => $ta,
+        ]);
+    }
+
+    public function deleteTahunAjaran(int $id): JsonResponse
+    {
+        $ta = \App\Models\TahunAjaran::findOrFail($id);
+        if ($ta->is_aktif) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tahun Pelajaran yang sedang aktif tidak dapat dihapus',
+            ], 422);
+        }
+
+        $ta->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tahun Pelajaran berhasil dihapus',
+        ]);
+    }
 }

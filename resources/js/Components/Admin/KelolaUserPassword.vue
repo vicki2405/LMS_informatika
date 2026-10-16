@@ -83,7 +83,7 @@ const groupedKelasList = computed(() => {
     if (groups[t] && groups[t].length > 0) {
       result.push({
         tingkat: t,
-        classes: groups[t].sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }))
+        classes: groups[t].sort((a, b) => (a?.namaKelas || a?.nama || a || '').toString().localeCompare((b?.namaKelas || b?.nama || b || '').toString(), undefined, { numeric: true, sensitivity: 'base' }))
       });
     }
   });

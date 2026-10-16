@@ -42,6 +42,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('admin')->middleware('role:admin')->name('admin.')->group(function () {
         Route::get('/dashboard', [AdminDashboardController::class, 'index'])->name('dashboard');
 
+        // Master Tahun Pelajaran
+        Route::post('/tahun-ajaran/store', [AdminDashboardController::class, 'storeTahunAjaran'])->name('tahun-ajaran.store');
+        Route::post('/tahun-ajaran/{id}/set-default', [AdminDashboardController::class, 'setDefaultTahunAjaran'])->name('tahun-ajaran.set-default');
+        Route::delete('/tahun-ajaran/{id}', [AdminDashboardController::class, 'deleteTahunAjaran'])->name('tahun-ajaran.delete');
+
         Route::post('/guru/store', [AdminDashboardController::class, 'storeGuruMaster'])->name('guru.store');
         Route::delete('/guru/{id}', [AdminDashboardController::class, 'deleteGuruMaster'])->name('guru.delete');
         Route::post('/kelas/store', [AdminDashboardController::class, 'storeKelas'])->name('kelas.store');
@@ -98,6 +103,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/materi/store', [GuruDashboardController::class, 'storeMateri'])->name('materi.store');
         Route::delete('/materi/{id}', [GuruDashboardController::class, 'deleteMateri'])->name('materi.delete');
         Route::get('/materi/{id}/monitoring', [GuruDashboardController::class, 'getMateriMonitoring'])->name('materi.monitoring');
+        Route::post('/materi/{id}/toggle-status', [GuruDashboardController::class, 'toggleMateriStatus'])->name('materi.toggle-status');
         Route::post('/tp/store', [GuruDashboardController::class, 'storeTp'])->name('tp.store');
         Route::delete('/tp/{id}', [GuruDashboardController::class, 'deleteTp'])->name('tp.delete');
         Route::post('/jadwal/store', [GuruDashboardController::class, 'storeJadwal'])->name('jadwal.store');

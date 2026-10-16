@@ -116,9 +116,9 @@ const allAvailableKelasList = computed(() => {
 const availableKelasOptions = computed(() => {
   let list = allAvailableKelasList.value;
   if (selectedTingkatFilter.value !== 'Semua') {
-    list = list.filter(k => (k.tingkat || getTingkatFromKelas(k.namaKelas)) === selectedTingkatFilter.value);
+    list = list.filter(k => (k?.tingkat || getTingkatFromKelas(k?.namaKelas || k?.nama)) === selectedTingkatFilter.value);
   }
-  return [...list].sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }));
+  return [...list].sort((a, b) => (a?.namaKelas || a?.nama || a || '').toString().localeCompare((b?.namaKelas || b?.nama || b || '').toString(), undefined, { numeric: true, sensitivity: 'base' }));
 });
 
 // Filtered options for the search box inside the custom dropdown
@@ -126,7 +126,7 @@ const filteredDropdownKelasOptions = computed(() => {
   let list = availableKelasOptions.value;
   if (searchKelasDropdownQuery.value && searchKelasDropdownQuery.value.trim()) {
     const q = searchKelasDropdownQuery.value.toLowerCase().trim();
-    list = list.filter(k => k.namaKelas.toLowerCase().includes(q));
+    list = list.filter(k => (k?.namaKelas || k?.nama || '').toLowerCase().includes(q));
   }
   return list;
 });
@@ -134,8 +134,8 @@ const filteredDropdownKelasOptions = computed(() => {
 // All classes for modal form (Always natural numeric sorted)
 const scheduledClasses = computed(() => {
   return [...allAvailableKelasList.value]
-    .sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }))
-    .map(k => k.namaKelas);
+    .sort((a, b) => (a?.namaKelas || a?.nama || a || '').toString().localeCompare((b?.namaKelas || b?.nama || b || '').toString(), undefined, { numeric: true, sensitivity: 'base' }))
+    .map(k => k?.namaKelas || k?.nama || k);
 });
 
 // 1. MATA PELAJARAN RESMI GURU (MURNI DARI DATA GURU ADMIN: tab=guru / mapel_utama)
@@ -405,8 +405,13 @@ const semesterName = computed(() => {
   return Number(selectedMonth.value) >= 7 ? 'Ganjil' : 'Genap';
 });
 
+const defaultSchoolYearString = computed(() => {
+  const taKode = page.props.activeTahunAjaran?.kode;
+  return taKode ? `Tahun Pelajaran ${taKode}` : 'Tahun Pelajaran 2025/2026';
+});
+
 const targetTahunPelajaran = computed(() => {
-  const tp = filteredJurnal.value[0]?.tahunPelajaran || jurnalForm.value.tahunPelajaran || '2025/2026';
+  const tp = filteredJurnal.value[0]?.tahunPelajaran || jurnalForm.value.tahunPelajaran || defaultSchoolYearString.value;
   return String(tp).startsWith('Tahun') ? tp : `Tahun Pelajaran ${tp}`;
 });
 
@@ -422,6 +427,15 @@ function closeFormView() {
 const startPeriod = ref(1);
 const endPeriod = ref(3);
 
+function getActiveSemester() {
+  try {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('guru_active_semester') : null;
+    if (saved && ['Ganjil', 'Genap'].includes(saved)) return saved;
+  } catch (e) {}
+  const currentMonth = new Date().getMonth() + 1;
+  return (currentMonth >= 1 && currentMonth <= 6) ? 'Genap' : 'Ganjil';
+}
+
 const jurnalForm = ref({
   tanggal: getTodayString(),
   jamKe: '',
@@ -430,8 +444,8 @@ const jurnalForm = ref({
   materi: '',
   uraian: '',
   catatan: '',
-  tahunPelajaran: 'Tahun Pelajaran 2026 - 2027',
-  semester: 'Ganjil'
+  tahunPelajaran: defaultSchoolYearString.value,
+  semester: getActiveSemester()
 });
 
 // Pilihan Mata Pelajaran yang Terikat dengan Kelas Terpilih Berdasarkan Jadwal Guru
@@ -526,8 +540,8 @@ function openAddJurnalModal() {
     materi: '',
     uraian: '',
     catatan: '',
-    tahunPelajaran: 'Tahun Pelajaran 2026 - 2027',
-    semester: 'Ganjil'
+    tahunPelajaran: defaultSchoolYearString.value,
+    semester: getActiveSemester()
   };
 
   if (schedToday) {
@@ -557,7 +571,7 @@ function openEditJurnal(item) {
     ...item,
     kelas: item.kelas,
     mataPelajaran: item.mataPelajaran || item.mata_pelajaran || teacherAdminSubjects.value[0] || 'Informatika',
-    tahunPelajaran: item.tahunPelajaran || 'Tahun Pelajaran 2026 - 2027',
+    tahunPelajaran: item.tahunPelajaran || defaultSchoolYearString.value,
     semester: item.semester || 'Ganjil'
   };
   isFormViewActive.value = true;

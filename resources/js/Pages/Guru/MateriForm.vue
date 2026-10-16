@@ -1,7 +1,7 @@
 <script setup>
-import { ref, reactive, computed, watch } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { showToast } from '@/Utils/sweetalert';
+import Swal, { showToast } from '@/Utils/sweetalert';
 import AutoTextarea from '@/Components/AutoTextarea.vue';
 import { renderFormulaContent, SCIENCE_PRESETS } from '@/Utils/formulaRenderer';
 
@@ -9,6 +9,7 @@ const props = defineProps({
   materiProp: { type: Object, default: null },
   mapelListProp: { type: Array, default: () => [] },
   kelasListProp: { type: Array, default: () => [] },
+  masterKelasListProp: { type: Array, default: () => [] },
   jadwalListProp: { type: Array, default: () => [] },
   tpListProp: { type: Array, default: () => [] },
   cbtJadwalListProp: { type: Array, default: () => [] },
@@ -101,73 +102,63 @@ const form = reactive({
 
 const selectedTingkat = ref('Semua');
 
-// Dynamic Kelas disinkronkan dengan Jadwal Mengajar Guru & Mata Pelajaran Terpilih
-const availableKelasForSelectedMapel = computed(() => {
+// Selected Mapel Object
+const selectedMapelObj = computed(() => {
+  return (props.mapelListProp || []).find(m => String(m.id) === String(form.mapelId));
+});
+
+// Set ID kelas yang terjadwal spesifik untuk mapel terpilih
+const scheduledKelasIdsForSelectedMapel = computed(() => {
   const currentMapel = selectedMapelObj.value;
   const jadwals = props.jadwalListProp || [];
+  if (!currentMapel || jadwals.length === 0) return new Set();
 
-  // 1. Filter jadwal yang sesuai dengan mata pelajaran yang dipilih
-  let matchingJadwals = [];
-  if (currentMapel && jadwals.length > 0) {
-    const mapelNamaLower = (currentMapel.nama || '').trim().toLowerCase();
-    const mapelKodeLower = (currentMapel.kode || '').trim().toLowerCase();
+  const mapelNamaLower = (currentMapel.nama || '').trim().toLowerCase();
+  const mapelKodeLower = (currentMapel.kode || '').trim().toLowerCase();
 
-    matchingJadwals = jadwals.filter(j => {
-      if (!j.mataPelajaran) return false;
-      const jMapelLower = j.mataPelajaran.trim().toLowerCase();
-      return jMapelLower === mapelNamaLower ||
-             jMapelLower === mapelKodeLower ||
-             mapelNamaLower.includes(jMapelLower) ||
-             jMapelLower.includes(mapelKodeLower);
+  const matching = jadwals.filter(j => {
+    if (!j.mataPelajaran) return false;
+    const jMapelLower = j.mataPelajaran.trim().toLowerCase();
+    return jMapelLower === mapelNamaLower ||
+           jMapelLower === mapelKodeLower ||
+           mapelNamaLower.includes(jMapelLower) ||
+           jMapelLower.includes(mapelKodeLower);
+  });
+
+  return new Set(matching.map(j => j.kelasId).filter(Boolean));
+});
+
+// Dynamic Kelas: Menampilkan seluruh kelas guru (atau master kelas), menandai kelas sesuai jadwal mapel
+const availableKelasForSelectedMapel = computed(() => {
+  const source = (props.kelasListProp && props.kelasListProp.length > 0)
+    ? props.kelasListProp
+    : (props.masterKelasListProp || []);
+
+  const scheduledIds = scheduledKelasIdsForSelectedMapel.value;
+
+  const map = new Map();
+  source.forEach(k => {
+    if (!k || !k.id) return;
+    map.set(k.id, {
+      id: k.id,
+      nama: k.nama || k.namaKelas,
+      namaKelas: k.namaKelas || k.nama,
+      tingkat: k.tingkat || 'X',
+      jurusan: k.jurusan || 'Umum',
+      isScheduled: scheduledIds.has(k.id),
     });
-  }
+  });
 
-  // 2. Jika ada jadwal untuk mapel ini, gunakan kelas dari jadwal tersebut
-  if (matchingJadwals.length > 0) {
-    const map = new Map();
-    matchingJadwals.forEach(j => {
-      const kId = j.kelasId;
-      if (kId && !map.has(kId)) {
-        const found = (props.kelasListProp || []).find(k => k.id === kId);
-        map.set(kId, {
-          id: kId,
-          nama: found?.nama || found?.namaKelas || j.namaKelas || j.kelas,
-          namaKelas: found?.namaKelas || found?.nama || j.namaKelas || j.kelas,
-          tingkat: found?.tingkat || j.tingkat || 'X',
-          jurusan: found?.jurusan || j.jurusan || 'Umum',
-        });
-      }
-    });
-    return Array.from(map.values());
-  }
-
-  // 3. Fallback: jika mapel belum terjadwal secara spesifik, tampilkan seluruh kelas dari jadwal guru
-  if (jadwals.length > 0) {
-    const map = new Map();
-    jadwals.forEach(j => {
-      const kId = j.kelasId;
-      if (kId && !map.has(kId)) {
-        const found = (props.kelasListProp || []).find(k => k.id === kId);
-        map.set(kId, {
-          id: kId,
-          nama: found?.nama || found?.namaKelas || j.namaKelas || j.kelas,
-          namaKelas: found?.namaKelas || found?.nama || j.namaKelas || j.kelas,
-          tingkat: found?.tingkat || j.tingkat || 'X',
-          jurusan: found?.jurusan || j.jurusan || 'Umum',
-        });
-      }
-    });
-    return Array.from(map.values());
-  }
-
-  // 4. Fallback terakhir: kelasListProp
-  return (props.kelasListProp || []).map(k => ({
-    id: k.id,
-    nama: k.nama || k.namaKelas,
-    namaKelas: k.namaKelas || k.nama,
-    tingkat: k.tingkat || 'X',
-    jurusan: k.jurusan || 'Umum',
-  }));
+  return Array.from(map.values()).sort((a, b) => {
+    // 1. Kelas yang terjadwal mapel ini diutamakan di posisi atas
+    if (a.isScheduled && !b.isScheduled) return -1;
+    if (!a.isScheduled && b.isScheduled) return 1;
+    // 2. Urutkan berdasarkan tingkat
+    const tCmp = (a.tingkat || '').localeCompare(b.tingkat || '');
+    if (tCmp !== 0) return tCmp;
+    // 3. Urutkan berdasarkan nama kelas
+    return (a.nama || '').localeCompare(b.nama || '', undefined, { numeric: true });
+  });
 });
 
 const filteredKelasByTingkat = computed(() => {
@@ -176,6 +167,10 @@ const filteredKelasByTingkat = computed(() => {
     return classes;
   }
   return classes.filter(k => (k.tingkat || '').toUpperCase() === selectedTingkat.value.toUpperCase());
+});
+
+const scheduledCountInSelectedTingkat = computed(() => {
+  return filteredKelasByTingkat.value.filter(k => k.isScheduled).length;
 });
 
 function getTingkatFromKelasId(kelasId) {
@@ -187,12 +182,13 @@ function getTingkatFromKelasId(kelasId) {
 
 if (form.kelas_id) {
   selectedTingkat.value = getTingkatFromKelasId(form.kelas_id);
+} else if (!isEditing.value) {
+  // Jika form baru, arahkan default tingkat ke jadwal mapel yang terpilih jika ada
+  const scheduled = availableKelasForSelectedMapel.value.filter(k => k.isScheduled);
+  if (scheduled.length > 0 && scheduled[0].tingkat) {
+    selectedTingkat.value = scheduled[0].tingkat.toUpperCase();
+  }
 }
-
-// Selected Mapel Object
-const selectedMapelObj = computed(() => {
-  return (props.mapelListProp || []).find(m => String(m.id) === String(form.mapelId));
-});
 
 // Dynamic Filter TP sesuai Mapel yang dipilih dan Semester
 const availableTpsForSelectedMapel = computed(() => {
@@ -232,9 +228,45 @@ watch([() => form.mapelId, () => form.semester], () => {
   }
 });
 
-// Computed Helper untuk Locked Bar
+// Computed Helper untuk Locked Bar & Preview
 const selectedTpObj = computed(() => {
   return (props.tpListProp || []).find(t => String(t.id) === String(form.tpId));
+});
+
+// State & Filter untuk Custom Searchable TP Selector
+const isTpDropdownOpen = ref(false);
+const tpSearchQuery = ref('');
+
+const searchedTps = computed(() => {
+  const list = availableTpsForSelectedMapel.value;
+  const q = tpSearchQuery.value.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter(tp => {
+    const kode = (tp.kode || '').toLowerCase();
+    const judul = (tp.judul || tp.deskripsi || '').toLowerCase();
+    return kode.includes(q) || judul.includes(q);
+  });
+});
+
+function selectTp(tp) {
+  form.tpId = tp.id;
+  isTpDropdownOpen.value = false;
+  tpSearchQuery.value = '';
+}
+
+function handleClickOutside(event) {
+  const container = document.getElementById('tp-selector-container');
+  if (container && !container.contains(event.target)) {
+    isTpDropdownOpen.value = false;
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
 });
 
 // Watcher mapelId agar kelas_id tetap valid jika mapel berganti
@@ -243,6 +275,12 @@ watch(() => form.mapelId, () => {
     const exists = availableKelasForSelectedMapel.value.some(k => k.id === form.kelas_id);
     if (!exists) {
       form.kelas_id = null;
+    }
+  } else if (!isEditing.value) {
+    // Jika belum memilih kelas spesifik pada form baru, otomatis sesuaikan tingkat jika mapel memiliki jadwal
+    const scheduled = availableKelasForSelectedMapel.value.filter(k => k.isScheduled);
+    if (scheduled.length > 0 && scheduled[0].tingkat) {
+      selectedTingkat.value = scheduled[0].tingkat.toUpperCase();
     }
   }
 });
@@ -414,7 +452,38 @@ const youtubeEmbedUrl = computed(() => {
   return null;
 });
 
-function goBack() {
+async function goBack() {
+  if (currentStep.value === 2) {
+    currentStep.value = 1;
+    return;
+  }
+
+  const hasChanges = !!form.judul.trim() || !!form.deskripsiSingkat.trim() || (form.kegiatan && form.kegiatan.length > 0);
+  if (hasChanges) {
+    const res = await Swal.fire({
+      title: 'Tinggalkan Halaman?',
+      text: 'Perubahan materi yang belum disimpan akan hilang.',
+      icon: 'warning',
+      iconColor: '#f59e0b',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#475569',
+      confirmButtonText: 'Ya, Tinggalkan',
+      cancelButtonText: 'Tetap di Sini',
+      background: '#0f172a',
+      color: '#f8fafc',
+      customClass: {
+        popup: 'rounded-3xl border border-white/10 shadow-2xl backdrop-blur-xl',
+        title: 'text-lg font-black text-white',
+        htmlContainer: 'text-xs text-gray-300 font-medium',
+        confirmButton: 'rounded-2xl px-5 py-2.5 text-xs shadow-lg font-bold',
+        cancelButton: 'rounded-2xl px-5 py-2.5 text-xs font-bold'
+      }
+    });
+
+    if (!res.isConfirmed) return;
+  }
+
   router.get(route('guru.dashboard', { tab: 'materi' }));
 }
 
@@ -498,9 +567,15 @@ function submit() {
         <div class="flex items-center gap-3 min-w-0">
           <button
             @click="goBack"
-            class="w-10 h-10 shrink-0 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-lg font-black flex items-center justify-center transition-all active:scale-95 shadow min-h-[44px]"
-            title="Kembali ke daftar materi"
-          >←</button>
+            type="button"
+            class="px-3 sm:px-3.5 py-2 shrink-0 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 border border-white/15 hover:border-cyan-500/40 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-2 transition-all active:scale-95 shadow-sm min-h-[44px]"
+            :title="currentStep === 2 ? 'Kembali ke Konfigurasi Pokok' : 'Kembali ke Daftar Materi'"
+          >
+            <svg class="w-4 h-4 text-cyan-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            <span class="font-bold">{{ currentStep === 2 ? 'Ke Pengaturan' : 'Kembali' }}</span>
+          </button>
           <div class="min-w-0">
             <div class="flex items-center gap-2">
               <h1 class="text-base sm:text-lg font-black text-white truncate">
@@ -609,8 +684,8 @@ function submit() {
             />
           </div>
 
-          <!-- 3 Col Grid: Mapel, TP, Semester -->
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <!-- 2 Col Grid: Mata Pelajaran & Semester -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <!-- Mata Pelajaran -->
             <div>
               <label class="block text-xs font-bold text-slate-300 mb-1.5">
@@ -620,45 +695,10 @@ function submit() {
                 v-model="form.mapelId"
                 class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl px-3.5 py-2.5 text-xs text-white min-h-[44px] cursor-pointer"
               >
-                <option v-for="mp in mapelListProp" :key="mp.id" :value="mp.id">
+                <option v-for="mp in mapelListProp" :key="mp.id" :value="mp.id" class="bg-slate-900 text-white py-1">
                   {{ mp.nama }} ({{ mp.kode }})
                 </option>
               </select>
-            </div>
-
-            <!-- Tujuan Pembelajaran (TP) - Terfilter Otomatis sesuai Mapel & Semester -->
-            <div>
-              <div class="flex items-center justify-between mb-1.5">
-                <label class="text-xs font-bold text-slate-300">
-                  Tujuan Pembelajaran (TP) <span class="text-rose-400">*</span>
-                </label>
-                <a
-                  href="/guru/dashboard?tab=tp"
-                  target="_blank"
-                  class="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition"
-                  title="Buka menu Pengelolaan TP di tab baru"
-                >
-                  <span>🎯</span>
-                  <span>Kelola Master TP ↗</span>
-                </a>
-              </div>
-              <select
-                v-model="form.tpId"
-                class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl px-3.5 py-2.5 text-xs text-white cursor-pointer min-h-[44px]"
-              >
-                <option :value="''" disabled>-- Pilih Tujuan Pembelajaran (TP) --</option>
-                <option v-for="tp in availableTpsForSelectedMapel" :key="tp.id" :value="tp.id">
-                  {{ tp.kode }} — {{ tp.judul || tp.deskripsi }}
-                </option>
-              </select>
-              <div class="mt-1 flex items-center justify-between text-[11px]">
-                <span class="text-cyan-400/80">
-                  🎯 {{ availableTpsForSelectedMapel.length }} TP tersedia untuk mapel ini
-                </span>
-                <span v-if="availableTpsForSelectedMapel.length === 0" class="text-amber-400">
-                  ⚠️ Belum ada TP untuk mapel ini di semester {{ form.semester }}
-                </span>
-              </div>
             </div>
 
             <!-- Semester -->
@@ -668,23 +708,143 @@ function submit() {
                 v-model="form.semester"
                 class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl px-3.5 py-2.5 text-xs text-white min-h-[44px] cursor-pointer"
               >
-                <option value="Ganjil">Semester Ganjil</option>
-                <option value="Genap">Semester Genap</option>
+                <option value="Ganjil" class="bg-slate-900 text-white py-1">Semester Ganjil</option>
+                <option value="Genap" class="bg-slate-900 text-white py-1">Semester Genap</option>
               </select>
+            </div>
+          </div>
+
+          <!-- Tujuan Pembelajaran (TP) - Full Width Custom Selector Bebas Glitch -->
+          <div id="tp-selector-container" class="relative">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <span>🎯</span> Tujuan Pembelajaran (TP) <span class="text-rose-400">*</span>
+              </label>
+              <a
+                href="/guru/dashboard?tab=tp"
+                target="_blank"
+                class="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition"
+                title="Buka menu Pengelolaan TP di tab baru"
+              >
+                <span>Kelola Master TP ↗</span>
+              </a>
+            </div>
+
+            <!-- Trigger Button -->
+            <div
+              @click="isTpDropdownOpen = !isTpDropdownOpen"
+              class="w-full bg-slate-950/90 border rounded-2xl px-4 py-3 text-xs cursor-pointer flex items-center justify-between gap-3 min-h-[48px] transition-all select-none"
+              :class="isTpDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-500/20' : 'border-white/15 hover:border-white/30'"
+            >
+              <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                <span v-if="selectedTpObj" class="px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 font-extrabold text-[11px] border border-cyan-500/30 shrink-0">
+                  {{ selectedTpObj.kode }}
+                </span>
+                <span v-if="selectedTpObj" class="text-white font-medium truncate text-xs">
+                  {{ selectedTpObj.judul || selectedTpObj.deskripsi }}
+                </span>
+                <span v-else class="text-slate-500 italic">
+                  -- Klik untuk memilih Tujuan Pembelajaran (TP) --
+                </span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0 text-slate-400">
+                <span class="text-[11px] text-cyan-400/80 font-bold hidden sm:inline">{{ availableTpsForSelectedMapel.length }} TP</span>
+                <svg class="w-4 h-4 transition-transform text-slate-400" :class="isTpDropdownOpen ? 'rotate-180 text-cyan-400' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+
+            <!-- Dropdown Popover Menu -->
+            <div
+              v-if="isTpDropdownOpen"
+              class="absolute z-50 left-0 right-0 mt-2 bg-slate-900 border border-cyan-500/40 rounded-2xl shadow-2xl p-2.5 backdrop-blur-2xl space-y-2 animate-in fade-in zoom-in-95 duration-150"
+            >
+              <!-- Search Bar -->
+              <div class="relative">
+                <input
+                  v-model="tpSearchQuery"
+                  type="text"
+                  placeholder="Ketik untuk mencari kode atau materi TP..."
+                  class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 rounded-xl pl-8 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
+                  @click.stop
+                />
+                <span class="absolute left-2.5 top-2 text-xs text-slate-500">🔍</span>
+                <button
+                  v-if="tpSearchQuery"
+                  type="button"
+                  @click.stop="tpSearchQuery = ''"
+                  class="absolute right-2.5 top-2 text-xs text-slate-400 hover:text-white"
+                >✕</button>
+              </div>
+
+              <!-- Options List -->
+              <div class="max-h-64 overflow-y-auto space-y-1 pr-1">
+                <div
+                  v-if="searchedTps.length === 0"
+                  class="py-6 text-center text-xs text-slate-400"
+                >
+                  Tidak ada TP yang cocok untuk mata pelajaran dan semester ini.
+                </div>
+                <div
+                  v-for="tp in searchedTps"
+                  :key="tp.id"
+                  @click="selectTp(tp)"
+                  class="p-2.5 rounded-xl cursor-pointer transition-all flex items-start gap-3 border"
+                  :class="String(form.tpId) === String(tp.id)
+                    ? 'bg-cyan-500/15 border-cyan-500/40 text-white ring-1 ring-cyan-500/30'
+                    : 'bg-white/[0.02] border-white/5 hover:bg-white/10 hover:border-white/20 text-slate-300'"
+                >
+                  <span class="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-extrabold text-[11px] border border-cyan-500/30 shrink-0 mt-0.5">
+                    {{ tp.kode }}
+                  </span>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-xs font-semibold leading-relaxed line-clamp-2" :class="String(form.tpId) === String(tp.id) ? 'text-cyan-200' : 'text-slate-200'">
+                      {{ tp.judul || tp.deskripsi }}
+                    </p>
+                    <div class="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
+                      <span>📚 {{ tp.mapel || 'Umum' }}</span>
+                      <span>·</span>
+                      <span>📅 Semester {{ tp.semester || form.semester }}</span>
+                      <span v-if="tp.kktp">· KKTP: {{ tp.kktp }}</span>
+                    </div>
+                  </div>
+                  <span v-if="String(form.tpId) === String(tp.id)" class="text-cyan-400 text-xs font-bold shrink-0">✓</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Selected TP Preview Banner -->
+            <div v-if="selectedTpObj" class="mt-2.5 p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-500/25 flex items-start gap-3">
+              <span class="text-base shrink-0 mt-0.5">🎯</span>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 flex-wrap mb-1">
+                  <span class="text-xs font-black text-cyan-300">{{ selectedTpObj.kode }}</span>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-bold border border-cyan-500/30">
+                    Capaian Pembelajaran Terpilih
+                  </span>
+                  <span v-if="selectedTpObj.kktp" class="text-[10px] text-slate-400">
+                    KKTP: {{ selectedTpObj.kktp }}
+                  </span>
+                </div>
+                <p class="text-xs text-slate-200 leading-relaxed font-normal">
+                  {{ selectedTpObj.judul || selectedTpObj.deskripsi }}
+                </p>
+              </div>
             </div>
           </div>
 
           <!-- Target Siswa: Tingkat & Kelas -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/5">
-            <div>
+            <div class="min-w-0">
               <label class="block text-xs font-bold text-slate-300 mb-1.5">Tingkat Kelas</label>
-              <div class="flex items-center gap-2">
+              <div class="grid grid-cols-4 gap-2">
                 <button
                   v-for="t in ['Semua', 'X', 'XI', 'XII']"
                   :key="t"
                   type="button"
                   @click="selectedTingkat = t"
-                  class="flex-1 py-2.5 rounded-xl text-xs font-bold border transition min-h-[44px]"
+                  class="py-2.5 rounded-xl text-xs font-bold border transition min-h-[44px] flex items-center justify-center min-w-0"
                   :class="selectedTingkat === t
                     ? 'bg-cyan-500 text-white border-cyan-400 shadow-md shadow-cyan-500/20'
                     : 'bg-white/5 text-slate-400 border-white/10 hover:bg-white/10'"
@@ -711,17 +871,20 @@ function submit() {
                 v-model="form.kelas_id"
                 class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl px-3.5 py-2.5 text-xs text-white min-h-[44px] cursor-pointer"
               >
-                <option :value="null">🌐 Seluruh Kelas di Jadwal (Tingkat {{ selectedTingkat }})</option>
-                <option v-for="k in filteredKelasByTingkat" :key="k.id" :value="k.id">
-                  Kelas {{ k.nama || k.namaKelas }} ({{ k.jurusan || 'Umum' }})
+                <option :value="null" class="bg-slate-900 text-white py-1">🌐 Seluruh Kelas (Tingkat {{ selectedTingkat }})</option>
+                <option v-for="k in filteredKelasByTingkat" :key="k.id" :value="k.id" class="bg-slate-900 text-white py-1">
+                  {{ k.isScheduled ? '✨' : '🏫' }} Kelas {{ k.nama || k.namaKelas }} ({{ k.jurusan || 'Umum' }}){{ k.isScheduled ? ' - Sesuai Jadwal' : '' }}
                 </option>
               </select>
-              <div class="mt-1 flex items-center justify-between text-[11px]">
-                <span class="text-cyan-400/80">
-                  📅 {{ filteredKelasByTingkat.length }} kelas sesuai jadwal mengajar mapel ini
+              <div class="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px]">
+                <span class="text-cyan-400/90 font-medium">
+                  📅 {{ filteredKelasByTingkat.length }} kelas tersedia di tingkat {{ selectedTingkat }}
+                  <span v-if="scheduledCountInSelectedTingkat > 0" class="text-emerald-400 font-semibold">
+                    ({{ scheduledCountInSelectedTingkat }} kelas terjadwal mapel ini)
+                  </span>
                 </span>
-                <span v-if="filteredKelasByTingkat.length === 0" class="text-amber-400">
-                  ⚠️ Tidak ada kelas tingkat {{ selectedTingkat }} di jadwal mapel ini
+                <span v-if="filteredKelasByTingkat.length === 0" class="text-amber-400 font-medium">
+                  ⚠️ Belum ada kelas di tingkat {{ selectedTingkat }}
                 </span>
               </div>
             </div>
@@ -744,8 +907,8 @@ function submit() {
               v-model="form.cbtJadwalId"
               class="w-full bg-slate-950 border border-indigo-500/40 focus:border-indigo-400 rounded-xl px-3.5 py-2.5 text-xs text-indigo-200 font-semibold min-h-[44px] cursor-pointer"
             >
-              <option :value="null">-- Tidak Ada Ujian CBT Terkait --</option>
-              <option v-for="cbt in cbtJadwalListProp" :key="cbt.id" :value="cbt.id">
+              <option :value="null" class="bg-slate-900 text-white py-1">-- Tidak Ada Ujian CBT Terkait --</option>
+              <option v-for="cbt in cbtJadwalListProp" :key="cbt.id" :value="cbt.id" class="bg-slate-900 text-white py-1">
                 📝 {{ cbt.judul }} (Durasi: {{ cbt.durasi }} Menit)
               </option>
             </select>
@@ -1111,7 +1274,7 @@ function submit() {
                     v-model="form.kegiatan[activeSlideIndex].layout"
                     class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 rounded-xl px-3.5 py-2.5 text-xs text-white font-medium transition cursor-pointer min-h-[44px]"
                   >
-                    <option v-for="lay in LAYOUT_OPTIONS" :key="lay.id" :value="lay.id">
+                    <option v-for="lay in LAYOUT_OPTIONS" :key="lay.id" :value="lay.id" class="bg-slate-900 text-white py-1">
                       {{ lay.icon }} {{ lay.label }}
                     </option>
                   </select>

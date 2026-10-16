@@ -17,6 +17,15 @@ const emit = defineEmits([
 ]);
 
 const searchSiswaName = ref('');
+const debouncedSearchSiswa = ref('');
+let searchTimer = null;
+watch(searchSiswaName, (val) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    debouncedSearchSiswa.value = val;
+    currentPage.value = 1;
+  }, 200);
+});
 const selectedKelasSiswaFilter = ref('Semua');
 const selectedTingkatSiswaFilter = ref('Semua');
 const selectedStatusFilter = ref('Semua');
@@ -42,14 +51,14 @@ function getTingkatFromKelas(namaKelas) {
 }
 
 const availableKelasOptions = computed(() => {
-  let list = props.kelasList;
+  let list = props.kelasList || [];
   if (selectedTingkatSiswaFilter.value !== 'Semua') {
-    list = props.kelasList.filter(k => {
-      const t = k.tingkat || getTingkatFromKelas(k.namaKelas);
+    list = list.filter(k => {
+      const t = k?.tingkat || getTingkatFromKelas(k?.namaKelas || k?.nama);
       return t === selectedTingkatSiswaFilter.value;
     });
   }
-  return [...list].sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }));
+  return [...list].sort((a, b) => (a?.namaKelas || a?.nama || a || '').toString().localeCompare((b?.namaKelas || b?.nama || b || '').toString(), undefined, { numeric: true, sensitivity: 'base' }));
 });
 
 watch(selectedTingkatSiswaFilter, (newTingkat) => {
@@ -169,7 +178,7 @@ const filteredAvailableKelasOptions = computed(() => {
   let list = availableKelasOptions.value;
   if (searchKelasDropdownQuery.value.trim()) {
     const q = searchKelasDropdownQuery.value.toLowerCase();
-    list = list.filter(k => k.namaKelas.toLowerCase().includes(q));
+    list = list.filter(k => (k?.namaKelas || k?.nama || '').toLowerCase().includes(q));
   }
   return list;
 });
@@ -206,6 +215,7 @@ const isFilterActive = computed(() => {
 
 function resetFilters() {
   searchSiswaName.value = '';
+  debouncedSearchSiswa.value = '';
   selectedTingkatSiswaFilter.value = 'Semua';
   selectedKelasSiswaFilter.value = 'Semua';
   selectedStatusFilter.value = 'Semua';
@@ -215,29 +225,34 @@ function resetFilters() {
 }
 
 const filteredSiswaList = computed(() => {
-  let list = [...props.siswaList];
+  let list = Array.isArray(props.siswaList) ? [...props.siswaList] : [];
 
-  if (searchSiswaName.value.trim()) {
-    const q = searchSiswaName.value.toLowerCase();
-    list = list.filter(s => s.nama.toLowerCase().includes(q) || s.nis?.includes(q));
+  const query = debouncedSearchSiswa.value.trim().toLowerCase();
+  if (query) {
+    list = list.filter(s => {
+      const namaMatch = (s?.nama || '').toLowerCase().includes(query);
+      const nisStr = s?.nis != null ? String(s.nis) : '';
+      const nisMatch = nisStr.includes(query);
+      return namaMatch || nisMatch;
+    });
   }
 
   if (selectedTingkatSiswaFilter.value !== 'Semua') {
     list = list.filter(s => {
-      const sTingkat = s.tingkat || getTingkatFromKelas(s.kelas);
+      const sTingkat = s?.tingkat || getTingkatFromKelas(s?.kelas);
       return sTingkat === selectedTingkatSiswaFilter.value;
     });
   }
 
   if (selectedKelasSiswaFilter.value !== 'Semua') {
-    list = list.filter(s => s.kelas === selectedKelasSiswaFilter.value);
+    list = list.filter(s => s?.kelas === selectedKelasSiswaFilter.value);
   }
 
   if (selectedStatusFilter.value !== 'Semua') {
-    list = list.filter(s => (s.status || 'Aktif') === selectedStatusFilter.value);
+    list = list.filter(s => (s?.status || 'Aktif') === selectedStatusFilter.value);
   }
 
-  return list.sort((a, b) => a.nama.localeCompare(b.nama));
+  return list.sort((a, b) => (a?.nama || '').toString().localeCompare((b?.nama || '').toString()));
 });
 
 const totalItems = computed(() => filteredSiswaList.value.length);
@@ -1084,14 +1099,14 @@ function processImport() {
               <option value="" disabled>-- Pilih Kelas --</option>
               <template v-for="tingkat in ['X','XI','XII']" :key="tingkat">
                 <optgroup
-                  v-if="kelasList.filter(k => (k.tingkat || getTingkatFromKelas(k.namaKelas)) === tingkat).length"
+                  v-if="kelasList.filter(k => (k.tingkat || getTingkatFromKelas(k.namaKelas || k.nama)) === tingkat).length"
                   :label="'── Tingkat ' + tingkat + ' ──'"
                 >
                   <option
-                    v-for="k in [...kelasList.filter(kl => (kl.tingkat || getTingkatFromKelas(kl.namaKelas)) === tingkat)].sort((a, b) => a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' }))"
+                    v-for="k in [...kelasList.filter(kl => (kl.tingkat || getTingkatFromKelas(kl.namaKelas || kl.nama)) === tingkat)].sort((a, b) => (a?.namaKelas || a?.nama || a || '').toString().localeCompare((b?.namaKelas || b?.nama || b || '').toString(), undefined, { numeric: true, sensitivity: 'base' }))"
                     :key="k.id"
-                    :value="k.namaKelas"
-                  >{{ k.namaKelas }} ({{ k.jurusan }})</option>
+                    :value="k.namaKelas || k.nama"
+                  >{{ k.namaKelas || k.nama }} ({{ k.jurusan || 'Umum' }})</option>
                 </optgroup>
               </template>
             </select>

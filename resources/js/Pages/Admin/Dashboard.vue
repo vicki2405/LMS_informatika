@@ -15,6 +15,7 @@ const KelolaGuru = defineAsyncComponent(() => import('@/Components/Admin/KelolaG
 const MenuKelas = defineAsyncComponent(() => import('@/Components/Guru/MenuKelas.vue'));
 const MenuSiswa = defineAsyncComponent(() => import('@/Components/Guru/MenuSiswa.vue'));
 const KelolaBackup = defineAsyncComponent(() => import('@/Components/Admin/KelolaBackup.vue'));
+const KelolaTahunPelajaran = defineAsyncComponent(() => import('@/Components/Admin/KelolaTahunPelajaran.vue'));
 
 const props = defineProps({
   guruListProp: { type: Array, default: () => [] },
@@ -25,6 +26,7 @@ const props = defineProps({
   mapelListProp: { type: Array, default: () => [] },
   kelompokMapelListProp: { type: Array, default: () => [] },
   userAccountsListProp: { type: Array, default: () => [] },
+  tahunAjaranListProp: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -48,6 +50,7 @@ const isLoading = ref(false);
 
 const tabDataMap = {
   dashboard: ['guruListProp', 'waliKelasListProp', 'siswaListProp', 'userAccountsListProp'],
+  'tahun-ajaran': ['tahunAjaranListProp'],
   guru: ['guruListProp', 'mapelListProp'],
   mapel: ['mapelListProp', 'kelompokMapelListProp'],
   kelas: ['kelasListProp', 'jurusanListProp', 'waliKelasListProp', 'guruListProp'],
@@ -365,6 +368,12 @@ function onDeleteUser(id) {
           @change-view="v => activeView = v"
         />
 
+
+        <!-- MASTER TAHUN PELAJARAN VIEW (SETTING UTAMA & RAPOR) -->
+        <KelolaTahunPelajaran
+          v-if="activeView === 'tahun-ajaran'"
+          :tahunAjaranList="tahunAjaranListProp"
+        />
 
         <!-- MASTER GURU VIEW -->
         <KelolaGuru

@@ -55,7 +55,7 @@ function barWidth(value) {
               🎓 Kelas Binaan: {{ kelasBinaan }}
             </span>
             <span class="px-3.5 py-1 rounded-full bg-purple-500/20 border border-purple-500/40 text-purple-300 text-xs font-black shadow-inner">
-              Semester Ganjil 2025/2026
+              Semester Ganjil {{ $page.props.activeTahunAjaran?.kode || '2025/2026' }}
             </span>
           </div>
 

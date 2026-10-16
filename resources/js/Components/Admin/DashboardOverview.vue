@@ -22,7 +22,7 @@ const emit = defineEmits(['change-view']);
         <div class="space-y-3">
           <div class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-purple-500/20 border border-purple-500/40 text-purple-300 text-xs font-extrabold shadow-inner">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-            PORTAL ADMINISTRATOR UTAMA
+            PORTAL ADMINISTRATOR UTAMA • TA {{ $page.props.activeTahunAjaran?.kode || '2025/2026' }}
           </div>
           <h1 class="text-2xl sm:text-4xl font-black text-white tracking-tight leading-tight">
             Selamat Datang di System Panel Admin 🚀
