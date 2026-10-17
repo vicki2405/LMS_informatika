@@ -736,7 +736,7 @@ function exportCsv() {
               class="w-full bg-slate-800 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none min-h-[42px]"
             >
               <option v-for="k in filteredKelasByTingkat" :key="k.id" :value="k.namaKelas">
-                {{ k.namaKelas }} ({{ k.jurusan }})
+                {{ k.namaKelas }}
               </option>
             </select>
           </div>

@@ -35,7 +35,7 @@ const userInitials = computed(() => {
   return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
 });
 
-const validTabs = ['dashboard', 'cbt', 'materi', 'tugas', 'nilai', 'jadwal'];
+const validTabs = ['dashboard', 'materi', 'cbt', 'tugas', 'nilai', 'jadwal'];
 
 const getInitialTab = () => {
   if (typeof window !== 'undefined') {
@@ -145,7 +145,16 @@ function onSubmitTugas({ tugasId, data }) {
           @change-view="v => activeView = v"
         />
 
-        <!-- 2. CBT (UJIAN ONLINE) VIEW -->
+        <!-- 2. MATERI PEMBELAJARAN VIEW -->
+        <MateriSiswa
+          v-if="activeView === 'materi'"
+          :materiList="materiList"
+          :siswaList="props.siswaListProp"
+          :siswaObj="props.siswaObjProp"
+          @change-view="v => activeView = v"
+        />
+
+        <!-- 3. CBT (UJIAN ONLINE) VIEW -->
         <CbtSiswa
           v-if="activeView === 'cbt'"
           :siswaList="props.siswaListProp"
@@ -153,15 +162,6 @@ function onSubmitTugas({ tugasId, data }) {
           :cbtNilaiList="props.cbtNilaiListProp"
           :cbtSesiList="props.cbtSesiListProp"
           :siswaObj="props.siswaObjProp"
-        />
-
-        <!-- 3. MATERI PEMBELAJARAN VIEW -->
-        <MateriSiswa
-          v-if="activeView === 'materi'"
-          :materiList="materiList"
-          :siswaList="props.siswaListProp"
-          :siswaObj="props.siswaObjProp"
-          @change-view="v => activeView = v"
         />
 
         <TugasSiswa

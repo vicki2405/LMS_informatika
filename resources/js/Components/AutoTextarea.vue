@@ -26,6 +26,8 @@ function onInput(e) {
 }
 
 onMounted(resize);
+
+defineExpose({ el, resize });
 </script>
 
 <template>

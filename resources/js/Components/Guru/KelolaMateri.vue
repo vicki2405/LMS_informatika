@@ -126,6 +126,44 @@ function openPreviewModal(materi) {
   showPreviewModal.value = true;
 }
 
+function getPreviewThemeConfig(theme) {
+  switch (theme) {
+    case 'light':
+      return {
+        wrapper: 'bg-white text-slate-900 border-slate-300 shadow-xl',
+        badge: 'bg-slate-100 text-slate-700 border-slate-300',
+        title: 'text-slate-900',
+        prose: 'prose prose-slate max-w-none text-xs sm:text-sm leading-relaxed text-slate-800',
+        footer: 'border-slate-200 text-slate-500',
+      };
+    case 'navy':
+      return {
+        wrapper: 'bg-blue-950 text-blue-50 border-blue-800 shadow-xl shadow-blue-950/50',
+        badge: 'bg-blue-900/60 text-blue-300 border-blue-700',
+        title: 'text-blue-100',
+        prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-blue-100',
+        footer: 'border-blue-900 text-blue-400',
+      };
+    case 'emerald':
+      return {
+        wrapper: 'bg-emerald-950 text-emerald-50 border-emerald-800 shadow-xl shadow-emerald-950/50',
+        badge: 'bg-emerald-900/60 text-emerald-300 border-emerald-700',
+        title: 'text-emerald-100',
+        prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-emerald-100',
+        footer: 'border-emerald-900 text-emerald-400',
+      };
+    case 'dark':
+    default:
+      return {
+        wrapper: 'bg-slate-950 text-slate-100 border-cyan-500/30 shadow-xl shadow-black/80',
+        badge: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30',
+        title: 'text-white',
+        prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-slate-200',
+        footer: 'border-white/10 text-slate-400',
+      };
+  }
+}
+
 // Monitoring Modal State
 const showMonitoringModal = ref(false);
 const monitoringLoading = ref(false);
@@ -750,29 +788,79 @@ function getTypeBadge(tipe) {
             </div>
 
             <!-- Slide Content Card -->
-            <div class="bg-slate-950 p-6 rounded-2xl border border-cyan-500/30 space-y-4 min-h-[240px]">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">
-                  {{ previewMateriObj.kegiatan[previewActiveSlide]?.label || 'Konsep' }}
-                </span>
-                <span class="text-xs font-mono text-slate-500">
-                  {{ previewActiveSlide + 1 }} / {{ previewMateriObj.kegiatan.length }}
-                </span>
-              </div>
-              <h3 class="text-lg font-black text-white">
-                {{ previewMateriObj.kegiatan[previewActiveSlide]?.judul }}
-              </h3>
+            <div
+              class="p-6 rounded-2xl border space-y-4 min-h-[300px] transition-all flex flex-col justify-between"
+              :class="getPreviewThemeConfig(previewMateriObj.theme).wrapper"
+            >
+              <div>
+                <div class="flex items-center justify-between pb-2 border-b mb-3" :class="getPreviewThemeConfig(previewMateriObj.theme).footer">
+                  <span class="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded" :class="getPreviewThemeConfig(previewMateriObj.theme).badge">
+                    {{ previewMateriObj.kegiatan[previewActiveSlide]?.label || 'Konsep' }}
+                  </span>
+                  <span class="text-xs font-mono opacity-60">
+                    Slide {{ previewActiveSlide + 1 }} / {{ previewMateriObj.kegiatan.length }}
+                  </span>
+                </div>
 
-              <!-- Optional Slide Image -->
-              <div v-if="previewMateriObj.kegiatan[previewActiveSlide]?.fileUrl" class="max-w-md mx-auto rounded-xl overflow-hidden border border-white/20">
-                <img :src="previewMateriObj.kegiatan[previewActiveSlide].fileUrl" class="w-full object-contain max-h-64" />
+                <h3 class="text-base sm:text-lg font-black mb-4 leading-snug" :class="getPreviewThemeConfig(previewMateriObj.theme).title">
+                  {{ previewMateriObj.kegiatan[previewActiveSlide]?.judul }}
+                </h3>
+
+                <!-- Layout Check -->
+                <div v-if="previewMateriObj.kegiatan[previewActiveSlide]?.layout === 'image_left'" class="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+                  <div class="md:col-span-5 rounded-2xl overflow-hidden bg-black/40 border border-white/15 max-h-72 flex items-center justify-center">
+                    <img v-if="previewMateriObj.kegiatan[previewActiveSlide]?.fileUrl" :src="previewMateriObj.kegiatan[previewActiveSlide].fileUrl" class="w-full object-contain" />
+                  </div>
+                  <div class="md:col-span-7">
+                    <div
+                      class="slide-markdown-content text-xs sm:text-sm leading-relaxed"
+                      :class="getPreviewThemeConfig(previewMateriObj.theme).prose"
+                      v-html="renderFormulaContent(previewMateriObj.kegiatan[previewActiveSlide]?.konten)"
+                    ></div>
+                  </div>
+                </div>
+
+                <div v-else-if="previewMateriObj.kegiatan[previewActiveSlide]?.layout === 'image_right'" class="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+                  <div class="md:col-span-7 order-2 md:order-1">
+                    <div
+                      class="slide-markdown-content text-xs sm:text-sm leading-relaxed"
+                      :class="getPreviewThemeConfig(previewMateriObj.theme).prose"
+                      v-html="renderFormulaContent(previewMateriObj.kegiatan[previewActiveSlide]?.konten)"
+                    ></div>
+                  </div>
+                  <div class="md:col-span-5 order-1 md:order-2 rounded-2xl overflow-hidden bg-black/40 border border-white/15 max-h-72 flex items-center justify-center">
+                    <img v-if="previewMateriObj.kegiatan[previewActiveSlide]?.fileUrl" :src="previewMateriObj.kegiatan[previewActiveSlide].fileUrl" class="w-full object-contain" />
+                  </div>
+                </div>
+
+                <div v-else-if="previewMateriObj.kegiatan[previewActiveSlide]?.layout === 'highlight'" class="p-5 rounded-2xl border border-amber-400/40 bg-amber-500/10 space-y-4">
+                  <div
+                    class="slide-markdown-content text-xs sm:text-sm leading-relaxed"
+                    :class="getPreviewThemeConfig(previewMateriObj.theme).prose"
+                    v-html="renderFormulaContent(previewMateriObj.kegiatan[previewActiveSlide]?.konten)"
+                  ></div>
+                  <div v-if="previewMateriObj.kegiatan[previewActiveSlide]?.fileUrl" class="max-w-md mx-auto rounded-xl overflow-hidden border border-white/20">
+                    <img :src="previewMateriObj.kegiatan[previewActiveSlide].fileUrl" class="w-full object-contain max-h-64" />
+                  </div>
+                </div>
+
+                <div v-else class="space-y-4">
+                  <div v-if="previewMateriObj.kegiatan[previewActiveSlide]?.fileUrl" class="max-w-xl mx-auto rounded-2xl overflow-hidden border border-white/20">
+                    <img :src="previewMateriObj.kegiatan[previewActiveSlide].fileUrl" class="w-full object-contain max-h-72" />
+                  </div>
+                  <div
+                    class="slide-markdown-content text-xs sm:text-sm leading-relaxed"
+                    :class="getPreviewThemeConfig(previewMateriObj.theme).prose"
+                    v-html="renderFormulaContent(previewMateriObj.kegiatan[previewActiveSlide]?.konten)"
+                  ></div>
+                </div>
               </div>
 
-              <!-- Rendered KaTeX Text -->
-              <div
-                class="prose prose-invert max-w-none text-sm text-slate-200 leading-relaxed"
-                v-html="renderFormulaContent(previewMateriObj.kegiatan[previewActiveSlide]?.konten)"
-              ></div>
+              <!-- Footer Meta -->
+              <div class="pt-3 mt-4 border-t flex items-center justify-between text-[10px] opacity-70" :class="getPreviewThemeConfig(previewMateriObj.theme).footer">
+                <span>SMKS Muhammadiyah 2 Genteng</span>
+                <span>Modul Interaktif Siswa</span>
+              </div>
             </div>
           </div>
 
@@ -800,3 +888,74 @@ function getTypeBadge(tipe) {
 
   </div>
 </template>
+
+<style scoped>
+/* Scoped adjustments for Slide Preview Markdown */
+:deep(.slide-markdown-content u) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+:deep(.slide-markdown-content s),
+:deep(.slide-markdown-content del) {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+:deep(.slide-markdown-content ol) {
+  padding-left: 1.5rem;
+  margin: 0.75rem 0;
+  list-style-type: decimal;
+}
+
+:deep(.slide-markdown-content ol[type="a"]) {
+  list-style-type: lower-alpha;
+}
+
+:deep(.slide-markdown-content ol[type="A"]) {
+  list-style-type: upper-alpha;
+}
+
+:deep(.slide-markdown-content ol[type="i"]) {
+  list-style-type: lower-roman;
+}
+
+:deep(.slide-markdown-content ul) {
+  padding-left: 1.25rem;
+  margin: 0.75rem 0;
+  list-style-type: disc;
+}
+
+:deep(.slide-markdown-content li) {
+  margin-bottom: 0.35rem;
+  line-height: 1.5;
+}
+
+:deep(.slide-markdown-content table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.85em;
+}
+
+:deep(.slide-markdown-content th),
+:deep(.slide-markdown-content td) {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
+
+:deep(.slide-markdown-content th) {
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 800;
+}
+
+:deep(.slide-markdown-content blockquote) {
+  border-left: 3px solid #38bdf8;
+  padding: 0.4rem 0.8rem;
+  margin: 0.75rem 0;
+  background: rgba(56, 189, 248, 0.08);
+  border-radius: 0 0.5rem 0.5rem 0;
+  font-style: italic;
+}
+</style>

@@ -894,12 +894,14 @@ HTML;
             'semester' => 'required|string',
             'file' => 'nullable|file|mimes:pdf,ppt,pptx,doc,docx,mp4,mov,jpg,jpeg,png,webp|max:30720',
             'kegiatan_file.*' => 'nullable|file|mimes:pdf,ppt,pptx,doc,docx,mp4,mov,jpg,jpeg,png,webp|max:30720',
+            'kegiatan_files.*' => 'nullable|file|mimes:pdf,ppt,pptx,doc,docx,mp4,mov,jpg,jpeg,png,webp|max:30720',
         ]);
 
         $file = $request->file('file');
         $kegiatanRaw = $request->input('kegiatan');
         $kegiatan = is_string($kegiatanRaw) ? (json_decode($kegiatanRaw, true) ?: []) : (is_array($kegiatanRaw) ? $kegiatanRaw : []);
-        $kegiatanFiles = array_values($request->file('kegiatan_file') ?? []);
+        $keyedFiles = $request->file('kegiatan_files') ?? [];
+        $indexedFiles = array_values($request->file('kegiatan_file') ?? []);
 
         $materi = Materi::query()->findOrNew($validated['id'] ?? null);
 
@@ -936,13 +938,20 @@ HTML;
             $judul = $step['judul'] ?? null;
             $konten = $step['konten'] ?? null;
             $fileKey = $step['_fileKey'] ?? null;
-            $newFile = (isset($fileKey) && isset($kegiatanFiles[$fileKey])) ? $kegiatanFiles[$fileKey] : null;
 
-            if (empty($label) && empty($judul) && empty($konten) && ! $newFile && empty($step['filePath'])) {
+            // Look up uploaded file: priority explicit slide index, then _fileKey from keyed array, then indexed fallback
+            $newFile = $keyedFiles[$index]
+                ?? ($fileKey !== null && isset($keyedFiles[$fileKey]) ? $keyedFiles[$fileKey] : null)
+                ?? ($fileKey !== null && isset($indexedFiles[$fileKey]) ? $indexedFiles[$fileKey] : null)
+                ?? ($indexedFiles[$index] ?? null);
+
+            $filePath = $step['filePath'] ?? $step['file_path'] ?? null;
+            $fileUrl = $step['fileUrl'] ?? $step['file_url'] ?? null;
+
+            if (empty($label) && empty($judul) && empty($konten) && ! $newFile && empty($filePath) && empty($fileUrl)) {
                 continue;
             }
 
-            $filePath = $step['filePath'] ?? null;
             if ($newFile) {
                 $filePath = $newFile->store('materi', 'public');
             }
@@ -957,7 +966,7 @@ HTML;
                 'judul' => $judul,
                 'konten' => $konten,
                 'file_path' => $filePath,
-                'file_url' => $newFile ? null : ($step['file_url'] ?? null),
+                'file_url' => $newFile ? null : $fileUrl,
             ]);
         }
 

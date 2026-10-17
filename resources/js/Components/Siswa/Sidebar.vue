@@ -78,7 +78,23 @@ function selectView(view) {
               <span>Beranda Kelas</span>
             </button>
 
-            <!-- 2. CBT Ujian Online -->
+            <!-- 2. Materi Pembelajaran -->
+            <button
+              @click="selectView('materi')"
+              :class="[
+                'w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-200 active:scale-95 text-left',
+                activeView === 'materi'
+                  ? 'bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm font-extrabold'
+                  : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'
+              ]"
+            >
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center text-base" :class="activeView === 'materi' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-white/5 text-indigo-400'">
+                📚
+              </div>
+              <span>Materi Pembelajaran</span>
+            </button>
+
+            <!-- 3. CBT Ujian Online -->
             <button
               @click="selectView('cbt')"
               :class="[
@@ -97,22 +113,6 @@ function selectView(view) {
               <span class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                 Aktif
               </span>
-            </button>
-
-            <!-- 3. Materi Pembelajaran -->
-            <button
-              @click="selectView('materi')"
-              :class="[
-                'w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-200 active:scale-95 text-left',
-                activeView === 'materi'
-                  ? 'bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm font-extrabold'
-                  : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'
-              ]"
-            >
-              <div class="w-8 h-8 rounded-xl flex items-center justify-center text-base" :class="activeView === 'materi' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-white/5 text-indigo-400'">
-                📚
-              </div>
-              <span>Materi Pembelajaran</span>
             </button>
 
             <!-- 4. Tugas Siswa -->

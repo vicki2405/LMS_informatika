@@ -152,4 +152,23 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 
+// Fail-safe direct storage file response for shared hosting / cPanel when symlinks are unavailable
+Route::get('/storage/{path}', function (string $path) {
+    $disk = \Illuminate\Support\Facades\Storage::disk('public');
+    $fullPath = $disk->path($path);
+    if (! file_exists($fullPath) || is_dir($fullPath)) {
+        abort(404);
+    }
+
+    $realPath = realpath($fullPath);
+    $basePath = realpath($disk->path(''));
+    if (! $realPath || ($basePath && ! str_starts_with($realPath, $basePath))) {
+        abort(404);
+    }
+
+    return response()->file($realPath, [
+        'Cache-Control' => 'public, max-age=31536000',
+    ]);
+})->where('path', '.*')->name('public.storage.file');
+
 require __DIR__.'/auth.php';

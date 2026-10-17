@@ -179,13 +179,13 @@ function navigateTo(view) {
                   <span class="text-base">🏠</span>
                   <span>Beranda Utama</span>
                 </button>
-                <button @click="navigateTo('cbt')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5">
+                <button @click="navigateTo('materi')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5 min-h-[40px]">
+                  <span class="text-base">📚</span>
+                  <span>Materi Pembelajaran</span>
+                </button>
+                <button @click="navigateTo('cbt')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5 min-h-[40px]">
                   <span class="text-base">🎯</span>
                   <span>CBT (Ujian Online)</span>
-                </button>
-                <button @click="navigateTo('materi')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5">
-                  <span class="text-base">📚</span>
-                  <span>Materi Slider & Modul</span>
                 </button>
                 <button @click="navigateTo('tugas')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5">
                   <span class="text-base">📝</span>

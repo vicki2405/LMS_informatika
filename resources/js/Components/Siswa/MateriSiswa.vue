@@ -1117,14 +1117,65 @@ onUnmounted(() => {
 }
 
 .slide-markdown-content ol {
-  padding-left: 1.5rem;
+  padding-left: 1.75rem;
   margin: 1.25rem 0;
   list-style-type: decimal;
+}
+
+.slide-markdown-content ol[type="a"] {
+  list-style-type: lower-alpha;
+}
+
+.slide-markdown-content ol[type="A"] {
+  list-style-type: upper-alpha;
+}
+
+.slide-markdown-content ol[type="i"] {
+  list-style-type: lower-roman;
 }
 
 .slide-markdown-content ol > li {
   margin-bottom: 0.6rem;
   line-height: 1.6;
+}
+
+/* Text Formatting & Alignment */
+.slide-markdown-content u {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.slide-markdown-content s,
+.slide-markdown-content del {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.slide-markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  font-size: 0.9em;
+}
+
+.slide-markdown-content th,
+.slide-markdown-content td {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 0.6rem 0.85rem;
+  text-align: left;
+}
+
+.slide-markdown-content th {
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 800;
+  color: #38bdf8;
+}
+
+.slide-markdown-content input[type="checkbox"] {
+  margin-right: 0.5rem;
+  border-radius: 0.25rem;
+  accent-color: #06b6d4;
+  vertical-align: middle;
 }
 
 /* Blockquotes */

@@ -118,26 +118,7 @@ function closeDrawer() {
                 </div>
               </button>
 
-              <!-- 2. CBT Ujian Online -->
-              <button
-                @click="selectView('cbt')"
-                :class="[
-                  'flex items-center gap-3 p-3.5 rounded-2xl border text-left transition-all active:scale-95',
-                  activeView === 'cbt'
-                    ? 'bg-gradient-to-r from-cyan-500/25 to-blue-500/25 border-cyan-400/60 shadow-md text-cyan-200 font-extrabold'
-                    : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
-                ]"
-              >
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 text-white flex items-center justify-center text-xl shrink-0 shadow-md shadow-cyan-500/30">
-                  🎯
-                </div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-white truncate">Ujian CBT</div>
-                  <div class="text-[10px] text-cyan-400 font-medium truncate">Mulai ujian online</div>
-                </div>
-              </button>
-
-              <!-- 3. Materi Pembelajaran -->
+              <!-- 2. Materi Pembelajaran -->
               <button
                 @click="selectView('materi')"
                 :class="[
@@ -153,6 +134,25 @@ function closeDrawer() {
                 <div class="min-w-0">
                   <div class="text-xs font-bold text-white truncate">Materi Slider</div>
                   <div class="text-[10px] text-gray-400 truncate">Slide PPT & Modul</div>
+                </div>
+              </button>
+
+              <!-- 3. CBT Ujian Online -->
+              <button
+                @click="selectView('cbt')"
+                :class="[
+                  'flex items-center gap-3 p-3.5 rounded-2xl border text-left transition-all active:scale-95',
+                  activeView === 'cbt'
+                    ? 'bg-gradient-to-r from-cyan-500/25 to-blue-500/25 border-cyan-400/60 shadow-md text-cyan-200 font-extrabold'
+                    : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
+                ]"
+              >
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 text-white flex items-center justify-center text-xl shrink-0 shadow-md shadow-cyan-500/30">
+                  🎯
+                </div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-white truncate">Ujian CBT</div>
+                  <div class="text-[10px] text-cyan-400 font-medium truncate">Mulai ujian online</div>
                 </div>
               </button>
 

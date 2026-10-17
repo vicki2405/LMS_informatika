@@ -144,4 +144,66 @@ class GuruDashboardTest extends TestCase
         $deleteResponse->assertRedirect();
         $this->assertDatabaseMissing('jurnals', ['id' => $jurnal->id]);
     }
+
+    public function test_guru_can_upload_materi_slide_image_and_storage_serves_it(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        /** @var User $user */
+        $user = User::factory()->create(['name' => 'Guru IT']);
+        $user->assignRole('guru');
+
+        $uploadedImage = \Illuminate\Http\UploadedFile::fake()->image('slide-2.jpg', 600, 400);
+
+        $kegiatan = [
+            [
+                'label' => 'Slide 1 - Pendahuluan',
+                'judul' => 'Pengenalan Algoritma',
+                'konten' => 'Teks materi pendahuluan tanpa gambar.',
+                '_fileKey' => 0,
+            ],
+            [
+                'label' => 'Slide 2 - Flowchart',
+                'judul' => 'Diagram Alir',
+                'konten' => 'Perhatikan gambar diagram alir berikut.',
+                '_fileKey' => 1,
+            ],
+        ];
+
+        $response = $this->actingAs($user)->post('/guru/materi/store', [
+            'judul' => 'Materi Pemrograman Web',
+            'tipe' => 'interaktif',
+            'semester' => 'Ganjil',
+            'theme' => 'dark',
+            'kegiatan' => json_encode($kegiatan),
+            'kegiatan_files' => [
+                1 => $uploadedImage,
+            ],
+        ]);
+
+        $response->assertRedirect();
+
+        $this->assertDatabaseHas('materis', [
+            'judul' => 'Materi Pemrograman Web',
+            'tipe' => 'interaktif',
+        ]);
+
+        $materi = \App\Models\Materi::where('judul', 'Materi Pemrograman Web')->firstOrFail();
+        $this->assertCount(2, $materi->kegiatans);
+
+        $slide1 = $materi->kegiatans()->where('urutan', 1)->first();
+        $slide2 = $materi->kegiatans()->where('urutan', 2)->first();
+
+        $this->assertNull($slide1->file_path);
+        $this->assertNotNull($slide2->file_path);
+        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($slide2->file_path);
+
+        // Verify storage serving route
+        $storageUrl = '/storage/' . $slide2->file_path;
+        $fileResponse = $this->get($storageUrl);
+        $fileResponse->assertOk();
+    }
 }
+

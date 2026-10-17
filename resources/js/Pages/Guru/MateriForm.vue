@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
 import Swal, { showToast } from '@/Utils/sweetalert';
 import AutoTextarea from '@/Components/AutoTextarea.vue';
@@ -18,16 +18,11 @@ const props = defineProps({
 const page = usePage();
 const isEditing = computed(() => !!props.materiProp);
 
-// 2-Step Wizard State:
-// Step 1: Gerbang Masuk (Konfigurasi Pokok: Judul, Mapel, TP, Kelas, Semester, CBT, Format)
-// Step 2: Studio Pembuatan Materi (Theme, Slide Editor, Live Mockup, Dokumen/Video)
-const currentStep = ref(props.materiProp?.id ? 2 : 1);
-
 // Mode options
 const TIPE_OPTIONS = [
-  { value: 'Slider PPT', label: '🖥️ Slider PPT Interaktif', desc: 'Slide presentasi multimedia dengan tema dan rumus ilmiah' },
-  { value: 'Dokumen PDF/PPT', label: '📄 Dokumen / PDF', desc: 'Unggah berkas PDF, Word, atau tautan Drive' },
-  { value: 'Video YouTube', label: '🎥 Video Pembelajaran', desc: 'Tautan video YouTube dengan auto pratinjau' },
+  { value: 'Slider PPT', label: '🖥️ Slider PPT Interaktif' },
+  { value: 'Dokumen PDF/PPT', label: '📄 Dokumen PDF / Berkas' },
+  { value: 'Video YouTube', label: '🎥 Video YouTube' },
 ];
 
 // Theme options for Slider PPT
@@ -101,6 +96,7 @@ const form = reactive({
 });
 
 const selectedTingkat = ref('Semua');
+const isInfoSectionCollapsed = ref(false);
 
 // Selected Mapel Object
 const selectedMapelObj = computed(() => {
@@ -128,7 +124,7 @@ const scheduledKelasIdsForSelectedMapel = computed(() => {
   return new Set(matching.map(j => j.kelasId).filter(Boolean));
 });
 
-// Dynamic Kelas: Menampilkan seluruh kelas guru (atau master kelas), menandai kelas sesuai jadwal mapel
+// Dynamic Kelas
 const availableKelasForSelectedMapel = computed(() => {
   const source = (props.kelasListProp && props.kelasListProp.length > 0)
     ? props.kelasListProp
@@ -150,13 +146,10 @@ const availableKelasForSelectedMapel = computed(() => {
   });
 
   return Array.from(map.values()).sort((a, b) => {
-    // 1. Kelas yang terjadwal mapel ini diutamakan di posisi atas
     if (a.isScheduled && !b.isScheduled) return -1;
     if (!a.isScheduled && b.isScheduled) return 1;
-    // 2. Urutkan berdasarkan tingkat
     const tCmp = (a.tingkat || '').localeCompare(b.tingkat || '');
     if (tCmp !== 0) return tCmp;
-    // 3. Urutkan berdasarkan nama kelas
     return (a.nama || '').localeCompare(b.nama || '', undefined, { numeric: true });
   });
 });
@@ -169,10 +162,6 @@ const filteredKelasByTingkat = computed(() => {
   return classes.filter(k => (k.tingkat || '').toUpperCase() === selectedTingkat.value.toUpperCase());
 });
 
-const scheduledCountInSelectedTingkat = computed(() => {
-  return filteredKelasByTingkat.value.filter(k => k.isScheduled).length;
-});
-
 function getTingkatFromKelasId(kelasId) {
   if (!kelasId) return 'Semua';
   const kObj = availableKelasForSelectedMapel.value.find(k => k.id === kelasId)
@@ -183,7 +172,6 @@ function getTingkatFromKelasId(kelasId) {
 if (form.kelas_id) {
   selectedTingkat.value = getTingkatFromKelasId(form.kelas_id);
 } else if (!isEditing.value) {
-  // Jika form baru, arahkan default tingkat ke jadwal mapel yang terpilih jika ada
   const scheduled = availableKelasForSelectedMapel.value.filter(k => k.isScheduled);
   if (scheduled.length > 0 && scheduled[0].tingkat) {
     selectedTingkat.value = scheduled[0].tingkat.toUpperCase();
@@ -194,13 +182,10 @@ if (form.kelas_id) {
 const availableTpsForSelectedMapel = computed(() => {
   const currentMapel = selectedMapelObj.value;
   return (props.tpListProp || []).filter(tp => {
-    // 1. Filter Semester jika diisi
     if (form.semester && tp.semester && tp.semester !== form.semester) {
       return false;
     }
-    // Jika mapel belum dipilih, tampilkan semua
     if (!currentMapel) return true;
-    // TP kategori Umum bisa dipakai di semua mapel
     if (!tp.mapel || tp.mapel === 'Umum') return true;
 
     const tpMapelLower = tp.mapel.trim().toLowerCase();
@@ -214,12 +199,10 @@ const availableTpsForSelectedMapel = computed(() => {
   });
 });
 
-// Auto-select valid TP jika form.tpId kosong atau tidak ada di list mapel yang dipilih
 if (!form.tpId && availableTpsForSelectedMapel.value.length > 0) {
   form.tpId = availableTpsForSelectedMapel.value[0].id;
 }
 
-// Watcher mapel & semester agar tpId selalu relevan
 watch([() => form.mapelId, () => form.semester], () => {
   const available = availableTpsForSelectedMapel.value;
   const exists = available.some(t => String(t.id) === String(form.tpId));
@@ -228,12 +211,11 @@ watch([() => form.mapelId, () => form.semester], () => {
   }
 });
 
-// Computed Helper untuk Locked Bar & Preview
 const selectedTpObj = computed(() => {
   return (props.tpListProp || []).find(t => String(t.id) === String(form.tpId));
 });
 
-// State & Filter untuk Custom Searchable TP Selector
+// TP Dropdown state
 const isTpDropdownOpen = ref(false);
 const tpSearchQuery = ref('');
 
@@ -259,6 +241,11 @@ function handleClickOutside(event) {
   if (container && !container.contains(event.target)) {
     isTpDropdownOpen.value = false;
   }
+  const formulaBox = document.getElementById('formula-drawer-box');
+  const formulaBtn = document.getElementById('formula-toggle-btn');
+  if (isFormulaDrawerOpen.value && formulaBox && !formulaBox.contains(event.target) && formulaBtn && !formulaBtn.contains(event.target)) {
+    isFormulaDrawerOpen.value = false;
+  }
 }
 
 onMounted(() => {
@@ -269,23 +256,15 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
 });
 
-// Watcher mapelId agar kelas_id tetap valid jika mapel berganti
 watch(() => form.mapelId, () => {
   if (form.kelas_id) {
     const exists = availableKelasForSelectedMapel.value.some(k => k.id === form.kelas_id);
     if (!exists) {
       form.kelas_id = null;
     }
-  } else if (!isEditing.value) {
-    // Jika belum memilih kelas spesifik pada form baru, otomatis sesuaikan tingkat jika mapel memiliki jadwal
-    const scheduled = availableKelasForSelectedMapel.value.filter(k => k.isScheduled);
-    if (scheduled.length > 0 && scheduled[0].tingkat) {
-      selectedTingkat.value = scheduled[0].tingkat.toUpperCase();
-    }
   }
 });
 
-// Watcher selectedTingkat agar kelas_id tetap sesuai tingkat
 watch(selectedTingkat, (newTingkat) => {
   if (form.kelas_id && newTingkat !== 'Semua') {
     const kObj = availableKelasForSelectedMapel.value.find(k => k.id === form.kelas_id);
@@ -295,36 +274,6 @@ watch(selectedTingkat, (newTingkat) => {
   }
 });
 
-const selectedKelasName = computed(() => {
-  if (!form.kelas_id) return `Seluruh Kelas (${selectedTingkat.value})`;
-  const kObj = availableKelasForSelectedMapel.value.find(k => String(k.id) === String(form.kelas_id))
-            || (props.kelasListProp || []).find(k => String(k.id) === String(form.kelas_id));
-  return kObj ? `Kelas ${kObj.nama || kObj.namaKelas}` : `Seluruh Kelas (${selectedTingkat.value})`;
-});
-
-// Wizard Navigation Handlers
-function goToStudio() {
-  if (!form.judul.trim()) {
-    showToast('Judul materi pembelajaran wajib diisi!', 'warning');
-    return;
-  }
-  if (!form.mapelId) {
-    showToast('Pilih mata pelajaran terlebih dahulu!', 'warning');
-    return;
-  }
-  if (!form.tpId) {
-    showToast('Pilih Tujuan Pembelajaran (TP) yang sesuai dengan mata pelajaran!', 'warning');
-    return;
-  }
-  currentStep.value = 2;
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function goToConfig() {
-  currentStep.value = 1;
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
 // Slides setup
 const kegiatanFiles = ref([]);
 const kegiatanImagePreviews = ref([]);
@@ -332,6 +281,8 @@ const selectedFile = ref(null);
 const saving = ref(false);
 const activeSlideIndex = ref(0);
 const activeFormulaCategory = ref('matematika');
+const isFormulaDrawerOpen = ref(false);
+const slideTextareaRef = ref(null);
 
 function createDefaultSlide(label = 'Konsep Utama', urutan = 1) {
   return {
@@ -428,16 +379,146 @@ function removeSlideImage(idx) {
   form.kegiatan[idx].fileUrl = '';
 }
 
-function insertFormula(latex) {
+// =========================================================================
+// TEXT FORMATTING TOOLBAR ENGINE (Rich Text / Markdown / Alignment / Lists)
+// =========================================================================
+function applyFormat(type, payload = null) {
   const current = form.kegiatan[activeSlideIndex.value];
   if (!current) return;
-  if (current.konten && !current.konten.endsWith('\n') && !current.konten.endsWith(' ')) {
-    current.konten += '\n';
+
+  const textarea = slideTextareaRef.value?.el || slideTextareaRef.value;
+  let text = current.konten || '';
+  let start = 0;
+  let end = 0;
+
+  if (textarea && typeof textarea.selectionStart === 'number') {
+    start = textarea.selectionStart;
+    end = textarea.selectionEnd;
+  } else {
+    start = text.length;
+    end = text.length;
   }
-  current.konten = (current.konten || '') + latex + ' ';
+
+  const selectedText = text.substring(start, end);
+  let replacement = '';
+  let cursorOffset = 0;
+
+  switch (type) {
+    case 'bold':
+      replacement = `**${selectedText || 'Teks Tebal'}**`;
+      cursorOffset = selectedText ? replacement.length : 2;
+      break;
+    case 'italic':
+      replacement = `*${selectedText || 'Teks Miring'}*`;
+      cursorOffset = selectedText ? replacement.length : 1;
+      break;
+    case 'underline':
+      replacement = `<u>${selectedText || 'Teks Bergaris Bawah'}</u>`;
+      cursorOffset = selectedText ? replacement.length : 3;
+      break;
+    case 'strikethrough':
+      replacement = `~~${selectedText || 'Teks Dicoret'}~~`;
+      cursorOffset = selectedText ? replacement.length : 2;
+      break;
+    case 'h1':
+      replacement = `\n# ${selectedText || 'Judul Utama'}\n`;
+      cursorOffset = replacement.length;
+      break;
+    case 'h2':
+      replacement = `\n## ${selectedText || 'Sub-Judul'}\n`;
+      cursorOffset = replacement.length;
+      break;
+    case 'align_left':
+      replacement = `\n<div style="text-align: left;">\n\n${selectedText || 'Teks rata kiri'}\n\n</div>\n`;
+      cursorOffset = replacement.length;
+      break;
+    case 'align_center':
+      replacement = `\n<div style="text-align: center;">\n\n${selectedText || 'Teks rata tengah'}\n\n</div>\n`;
+      cursorOffset = replacement.length;
+      break;
+    case 'align_right':
+      replacement = `\n<div style="text-align: right;">\n\n${selectedText || 'Teks rata kanan'}\n\n</div>\n`;
+      cursorOffset = replacement.length;
+      break;
+    case 'align_justify':
+      replacement = `\n<div style="text-align: justify;">\n\n${selectedText || 'Teks rata kanan kiri yang rapi dan tertata dengan baik.'}\n\n</div>\n`;
+      cursorOffset = replacement.length;
+      break;
+    case 'bullet_list':
+      if (selectedText) {
+        replacement = selectedText.split('\n').map(l => `- ${l}`).join('\n');
+      } else {
+        replacement = '\n- Poin pertama\n- Poin kedua\n- Poin ketiga\n';
+      }
+      cursorOffset = replacement.length;
+      break;
+    case 'numbered_list':
+      if (selectedText) {
+        replacement = selectedText.split('\n').map((l, i) => `${i + 1}. ${l}`).join('\n');
+      } else {
+        replacement = '\n1. Langkah kesatu\n2. Langkah kedua\n3. Langkah ketiga\n';
+      }
+      cursorOffset = replacement.length;
+      break;
+    case 'alpha_list':
+      if (selectedText) {
+        const lines = selectedText.split('\n').map(l => `  <li>${l}</li>`).join('\n');
+        replacement = `\n<ol type="a">\n${lines}\n</ol>\n`;
+      } else {
+        replacement = '\n<ol type="a">\n  <li>Poin a</li>\n  <li>Poin b</li>\n  <li>Poin c</li>\n</ol>\n';
+      }
+      cursorOffset = replacement.length;
+      break;
+    case 'checklist':
+      if (selectedText) {
+        replacement = selectedText.split('\n').map(l => `- [ ] ${l}`).join('\n');
+      } else {
+        replacement = '\n- [ ] Tugas evaluasi 1\n- [ ] Tugas evaluasi 2\n';
+      }
+      cursorOffset = replacement.length;
+      break;
+    case 'quote':
+      if (selectedText) {
+        replacement = selectedText.split('\n').map(l => `> ${l}`).join('\n');
+      } else {
+        replacement = '\n> Catatan penting / kesimpulan materi...\n';
+      }
+      cursorOffset = replacement.length;
+      break;
+    case 'table':
+      replacement = '\n| No | Konsep / Materi | Keterangan |\n|---|---|---|\n| 1 | Poin Pertama | Penjelasan materi... |\n| 2 | Poin Kedua | Penjelasan materi... |\n';
+      cursorOffset = replacement.length;
+      break;
+    case 'divider':
+      replacement = '\n\n---\n\n';
+      cursorOffset = replacement.length;
+      break;
+    case 'formula':
+      replacement = payload ? ` ${payload} ` : ' $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$ ';
+      cursorOffset = replacement.length;
+      isFormulaDrawerOpen.value = false;
+      break;
+    default:
+      break;
+  }
+
+  current.konten = text.substring(0, start) + replacement + text.substring(end);
+
+  nextTick(() => {
+    if (textarea) {
+      textarea.focus();
+      const newPos = start + cursorOffset;
+      if (typeof textarea.setSelectionRange === 'function') {
+        textarea.setSelectionRange(newPos, newPos);
+      }
+      if (slideTextareaRef.value?.resize) {
+        slideTextareaRef.value.resize();
+      }
+    }
+  });
 }
 
-// Video YouTube preview helper
+// YouTube Preview Helper
 const youtubeEmbedUrl = computed(() => {
   if (form.tipe !== 'Video YouTube' || !form.fileUrl) return null;
   try {
@@ -452,54 +533,25 @@ const youtubeEmbedUrl = computed(() => {
   return null;
 });
 
-async function goBack() {
-  if (currentStep.value === 2) {
-    currentStep.value = 1;
-    return;
-  }
-
-  const hasChanges = !!form.judul.trim() || !!form.deskripsiSingkat.trim() || (form.kegiatan && form.kegiatan.length > 0);
-  if (hasChanges) {
-    const res = await Swal.fire({
-      title: 'Tinggalkan Halaman?',
-      text: 'Perubahan materi yang belum disimpan akan hilang.',
-      icon: 'warning',
-      iconColor: '#f59e0b',
-      showCancelButton: true,
-      confirmButtonColor: '#ef4444',
-      cancelButtonColor: '#475569',
-      confirmButtonText: 'Ya, Tinggalkan',
-      cancelButtonText: 'Tetap di Sini',
-      background: '#0f172a',
-      color: '#f8fafc',
-      customClass: {
-        popup: 'rounded-3xl border border-white/10 shadow-2xl backdrop-blur-xl',
-        title: 'text-lg font-black text-white',
-        htmlContainer: 'text-xs text-gray-300 font-medium',
-        confirmButton: 'rounded-2xl px-5 py-2.5 text-xs shadow-lg font-bold',
-        cancelButton: 'rounded-2xl px-5 py-2.5 text-xs font-bold'
-      }
-    });
-
-    if (!res.isConfirmed) return;
-  }
-
-  router.get(route('guru.dashboard', { tab: 'materi' }));
-}
-
 function onMainFileSelected(e) {
   selectedFile.value = e.target.files[0] || null;
 }
 
+function goBack() {
+  router.visit(route('guru.dashboard', { tab: 'materi' }));
+}
+
 function submit() {
   if (!form.judul.trim()) {
-    showToast('Judul materi wajib diisi!', 'warning');
-    currentStep.value = 1;
+    showToast('Judul materi pembelajaran wajib diisi!', 'warning');
+    return;
+  }
+  if (!form.mapelId) {
+    showToast('Pilih mata pelajaran terlebih dahulu!', 'warning');
     return;
   }
   if (!form.tpId) {
     showToast('Pilih Tujuan Pembelajaran (TP)!', 'warning');
-    currentStep.value = 1;
     return;
   }
 
@@ -525,7 +577,6 @@ function submit() {
     fd.append('file', selectedFile.value);
   }
 
-  // Only append kegiatan for Slider PPT or if configured
   const kegiatan = form.kegiatan.map((k, i) => ({
     label: k.label || 'Konsep',
     judul: k.judul || '',
@@ -537,8 +588,11 @@ function submit() {
   }));
   fd.append('kegiatan', JSON.stringify(kegiatan));
 
-  kegiatanFiles.value.forEach(f => {
-    if (f) fd.append('kegiatan_file[]', f);
+  kegiatanFiles.value.forEach((f, i) => {
+    if (f) {
+      fd.append(`kegiatan_files[${i}]`, f);
+      fd.append('kegiatan_file[]', f);
+    }
   });
 
   router.post(route('guru.materi.store'), fd, {
@@ -563,29 +617,24 @@ function submit() {
   <div class="min-h-screen bg-slate-950 text-slate-100 font-sans pb-32">
     <!-- Top Action Bar -->
     <header class="sticky top-0 z-50 bg-slate-900/90 backdrop-blur-xl border-b border-white/10 shadow-xl">
-      <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
         <div class="flex items-center gap-3 min-w-0">
           <button
             @click="goBack"
             type="button"
-            class="px-3 sm:px-3.5 py-2 shrink-0 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 border border-white/15 hover:border-cyan-500/40 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-2 transition-all active:scale-95 shadow-sm min-h-[44px]"
-            :title="currentStep === 2 ? 'Kembali ke Konfigurasi Pokok' : 'Kembali ke Daftar Materi'"
+            class="px-3.5 py-2 shrink-0 rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/15 border border-white/15 hover:border-cyan-500/40 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-2 transition active:scale-95 shadow-sm min-h-[44px]"
+            title="Kembali ke Daftar Materi"
           >
             <svg class="w-4 h-4 text-cyan-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            <span class="font-bold">{{ currentStep === 2 ? 'Ke Pengaturan' : 'Kembali' }}</span>
+            <span class="font-bold">Kembali</span>
           </button>
           <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <h1 class="text-base sm:text-lg font-black text-white truncate">
-                {{ isEditing ? 'Edit Materi Pembelajaran' : 'Buat Materi Pembelajaran Baru' }}
-              </h1>
-              <span class="hidden md:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                LMS Cepat
-              </span>
-            </div>
-            <p class="text-[11px] text-slate-400 truncate">SMKS Muhammadiyah 2 Genteng · Standar Kurikulum Merdeka</p>
+            <h1 class="text-base sm:text-lg font-black text-white truncate">
+              {{ isEditing ? 'Edit Materi Pembelajaran' : 'Buat Materi Pembelajaran Baru' }}
+            </h1>
+            <p class="text-[11px] text-slate-400 truncate">SMKS Muhammadiyah 2 Genteng</p>
           </div>
         </div>
 
@@ -601,7 +650,7 @@ function submit() {
           <button
             @click="submit"
             :disabled="saving"
-            class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 via-teal-500 to-indigo-600 text-white font-black text-xs shadow-lg shadow-cyan-500/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 min-h-[44px]"
+            class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 via-teal-500 to-indigo-600 text-white font-black text-xs shadow-lg shadow-cyan-500/20 hover:scale-105 active:scale-95 transition disabled:opacity-50 min-h-[44px]"
           >
             <span v-if="saving" class="animate-spin">⏳</span>
             <span v-else>💾</span>
@@ -611,68 +660,47 @@ function submit() {
       </div>
     </header>
 
-    <main class="max-w-6xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
-
-      <!-- WIZARD STEP NAVIGATOR BAR -->
-      <div class="flex items-center justify-center">
-        <div class="inline-flex items-center bg-slate-900/90 border border-white/10 rounded-2xl p-1.5 shadow-xl max-w-2xl w-full">
-          <button
-            type="button"
-            @click="goToConfig"
-            class="flex-1 py-2.5 px-3 sm:px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 min-h-[44px]"
-            :class="currentStep === 1
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white shadow-lg shadow-cyan-500/20'
-              : 'text-slate-400 hover:text-white hover:bg-white/5'"
-          >
-            <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black" :class="currentStep === 1 ? 'bg-white/25 text-white' : 'bg-white/10 text-slate-400'">
-              1
-            </span>
-            <span class="truncate">1. Gerbang Masuk (Info Pokok)</span>
-            <span v-if="currentStep === 2 && form.judul && form.tpId" class="text-emerald-400 text-xs">✓</span>
-          </button>
-
-          <div class="w-6 flex items-center justify-center text-slate-600 font-bold shrink-0">➔</div>
-
-          <button
-            type="button"
-            @click="goToStudio"
-            class="flex-1 py-2.5 px-3 sm:px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 min-h-[44px]"
-            :class="currentStep === 2
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white shadow-lg shadow-cyan-500/20'
-              : 'text-slate-400 hover:text-white hover:bg-white/5'"
-          >
-            <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black" :class="currentStep === 2 ? 'bg-white/25 text-white' : 'bg-white/10 text-slate-400'">
-              2
-            </span>
-            <span class="truncate">2. Studio Materi & Konten</span>
-          </button>
-        </div>
-      </div>
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 pt-5 space-y-6">
 
       <!-- ========================================================================= -->
-      <!-- LANGKAH 1: GERBANG MASUK (KONFIGURASI POKOK PEMBELAJARAN)                   -->
+      <!-- CARD 1: PENGATURAN INFORMASI MATERI (COMPACT & FOKUS)                     -->
       <!-- ========================================================================= -->
-      <div v-show="currentStep === 1" class="space-y-6">
-
-        <!-- Informasi Pokok Pembelajaran (Gerbang Masuk Card) -->
-        <section class="bg-slate-900/90 border border-white/15 rounded-3xl p-6 shadow-2xl space-y-5 backdrop-blur-xl">
-          <div class="flex items-center justify-between pb-3 border-b border-white/10">
-            <div>
-              <h2 class="text-sm sm:text-base font-black uppercase tracking-wider text-cyan-400 flex items-center gap-2">
-                <span>📌</span> INFORMASI POKOK PEMBELAJARAN
-              </h2>
-              <p class="text-xs text-slate-400 mt-0.5">
-                Kunci mata pelajaran, TP, kelas, dan semester sebelum mulai menyusun slide materi pembelajaran.
-              </p>
-            </div>
-            <span class="hidden sm:inline-flex px-3 py-1 rounded-xl text-xs font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
-              Tahap 1 / 2
+      <section class="bg-slate-900/90 border border-white/15 rounded-2xl shadow-xl backdrop-blur-xl transition-all">
+        <!-- Collapsible Header -->
+        <div
+          @click="isInfoSectionCollapsed = !isInfoSectionCollapsed"
+          class="px-5 py-3.5 flex items-center justify-between cursor-pointer border-b border-white/10 hover:bg-white/[0.02] transition rounded-t-2xl select-none"
+        >
+          <div class="flex items-center gap-2.5 min-w-0">
+            <span class="text-base text-cyan-400">⚙️</span>
+            <h2 class="text-xs font-black uppercase tracking-wider text-slate-200">
+              Informasi Pokok Materi
+            </h2>
+            <span v-if="form.judul" class="text-xs text-cyan-300 font-semibold truncate hidden sm:inline">
+              — {{ form.judul }}
             </span>
           </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-[11px] text-slate-400 font-medium">
+              {{ isInfoSectionCollapsed ? 'Buka Pengaturan' : 'Tutup Pengaturan' }}
+            </span>
+            <svg
+              class="w-4 h-4 text-slate-400 transition-transform duration-200"
+              :class="isInfoSectionCollapsed ? '-rotate-90' : 'rotate-0'"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+        </div>
 
+        <!-- Form Body -->
+        <div v-show="!isInfoSectionCollapsed" class="p-5 space-y-4">
           <!-- Judul Materi -->
           <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1.5">
+            <label class="block text-xs font-bold text-slate-300 mb-1">
               Judul Materi Pembelajaran <span class="text-rose-400">*</span>
             </label>
             <input
@@ -680,20 +708,20 @@ function submit() {
               type="text"
               required
               placeholder="Contoh: Hukum Newton II & Dinamika Gerak Benda"
-              class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 rounded-2xl px-4 py-3 text-sm text-white placeholder-slate-500 transition min-h-[44px]"
+              class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/20 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 transition min-h-[44px]"
             />
           </div>
 
-          <!-- 2 Col Grid: Mata Pelajaran & Semester -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <!-- Grid Baris 1: Mapel, Semester, Kelas, TP -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
             <!-- Mata Pelajaran -->
             <div>
-              <label class="block text-xs font-bold text-slate-300 mb-1.5">
+              <label class="block text-xs font-bold text-slate-300 mb-1">
                 Mata Pelajaran <span class="text-rose-400">*</span>
               </label>
               <select
                 v-model="form.mapelId"
-                class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl px-3.5 py-2.5 text-xs text-white min-h-[44px] cursor-pointer"
+                class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white min-h-[42px] cursor-pointer"
               >
                 <option v-for="mp in mapelListProp" :key="mp.id" :value="mp.id" class="bg-slate-900 text-white py-1">
                   {{ mp.nama }} ({{ mp.kode }})
@@ -703,833 +731,860 @@ function submit() {
 
             <!-- Semester -->
             <div>
-              <label class="block text-xs font-bold text-slate-300 mb-1.5">Semester</label>
+              <label class="block text-xs font-bold text-slate-300 mb-1">Semester</label>
               <select
                 v-model="form.semester"
-                class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl px-3.5 py-2.5 text-xs text-white min-h-[44px] cursor-pointer"
+                class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white min-h-[42px] cursor-pointer"
               >
                 <option value="Ganjil" class="bg-slate-900 text-white py-1">Semester Ganjil</option>
                 <option value="Genap" class="bg-slate-900 text-white py-1">Semester Genap</option>
               </select>
             </div>
-          </div>
 
-          <!-- Tujuan Pembelajaran (TP) - Full Width Custom Selector Bebas Glitch -->
-          <div id="tp-selector-container" class="relative">
-            <div class="flex items-center justify-between mb-1.5">
-              <label class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                <span>🎯</span> Tujuan Pembelajaran (TP) <span class="text-rose-400">*</span>
-              </label>
-              <a
-                href="/guru/dashboard?tab=tp"
-                target="_blank"
-                class="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition"
-                title="Buka menu Pengelolaan TP di tab baru"
+            <!-- Target Kelas -->
+            <div>
+              <label class="block text-xs font-bold text-slate-300 mb-1">Target Kelas</label>
+              <select
+                v-model="form.kelas_id"
+                class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white min-h-[42px] cursor-pointer"
               >
-                <span>Kelola Master TP ↗</span>
-              </a>
+                <option :value="null" class="bg-slate-900 text-white py-1">🌐 Seluruh Kelas</option>
+                <option v-for="k in availableKelasForSelectedMapel" :key="k.id" :value="k.id" class="bg-slate-900 text-white py-1">
+                  {{ k.isScheduled ? '✨' : '🏫' }} Kelas {{ k.nama || k.namaKelas }} ({{ k.jurusan || 'Umum' }})
+                </option>
+              </select>
             </div>
 
-            <!-- Trigger Button -->
-            <div
-              @click="isTpDropdownOpen = !isTpDropdownOpen"
-              class="w-full bg-slate-950/90 border rounded-2xl px-4 py-3 text-xs cursor-pointer flex items-center justify-between gap-3 min-h-[48px] transition-all select-none"
-              :class="isTpDropdownOpen ? 'border-cyan-400 ring-2 ring-cyan-500/20' : 'border-white/15 hover:border-white/30'"
-            >
-              <div class="flex items-center gap-2.5 min-w-0 flex-1">
-                <span v-if="selectedTpObj" class="px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 font-extrabold text-[11px] border border-cyan-500/30 shrink-0">
-                  {{ selectedTpObj.kode }}
-                </span>
+            <!-- Tujuan Pembelajaran (TP) -->
+            <div id="tp-selector-container" class="relative">
+              <label class="block text-xs font-bold text-slate-300 mb-1">
+                Tujuan Pembelajaran (TP) <span class="text-rose-400">*</span>
+              </label>
+
+              <!-- Trigger Button -->
+              <div
+                @click="isTpDropdownOpen = !isTpDropdownOpen"
+                class="w-full bg-slate-950/90 border rounded-xl px-3 py-2 text-xs cursor-pointer flex items-center justify-between gap-2 min-h-[42px] transition select-none"
+                :class="isTpDropdownOpen ? 'border-cyan-400 ring-1 ring-cyan-500/20' : 'border-white/15 hover:border-white/30'"
+              >
                 <span v-if="selectedTpObj" class="text-white font-medium truncate text-xs">
+                  <span class="text-cyan-300 font-bold mr-1">{{ selectedTpObj.kode }}</span>
                   {{ selectedTpObj.judul || selectedTpObj.deskripsi }}
                 </span>
-                <span v-else class="text-slate-500 italic">
-                  -- Klik untuk memilih Tujuan Pembelajaran (TP) --
+                <span v-else class="text-slate-500 italic truncate text-xs">
+                  -- Pilih TP --
                 </span>
-              </div>
-              <div class="flex items-center gap-2 shrink-0 text-slate-400">
-                <span class="text-[11px] text-cyan-400/80 font-bold hidden sm:inline">{{ availableTpsForSelectedMapel.length }} TP</span>
-                <svg class="w-4 h-4 transition-transform text-slate-400" :class="isTpDropdownOpen ? 'rotate-180 text-cyan-400' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" :class="isTpDropdownOpen ? 'rotate-180 text-cyan-400' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                 </svg>
               </div>
-            </div>
 
-            <!-- Dropdown Popover Menu -->
-            <div
-              v-if="isTpDropdownOpen"
-              class="absolute z-50 left-0 right-0 mt-2 bg-slate-900 border border-cyan-500/40 rounded-2xl shadow-2xl p-2.5 backdrop-blur-2xl space-y-2 animate-in fade-in zoom-in-95 duration-150"
-            >
-              <!-- Search Bar -->
-              <div class="relative">
+              <!-- Dropdown List -->
+              <div
+                v-if="isTpDropdownOpen"
+                class="absolute z-50 left-0 right-0 mt-1.5 bg-slate-900 border border-cyan-500/40 rounded-xl shadow-2xl p-2 backdrop-blur-2xl space-y-1.5 animate-in fade-in zoom-in-95 duration-100"
+              >
                 <input
                   v-model="tpSearchQuery"
                   type="text"
-                  placeholder="Ketik untuk mencari kode atau materi TP..."
-                  class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 rounded-xl pl-8 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
+                  placeholder="Cari kode atau materi TP..."
+                  class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none"
                   @click.stop
                 />
-                <span class="absolute left-2.5 top-2 text-xs text-slate-500">🔍</span>
-                <button
-                  v-if="tpSearchQuery"
-                  type="button"
-                  @click.stop="tpSearchQuery = ''"
-                  class="absolute right-2.5 top-2 text-xs text-slate-400 hover:text-white"
-                >✕</button>
-              </div>
-
-              <!-- Options List -->
-              <div class="max-h-64 overflow-y-auto space-y-1 pr-1">
-                <div
-                  v-if="searchedTps.length === 0"
-                  class="py-6 text-center text-xs text-slate-400"
-                >
-                  Tidak ada TP yang cocok untuk mata pelajaran dan semester ini.
-                </div>
-                <div
-                  v-for="tp in searchedTps"
-                  :key="tp.id"
-                  @click="selectTp(tp)"
-                  class="p-2.5 rounded-xl cursor-pointer transition-all flex items-start gap-3 border"
-                  :class="String(form.tpId) === String(tp.id)
-                    ? 'bg-cyan-500/15 border-cyan-500/40 text-white ring-1 ring-cyan-500/30'
-                    : 'bg-white/[0.02] border-white/5 hover:bg-white/10 hover:border-white/20 text-slate-300'"
-                >
-                  <span class="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-extrabold text-[11px] border border-cyan-500/30 shrink-0 mt-0.5">
-                    {{ tp.kode }}
-                  </span>
-                  <div class="flex-1 min-w-0">
-                    <p class="text-xs font-semibold leading-relaxed line-clamp-2" :class="String(form.tpId) === String(tp.id) ? 'text-cyan-200' : 'text-slate-200'">
-                      {{ tp.judul || tp.deskripsi }}
-                    </p>
-                    <div class="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
-                      <span>📚 {{ tp.mapel || 'Umum' }}</span>
-                      <span>·</span>
-                      <span>📅 Semester {{ tp.semester || form.semester }}</span>
-                      <span v-if="tp.kktp">· KKTP: {{ tp.kktp }}</span>
-                    </div>
+                <div class="max-h-56 overflow-y-auto space-y-1 pr-1">
+                  <div v-if="searchedTps.length === 0" class="py-4 text-center text-xs text-slate-400">
+                    Tidak ada TP yang cocok.
                   </div>
-                  <span v-if="String(form.tpId) === String(tp.id)" class="text-cyan-400 text-xs font-bold shrink-0">✓</span>
+                  <div
+                    v-for="tp in searchedTps"
+                    :key="tp.id"
+                    @click="selectTp(tp)"
+                    class="p-2 rounded-lg cursor-pointer transition flex items-start gap-2 border text-xs"
+                    :class="String(form.tpId) === String(tp.id)
+                      ? 'bg-cyan-500/15 border-cyan-500/40 text-white font-bold'
+                      : 'bg-white/[0.02] border-white/5 hover:bg-white/10 text-slate-300'"
+                  >
+                    <span class="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-extrabold text-[10px] shrink-0 mt-0.5">
+                      {{ tp.kode }}
+                    </span>
+                    <span class="truncate flex-1">{{ tp.judul || tp.deskripsi }}</span>
+                  </div>
                 </div>
-              </div>
-            </div>
-
-            <!-- Selected TP Preview Banner -->
-            <div v-if="selectedTpObj" class="mt-2.5 p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-500/25 flex items-start gap-3">
-              <span class="text-base shrink-0 mt-0.5">🎯</span>
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2 flex-wrap mb-1">
-                  <span class="text-xs font-black text-cyan-300">{{ selectedTpObj.kode }}</span>
-                  <span class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-bold border border-cyan-500/30">
-                    Capaian Pembelajaran Terpilih
-                  </span>
-                  <span v-if="selectedTpObj.kktp" class="text-[10px] text-slate-400">
-                    KKTP: {{ selectedTpObj.kktp }}
-                  </span>
-                </div>
-                <p class="text-xs text-slate-200 leading-relaxed font-normal">
-                  {{ selectedTpObj.judul || selectedTpObj.deskripsi }}
-                </p>
               </div>
             </div>
           </div>
 
-          <!-- Target Siswa: Tingkat & Kelas -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/5">
-            <div class="min-w-0">
-              <label class="block text-xs font-bold text-slate-300 mb-1.5">Tingkat Kelas</label>
-              <div class="grid grid-cols-4 gap-2">
+          <!-- Grid Baris 2: Format Materi & Tautkan CBT -->
+          <div class="grid grid-cols-1 sm:grid-cols-12 gap-3.5 pt-1">
+            <!-- Format Materi (Pills) -->
+            <div class="sm:col-span-7">
+              <label class="block text-xs font-bold text-slate-300 mb-1">Format Pembuatan Materi</label>
+              <div class="grid grid-cols-3 gap-2">
                 <button
-                  v-for="t in ['Semua', 'X', 'XI', 'XII']"
-                  :key="t"
+                  v-for="opt in TIPE_OPTIONS"
+                  :key="opt.value"
                   type="button"
-                  @click="selectedTingkat = t"
-                  class="py-2.5 rounded-xl text-xs font-bold border transition min-h-[44px] flex items-center justify-center min-w-0"
-                  :class="selectedTingkat === t
-                    ? 'bg-cyan-500 text-white border-cyan-400 shadow-md shadow-cyan-500/20'
-                    : 'bg-white/5 text-slate-400 border-white/10 hover:bg-white/10'"
+                  @click="form.tipe = opt.value"
+                  class="py-2 px-2.5 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 min-h-[40px]"
+                  :class="form.tipe === opt.value
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-sm'
+                    : 'bg-white/5 text-slate-400 border-white/10 hover:bg-white/10 hover:text-white'"
                 >
-                  {{ t }}
+                  <span class="truncate">{{ opt.label }}</span>
                 </button>
               </div>
             </div>
 
-            <div>
-              <div class="flex items-center justify-between mb-1.5">
-                <label class="text-xs font-bold text-slate-300">Target Kelas Spesifik</label>
-                <a
-                  href="/guru/dashboard?tab=jadwal"
-                  target="_blank"
-                  class="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition"
-                  title="Lihat Jadwal Mengajar di tab baru"
-                >
-                  <span>📅</span>
-                  <span>Cek Jadwal ↗</span>
-                </a>
-              </div>
+            <!-- Tautkan Ujian CBT -->
+            <div class="sm:col-span-5">
+              <label class="block text-xs font-bold text-slate-300 mb-1">Tautkan ke Ujian CBT (Opsional)</label>
               <select
-                v-model="form.kelas_id"
-                class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl px-3.5 py-2.5 text-xs text-white min-h-[44px] cursor-pointer"
+                v-model="form.cbtJadwalId"
+                class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white min-h-[40px] cursor-pointer"
               >
-                <option :value="null" class="bg-slate-900 text-white py-1">🌐 Seluruh Kelas (Tingkat {{ selectedTingkat }})</option>
-                <option v-for="k in filteredKelasByTingkat" :key="k.id" :value="k.id" class="bg-slate-900 text-white py-1">
-                  {{ k.isScheduled ? '✨' : '🏫' }} Kelas {{ k.nama || k.namaKelas }} ({{ k.jurusan || 'Umum' }}){{ k.isScheduled ? ' - Sesuai Jadwal' : '' }}
+                <option :value="null" class="bg-slate-900 text-white py-1">-- Tidak Ada Ujian Terkait --</option>
+                <option v-for="cbt in cbtJadwalListProp" :key="cbt.id" :value="cbt.id" class="bg-slate-900 text-white py-1">
+                  📝 {{ cbt.judul }} ({{ cbt.durasi }} Menit)
                 </option>
               </select>
-              <div class="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px]">
-                <span class="text-cyan-400/90 font-medium">
-                  📅 {{ filteredKelasByTingkat.length }} kelas tersedia di tingkat {{ selectedTingkat }}
-                  <span v-if="scheduledCountInSelectedTingkat > 0" class="text-emerald-400 font-semibold">
-                    ({{ scheduledCountInSelectedTingkat }} kelas terjadwal mapel ini)
-                  </span>
-                </span>
-                <span v-if="filteredKelasByTingkat.length === 0" class="text-amber-400 font-medium">
-                  ⚠️ Belum ada kelas di tingkat {{ selectedTingkat }}
-                </span>
-              </div>
             </div>
           </div>
+        </div>
+      </section>
 
-          <!-- Tautkan Ujian CBT (Fitur Integrasi Utama) -->
-          <div class="p-4 rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/30 to-slate-900 border border-indigo-500/30 space-y-2">
-            <div class="flex items-center justify-between">
-              <label class="text-xs font-black text-indigo-300 flex items-center gap-1.5">
-                <span>🎯</span> Tautkan ke Ujian CBT (Opsional)
-              </label>
-              <span class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
-                Integrasi Otomatis
-              </span>
-            </div>
-            <p class="text-[11px] text-slate-400 leading-relaxed">
-              Jika dipilih, setelah siswa selesai membaca seluruh materi ini di dashboard mereka, akan muncul tombol <strong>"🎯 Lanjut Kerjakan Ujian CBT"</strong> yang langsung membuka lembar soal dengan identitas siswa tetap terjaga.
-            </p>
-            <select
-              v-model="form.cbtJadwalId"
-              class="w-full bg-slate-950 border border-indigo-500/40 focus:border-indigo-400 rounded-xl px-3.5 py-2.5 text-xs text-indigo-200 font-semibold min-h-[44px] cursor-pointer"
-            >
-              <option :value="null" class="bg-slate-900 text-white py-1">-- Tidak Ada Ujian CBT Terkait --</option>
-              <option v-for="cbt in cbtJadwalListProp" :key="cbt.id" :value="cbt.id" class="bg-slate-900 text-white py-1">
-                📝 {{ cbt.judul }} (Durasi: {{ cbt.durasi }} Menit)
-              </option>
-            </select>
+      <!-- ========================================================================= -->
+      <!-- CARD 2A: MODE BERKAS DOKUMEN / PDF                                        -->
+      <!-- ========================================================================= -->
+      <section v-if="form.tipe === 'Dokumen PDF/PPT'" class="bg-slate-900/90 border border-white/15 rounded-2xl p-6 shadow-xl space-y-4">
+        <h2 class="text-xs font-black uppercase tracking-wider text-cyan-400 flex items-center gap-2">
+          <span>📄</span> Berkas Dokumen PDF / PPT
+        </h2>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-300 mb-1.5">Unggah Berkas (PDF, PPT, DOCX - Maks 30MB)</label>
+          <div class="border-2 border-dashed border-white/20 hover:border-cyan-400/50 rounded-2xl p-6 text-center bg-slate-950/40 transition">
+            <input
+              type="file"
+              @change="onMainFileSelected"
+              accept=".pdf,.ppt,.pptx,.doc,.docx"
+              class="hidden"
+              id="main-file-input"
+            />
+            <label for="main-file-input" class="cursor-pointer block space-y-1.5">
+              <span class="text-3xl">📁</span>
+              <p class="text-xs text-slate-300 font-bold">
+                {{ selectedFile ? selectedFile.name : (props.materiProp?.fileName || 'Klik untuk pilih berkas') }}
+              </p>
+              <p class="text-[11px] text-slate-500">Mendukung format PDF, PowerPoint (.pptx), atau Word (.docx)</p>
+            </label>
           </div>
-        </section>
+          <div v-if="props.materiProp?.fileUrl && !selectedFile" class="mt-2 text-xs text-cyan-400 flex items-center gap-2">
+            <span>📎 Berkas saat ini:</span>
+            <a :href="props.materiProp.fileUrl" target="_blank" class="underline hover:text-cyan-300">Lihat Dokumen</a>
+          </div>
+        </div>
 
-        <!-- Pilih Format Materi -->
-        <section class="bg-slate-900/80 border border-white/10 rounded-3xl p-5 shadow-2xl backdrop-blur-md">
-          <label class="text-xs font-black uppercase tracking-wider text-slate-400 mb-3 block">
-            Pilih Format Pembuatan Materi
-          </label>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-300 mb-1.5">Atau Tautan Google Drive / URL Cloud</label>
+          <input
+            v-model="form.fileUrl"
+            type="url"
+            placeholder="https://drive.google.com/file/d/..."
+            class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-xl px-4 py-2.5 text-xs text-white min-h-[44px]"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-300 mb-1.5">Instruksi / Catatan Singkat untuk Siswa</label>
+          <AutoTextarea
+            v-model="form.deskripsiSingkat"
+            placeholder="Tuliskan petunjuk membaca atau poin penting yang harus diperhatikan..."
+            class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-xl p-3.5 text-xs text-white"
+          />
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- CARD 2B: MODE VIDEO YOUTUBE                                               -->
+      <!-- ========================================================================= -->
+      <section v-else-if="form.tipe === 'Video YouTube'" class="bg-slate-900/90 border border-white/15 rounded-2xl p-6 shadow-xl space-y-4">
+        <h2 class="text-xs font-black uppercase tracking-wider text-cyan-400 flex items-center gap-2">
+          <span>🎥</span> Tautan Video Pembelajaran
+        </h2>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-300 mb-1.5">URL Video YouTube <span class="text-rose-400">*</span></label>
+          <input
+            v-model="form.fileUrl"
+            type="url"
+            placeholder="https://www.youtube.com/watch?v=..."
+            class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-xl px-4 py-2.5 text-xs text-white min-h-[44px]"
+          />
+        </div>
+
+        <!-- YouTube Live Preview -->
+        <div v-if="youtubeEmbedUrl" class="rounded-2xl overflow-hidden border border-white/15 bg-black aspect-video max-w-xl mx-auto shadow-2xl">
+          <iframe
+            :src="youtubeEmbedUrl"
+            class="w-full h-full border-0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen
+          ></iframe>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-300 mb-1.5">Catatan Video untuk Siswa</label>
+          <AutoTextarea
+            v-model="form.deskripsiSingkat"
+            placeholder="Contoh: Simak penjelasan menit ke-02:15..."
+            class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-xl p-3.5 text-xs text-white"
+          />
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- CARD 2C: MODE SLIDER PPT INTERAKTIF (STUDIO MATERI UTAMA)                 -->
+      <!-- ========================================================================= -->
+      <section v-else class="space-y-4">
+
+        <!-- Bar Tema & Kontrol Slide -->
+        <div class="bg-slate-900/90 border border-white/15 rounded-2xl p-3.5 sm:p-4 shadow-xl flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs font-black text-slate-300 mr-1">Tema Slide:</span>
             <button
-              v-for="opt in TIPE_OPTIONS"
-              :key="opt.value"
+              v-for="th in THEME_OPTIONS"
+              :key="th.id"
               type="button"
-              @click="form.tipe = opt.value"
-              class="text-left p-4 rounded-2xl border transition-all relative overflow-hidden min-h-[44px]"
-              :class="form.tipe === opt.value
-                ? 'bg-gradient-to-br from-cyan-500/10 via-slate-800 to-indigo-500/10 border-cyan-500/60 ring-2 ring-cyan-500/30 shadow-lg'
-                : 'bg-white/5 border-white/5 hover:border-white/20 hover:bg-white/[0.07] text-slate-300'"
+              @click="form.theme = th.id"
+              class="px-2.5 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 min-h-[36px]"
+              :class="form.theme === th.id
+                ? 'ring-2 ring-cyan-400 ' + th.bg
+                : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'"
             >
-              <div class="font-extrabold text-sm text-white flex items-center justify-between mb-1">
-                <span>{{ opt.label }}</span>
-                <span v-if="form.tipe === opt.value" class="text-cyan-400 text-xs">✓ Terpilih</span>
-              </div>
-              <p class="text-xs text-slate-400 leading-relaxed">{{ opt.desc }}</p>
+              <span>{{ th.icon }}</span>
+              <span>{{ th.label }}</span>
             </button>
           </div>
-        </section>
 
-        <!-- CTA Masuk ke Studio Materi -->
-        <div class="p-6 rounded-3xl bg-gradient-to-r from-cyan-950/60 via-slate-900 to-indigo-950/60 border border-cyan-500/40 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div class="space-y-1 text-center sm:text-left">
-            <h3 class="text-sm font-black text-white flex items-center justify-center sm:justify-start gap-2">
-              <span>🚀</span> Siap Menyusun Materi Pembelajaran?
-            </h3>
-            <p class="text-xs text-slate-400">
-              Informasi pokok di atas akan dikunci sehingga Anda dapat fokus mengolah konten slide, rumus, dan gambar di Studio.
-            </p>
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-cyan-300 px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+              Slide {{ activeSlideIndex + 1 }} dari {{ form.kegiatan.length }}
+            </span>
           </div>
-          <button
-            type="button"
-            @click="goToStudio"
-            class="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-white font-black text-xs shadow-xl shadow-cyan-500/25 transition-all flex items-center justify-center gap-2 active:scale-95 shrink-0 min-h-[48px]"
-          >
-            <span>Masuk ke Studio Materi</span>
-            <span class="text-sm">➔</span>
-          </button>
         </div>
 
-      </div>
+        <!-- Studio Slide Builder -->
+        <div class="bg-slate-900/95 border border-white/15 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl">
 
-      <!-- ========================================================================= -->
-      <!-- LANGKAH 2: STUDIO PEMBUATAN MATERI (SLIDER PPT / DOKUMEN / VIDEO)           -->
-      <!-- ========================================================================= -->
-      <div v-show="currentStep === 2" class="space-y-6">
-
-        <!-- LOCKED METADATA SUMMARY BAR (Gerbang Informasi Terkunci) -->
-        <div class="bg-gradient-to-r from-slate-900 via-slate-900 to-cyan-950/60 border border-cyan-500/30 rounded-3xl p-4 sm:p-5 shadow-2xl flex flex-wrap items-center justify-between gap-4">
-          <div class="flex items-center gap-3 min-w-0">
-            <div class="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-lg text-cyan-400 shrink-0">
-              🔒
-            </div>
-            <div class="min-w-0">
-              <div class="flex items-center gap-2 flex-wrap mb-1">
-                <span class="text-xs font-black uppercase tracking-wider text-cyan-400">Informasi Terkunci:</span>
-                <span class="text-xs font-bold text-white truncate">{{ form.judul || 'Tanpa Judul' }}</span>
-              </div>
-              <div class="flex items-center gap-2 flex-wrap text-[11px] text-slate-400">
-                <span class="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-cyan-300 font-semibold">
-                  📚 {{ selectedMapelObj?.nama || 'Mapel' }}
-                </span>
-                <span class="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-emerald-300 font-semibold truncate max-w-[280px]">
-                  🎯 {{ selectedTpObj?.kode ? selectedTpObj.kode + ' - ' + (selectedTpObj.judul || '') : 'TP Terpilih' }}
-                </span>
-                <span class="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-300 font-semibold">
-                  🏫 {{ selectedKelasName }}
-                </span>
-                <span class="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-purple-300 font-semibold">
-                  📅 {{ form.semester }}
-                </span>
-                <span class="px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-bold">
-                  {{ form.tipe }}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            @click="goToConfig"
-            class="px-4 py-2 rounded-xl bg-white/5 hover:bg-cyan-500/15 border border-white/15 hover:border-cyan-400/40 text-xs font-bold text-cyan-300 hover:text-cyan-200 transition flex items-center gap-2 min-h-[44px] active:scale-95 shadow-sm"
-            title="Klik untuk membuka dan mengubah kembali informasi pokok"
-          >
-            <span>✏️</span>
-            <span>Ubah Info Pokok</span>
-          </button>
-        </div>
-
-        <!-- 3A. MODE: DOKUMEN PDF / PPT -->
-        <section v-if="form.tipe === 'Dokumen PDF/PPT'" class="bg-slate-900/80 border border-white/10 rounded-3xl p-6 shadow-2xl space-y-5">
-          <h2 class="text-sm font-black uppercase tracking-wider text-cyan-400 flex items-center gap-2">
-            <span>📄</span> Berkas Dokumen PDF / PPT
-          </h2>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1.5">Unggah Berkas (PDF, PPT, DOCX - Maks 30MB)</label>
-            <div class="border-2 border-dashed border-white/20 hover:border-cyan-400/50 rounded-2xl p-6 text-center bg-slate-950/40 transition">
-              <input
-                type="file"
-                @change="onMainFileSelected"
-                accept=".pdf,.ppt,.pptx,.doc,.docx"
-                class="hidden"
-                id="main-file-input"
-              />
-              <label for="main-file-input" class="cursor-pointer block space-y-2">
-                <span class="text-3xl">📁</span>
-                <p class="text-xs text-slate-300 font-bold">
-                  {{ selectedFile ? selectedFile.name : (props.materiProp?.fileName || 'Klik untuk pilih file atau seret ke sini') }}
-                </p>
-                <p class="text-[11px] text-slate-500">Mendukung file PDF, PowerPoint (.pptx), atau Word (.docx)</p>
-              </label>
-            </div>
-            <div v-if="props.materiProp?.fileUrl && !selectedFile" class="mt-2 text-xs text-cyan-400 flex items-center gap-2">
-              <span>📎 Berkas saat ini:</span>
-              <a :href="props.materiProp.fileUrl" target="_blank" class="underline hover:text-cyan-300">Lihat Dokumen</a>
-            </div>
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1.5">Atau Tautan Dokumen (Google Drive / Cloud URL)</label>
-            <input
-              v-model="form.fileUrl"
-              type="url"
-              placeholder="https://drive.google.com/file/d/..."
-              class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl px-4 py-2.5 text-xs text-white min-h-[44px]"
-            />
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1.5">Petunjuk Membaca / Deskripsi Ringkas</label>
-            <AutoTextarea
-              v-model="form.deskripsiSingkat"
-              placeholder="Tuliskan instruksi atau rangkuman materi untuk siswa..."
-              class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl p-4 text-xs text-white"
-            />
-          </div>
-        </section>
-
-        <!-- 3B. MODE: VIDEO YOUTUBE -->
-        <section v-else-if="form.tipe === 'Video YouTube'" class="bg-slate-900/80 border border-white/10 rounded-3xl p-6 shadow-2xl space-y-5">
-          <h2 class="text-sm font-black uppercase tracking-wider text-cyan-400 flex items-center gap-2">
-            <span>🎥</span> Video Pembelajaran Edukatif
-          </h2>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1.5">Tautan Video YouTube <span class="text-rose-400">*</span></label>
-            <input
-              v-model="form.fileUrl"
-              type="url"
-              placeholder="https://www.youtube.com/watch?v=..."
-              class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl px-4 py-2.5 text-xs text-white min-h-[44px]"
-            />
-            <p class="text-[11px] text-slate-500 mt-1">Cukup copy-paste URL video YouTube dari browser.</p>
-          </div>
-
-          <!-- YouTube Live Preview -->
-          <div v-if="youtubeEmbedUrl" class="rounded-2xl overflow-hidden border border-white/15 bg-black aspect-video max-w-xl mx-auto shadow-2xl">
-            <iframe
-              :src="youtubeEmbedUrl"
-              class="w-full h-full border-0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowfullscreen
-            ></iframe>
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-300 mb-1.5">Catatan / Tugas Menonton</label>
-            <AutoTextarea
-              v-model="form.deskripsiSingkat"
-              placeholder="Contoh: Perhatikan menit ke-03:15 saat pembahasan rumus percepatan..."
-              class="w-full bg-slate-950/80 border border-white/15 focus:border-cyan-400 rounded-2xl p-4 text-xs text-white"
-            />
-          </div>
-        </section>
-
-        <!-- 3C. MODE: SLIDER PPT INTERAKTIF (FITUR UTAMA) -->
-        <section v-else class="space-y-6">
-          <!-- Theme Selector Card -->
-          <div class="bg-slate-900/80 border border-white/10 rounded-3xl p-5 shadow-2xl flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h2 class="text-xs font-black uppercase tracking-wider text-slate-400">Tema Visual Slide Siswa</h2>
-              <p class="text-[11px] text-slate-500">Tampilan warna & kontras saat dibuka siswa secara fullscreen</p>
-            </div>
-            <div class="flex items-center gap-2 flex-wrap">
+          <!-- 1. Strip Thumbnail Slide Horizontal -->
+          <div class="bg-slate-950/90 border-b border-white/10 px-4 py-3 flex items-center justify-between gap-3 overflow-x-auto">
+            <div class="flex items-center gap-2 min-w-max">
               <button
-                v-for="th in THEME_OPTIONS"
-                :key="th.id"
+                v-for="(s, idx) in form.kegiatan"
+                :key="idx"
                 type="button"
-                @click="form.theme = th.id"
-                class="px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-2 shadow-sm min-h-[44px]"
-                :class="form.theme === th.id
-                  ? 'ring-2 ring-cyan-400 ' + th.bg
-                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'"
+                @click="activeSlideIndex = idx"
+                class="px-3 py-2 rounded-xl border text-left transition flex items-center gap-2 min-h-[42px]"
+                :class="activeSlideIndex === idx
+                  ? 'bg-cyan-500/20 border-cyan-400 text-white font-bold shadow-md shadow-cyan-500/20'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-slate-200'"
               >
-                <span>{{ th.icon }}</span>
-                <span>{{ th.label }}</span>
+                <span class="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black" :class="activeSlideIndex === idx ? 'bg-cyan-500 text-white' : 'bg-white/10 text-slate-300'">
+                  {{ idx + 1 }}
+                </span>
+                <span class="text-xs truncate max-w-[120px]">{{ s.judul || ('Bagian ' + (idx + 1)) }}</span>
+              </button>
+
+              <!-- Tambah Slide Button -->
+              <button
+                type="button"
+                @click="addSlide"
+                class="px-3 py-2 rounded-xl border border-dashed border-cyan-500/40 hover:border-cyan-400 bg-cyan-500/5 hover:bg-cyan-500/10 text-cyan-400 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 min-h-[42px]"
+              >
+                <span>➕</span>
+                <span>Tambah Slide</span>
+              </button>
+            </div>
+
+            <!-- Slide Reordering Action Buttons -->
+            <div class="flex items-center gap-1.5 shrink-0 pl-2">
+              <button
+                type="button"
+                @click="moveSlide(activeSlideIndex, -1)"
+                :disabled="activeSlideIndex === 0"
+                class="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-slate-300 disabled:opacity-25 transition min-h-[36px]"
+                title="Pindah ke Kiri"
+              >
+                ◀
+              </button>
+              <button
+                type="button"
+                @click="moveSlide(activeSlideIndex, 1)"
+                :disabled="activeSlideIndex === form.kegiatan.length - 1"
+                class="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-slate-300 disabled:opacity-25 transition min-h-[36px]"
+                title="Pindah ke Kanan"
+              >
+                ▶
+              </button>
+              <button
+                type="button"
+                @click="duplicateSlide(activeSlideIndex)"
+                class="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-slate-300 transition min-h-[36px]"
+                title="Duplikasi Slide"
+              >
+                📋 Salin
+              </button>
+              <button
+                type="button"
+                @click="removeSlide(activeSlideIndex)"
+                :disabled="form.kegiatan.length <= 1"
+                class="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-xs font-bold disabled:opacity-25 transition min-h-[36px]"
+                title="Hapus Slide"
+              >
+                🗑️
               </button>
             </div>
           </div>
 
-          <!-- Slider Builder Studio -->
-          <div class="bg-slate-900/95 border border-white/15 rounded-3xl shadow-2xl overflow-hidden backdrop-blur-xl">
-
-            <!-- BAR 1: Studio Slide Control Bar (Header & Actions Separated) -->
-            <div class="bg-slate-950/90 border-b border-white/10 px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
-              <div class="flex items-center gap-3">
-                <span class="px-3 py-1.5 rounded-xl text-xs font-black bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex items-center gap-2 shadow-sm">
-                  <span>📑</span>
-                  <span>Slide {{ activeSlideIndex + 1 }} dari {{ form.kegiatan.length }}</span>
-                </span>
-                <span v-if="form.kegiatan[activeSlideIndex]?.label" class="hidden sm:inline-flex px-2.5 py-1 rounded-full text-[11px] font-bold bg-white/5 text-slate-300 border border-white/10">
-                  🏷️ {{ form.kegiatan[activeSlideIndex].label }}
-                </span>
+          <!-- 2. Active Slide Sub-Header (Fase, Judul, Layout) -->
+          <div v-if="form.kegiatan[activeSlideIndex]" class="px-5 pt-4 pb-2 border-b border-white/10 bg-slate-950/40">
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <div class="sm:col-span-3">
+                <label class="block text-[11px] font-bold text-slate-400 mb-1">🏷️ Kategori / Fase</label>
+                <input
+                  v-model="form.kegiatan[activeSlideIndex].label"
+                  list="fase-list"
+                  placeholder="Misal: Konsep Utama"
+                  class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white min-h-[40px]"
+                />
+                <datalist id="fase-list">
+                  <option v-for="f in FASE_LABELS" :key="f" :value="f" />
+                </datalist>
               </div>
 
-              <!-- Slide Reordering & Operations Toolbar -->
-              <div class="flex items-center gap-2 flex-wrap">
-                <div class="flex items-center rounded-xl bg-white/5 p-1 border border-white/10 shadow-sm">
-                  <button
-                    type="button"
-                    @click="moveSlide(activeSlideIndex, -1)"
-                    :disabled="activeSlideIndex === 0"
-                    class="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white hover:bg-white/10 transition disabled:opacity-25 flex items-center gap-1 active:scale-95 min-h-[38px]"
-                    title="Pindah ke Kiri"
-                  >
-                    <span>◀</span>
-                    <span class="hidden md:inline">Geser Kiri</span>
-                  </button>
-                  <div class="w-px h-4 bg-white/10 mx-1"></div>
-                  <button
-                    type="button"
-                    @click="moveSlide(activeSlideIndex, 1)"
-                    :disabled="activeSlideIndex === form.kegiatan.length - 1"
-                    class="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white hover:bg-white/10 transition disabled:opacity-25 flex items-center gap-1 active:scale-95 min-h-[38px]"
-                    title="Pindah ke Kanan"
-                  >
-                    <span class="hidden md:inline">Geser Kanan</span>
-                    <span>▶</span>
-                  </button>
-                </div>
+              <div class="sm:col-span-5">
+                <label class="block text-[11px] font-bold text-slate-400 mb-1">✏️ Judul Sub-Materi / Slide</label>
+                <input
+                  v-model="form.kegiatan[activeSlideIndex].judul"
+                  placeholder="Misal: Penjelasan Rumus Percepatan"
+                  class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white font-bold min-h-[40px]"
+                />
+              </div>
 
-                <button
-                  type="button"
-                  @click="duplicateSlide(activeSlideIndex)"
-                  class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-200 font-bold transition flex items-center gap-1.5 active:scale-95 shadow-sm min-h-[38px]"
-                  title="Duplikasi Slide Ini"
+              <div class="sm:col-span-4">
+                <label class="block text-[11px] font-bold text-slate-400 mb-1">📐 Tata Letak (Layout)</label>
+                <select
+                  v-model="form.kegiatan[activeSlideIndex].layout"
+                  class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white font-medium min-h-[40px] cursor-pointer"
                 >
-                  <span>📋</span>
-                  <span>Duplikasi</span>
-                </button>
-
-                <button
-                  type="button"
-                  @click="removeSlide(activeSlideIndex)"
-                  :disabled="form.kegiatan.length <= 1"
-                  class="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-30 active:scale-95 shadow-sm min-h-[38px]"
-                  title="Hapus Slide Ini"
-                >
-                  <span>🗑️</span>
-                  <span>Hapus</span>
-                </button>
-
-                <button
-                  type="button"
-                  @click="addSlide"
-                  class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-white text-xs font-black shadow-md shadow-cyan-500/20 transition flex items-center gap-1.5 active:scale-95 min-h-[38px]"
-                >
-                  <span>➕</span>
-                  <span>Tambah Slide</span>
-                </button>
+                  <option v-for="lay in LAYOUT_OPTIONS" :key="lay.id" :value="lay.id" class="bg-slate-900 text-white py-1">
+                    {{ lay.icon }} {{ lay.label }}
+                  </option>
+                </select>
               </div>
-            </div>
-
-            <!-- BAR 2: Slide Navigation Horizontal Thumbnail Carousel -->
-            <div class="bg-slate-950/60 border-b border-white/10 px-4 py-3 overflow-x-auto">
-              <div class="flex items-center gap-2.5 min-w-max pb-1">
-                <button
-                  v-for="(s, idx) in form.kegiatan"
-                  :key="idx"
-                  type="button"
-                  @click="activeSlideIndex = idx"
-                  class="group text-left px-3.5 py-2.5 rounded-2xl border transition-all flex flex-col gap-1 min-w-[150px] max-w-[190px] min-h-[44px]"
-                  :class="activeSlideIndex === idx
-                    ? 'bg-gradient-to-br from-cyan-950/90 via-slate-900 to-slate-900 border-cyan-400 ring-2 ring-cyan-500/30 shadow-lg shadow-cyan-500/20 text-white'
-                    : 'bg-white/[0.03] border-white/10 text-slate-400 hover:bg-white/[0.07] hover:border-white/20 hover:text-slate-200'"
-                >
-                  <div class="flex items-center justify-between text-[11px] font-black">
-                    <span :class="activeSlideIndex === idx ? 'text-cyan-300 font-extrabold' : 'text-slate-400'">
-                      Slide #{{ idx + 1 }}
-                    </span>
-                    <span class="text-xs">
-                      {{ s.layout === 'image_left' ? '⬅️' : (s.layout === 'image_right' ? '➡️' : (s.layout === 'highlight' ? '💡' : '📋')) }}
-                    </span>
-                  </div>
-                  <div class="text-xs font-bold truncate leading-tight" :class="activeSlideIndex === idx ? 'text-white' : 'text-slate-300'">
-                    {{ s.judul || 'Tanpa Judul' }}
-                  </div>
-                  <div class="text-[10px] text-slate-500 truncate font-medium">
-                    {{ s.label || 'Konsep' }}
-                  </div>
-                </button>
-
-                <!-- Quick Add Slide Button at end of strip -->
-                <button
-                  type="button"
-                  @click="addSlide"
-                  class="h-[68px] px-4 rounded-2xl border border-dashed border-cyan-500/40 hover:border-cyan-400 bg-cyan-500/5 hover:bg-cyan-500/10 text-cyan-400 text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all shrink-0 active:scale-95"
-                  title="Tambah Slide Baru di Akhir"
-                >
-                  <span class="text-base font-black">+</span>
-                  <span class="text-[11px] font-bold">Slide Baru</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Active Slide Editor Body -->
-            <div v-if="form.kegiatan[activeSlideIndex]" class="p-6 space-y-6">
-              <!-- Row: Label, Judul Slide, Layout -->
-              <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
-                <div class="md:col-span-3">
-                  <label class="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
-                    <span>🏷️</span> Fase / Kategori Slide
-                  </label>
-                  <input
-                    v-model="form.kegiatan[activeSlideIndex].label"
-                    list="fase-list"
-                    placeholder="Misal: Apersepsi"
-                    class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 transition min-h-[44px]"
-                  />
-                  <datalist id="fase-list">
-                    <option v-for="f in FASE_LABELS" :key="f" :value="f" />
-                  </datalist>
-                </div>
-
-                <div class="md:col-span-5">
-                  <label class="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
-                    <span>✏️</span> Judul Sub-Materi / Slide
-                  </label>
-                  <input
-                    v-model="form.kegiatan[activeSlideIndex].judul"
-                    placeholder="Misal: Definisi & Konsep Percepatan Benda"
-                    class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 rounded-xl px-3.5 py-2.5 text-xs text-white font-bold placeholder-slate-600 transition min-h-[44px]"
-                  />
-                </div>
-
-                <div class="md:col-span-4">
-                  <label class="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
-                    <span>📐</span> Tata Letak (Layout)
-                  </label>
-                  <select
-                    v-model="form.kegiatan[activeSlideIndex].layout"
-                    class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 rounded-xl px-3.5 py-2.5 text-xs text-white font-medium transition cursor-pointer min-h-[44px]"
-                  >
-                    <option v-for="lay in LAYOUT_OPTIONS" :key="lay.id" :value="lay.id" class="bg-slate-900 text-white py-1">
-                      {{ lay.icon }} {{ lay.label }}
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <!-- Toolbar Rumus Ilmiah Cepat (Matematika, Fisika, Kimia) -->
-              <div class="p-4 rounded-2xl bg-cyan-950/20 border border-cyan-500/20 space-y-3">
-                <div class="flex items-center justify-between flex-wrap gap-2">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <span class="text-xs font-black text-cyan-300 flex items-center gap-1.5">
-                      <span>📐</span> Sisipkan Rumus Ilmiah:
-                    </span>
-                    <div class="inline-flex rounded-xl bg-slate-950 p-1 border border-white/10">
-                      <button
-                        type="button"
-                        @click="activeFormulaCategory = 'matematika'"
-                        class="px-3 py-1 rounded-lg text-xs font-bold transition min-h-[32px]"
-                        :class="activeFormulaCategory === 'matematika' ? 'bg-cyan-500 text-white shadow' : 'text-slate-400 hover:text-white'"
-                      >
-                        Matematika
-                      </button>
-                      <button
-                        type="button"
-                        @click="activeFormulaCategory = 'fisika'"
-                        class="px-3 py-1 rounded-lg text-xs font-bold transition min-h-[32px]"
-                        :class="activeFormulaCategory === 'fisika' ? 'bg-cyan-500 text-white shadow' : 'text-slate-400 hover:text-white'"
-                      >
-                        Fisika
-                      </button>
-                      <button
-                        type="button"
-                        @click="activeFormulaCategory = 'kimia'"
-                        class="px-3 py-1 rounded-lg text-xs font-bold transition min-h-[32px]"
-                        :class="activeFormulaCategory === 'kimia' ? 'bg-cyan-500 text-white shadow' : 'text-slate-400 hover:text-white'"
-                      >
-                        Kimia
-                      </button>
-                    </div>
-                  </div>
-                  <span class="text-[11px] text-slate-400">Klik tombol rumus untuk menempelkan sintaks KaTeX ke naskah</span>
-                </div>
-
-                <!-- Quick Buttons -->
-                <div class="flex flex-wrap gap-1.5">
-                  <button
-                    v-for="item in SCIENCE_PRESETS[activeFormulaCategory]"
-                    :key="item.label"
-                    type="button"
-                    @click="insertFormula(item.latex)"
-                    class="px-2.5 py-1.5 rounded-lg bg-slate-900/90 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-400/40 text-xs font-mono text-cyan-200 transition active:scale-95 shadow-sm flex items-center gap-1 min-h-[36px]"
-                    :title="item.label + ' (' + item.latex + ')'"
-                  >
-                    <span class="font-bold text-[11px] text-slate-400">{{ item.label }}:</span>
-                    <span class="text-cyan-300 font-bold">{{ item.symbol }}</span>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Two-Column Studio: Editor Naskah (Kiri) + Live Student Slide Mockup (Kanan) -->
-              <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-
-                <!-- Kolom Kiri: Input Konten Slide & Gambar Terintegrasi -->
-                <div class="space-y-2.5">
-                  <div class="flex items-center justify-between flex-wrap gap-2">
-                    <label class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                      <span>📝</span> Konten / Naskah Slide
-                    </label>
-                    <div class="flex items-center gap-2">
-                      <input
-                        type="file"
-                        :id="'slide-img-' + activeSlideIndex"
-                        @change="onSlideImageSelected(activeSlideIndex, $event)"
-                        accept="image/*"
-                        class="hidden"
-                      />
-                      <label
-                        :for="'slide-img-' + activeSlideIndex"
-                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-xs font-bold text-cyan-300 cursor-pointer transition shadow-sm active:scale-95 min-h-[38px]"
-                        title="Tambahkan atau ganti gambar pendukung slide"
-                      >
-                        <span>📷</span>
-                        <span>{{ kegiatanImagePreviews[activeSlideIndex] ? 'Ganti Gambar' : 'Tambah Gambar' }}</span>
-                      </label>
-                      <span class="text-[11px] text-cyan-400 font-mono hidden sm:inline">Markdown & KaTeX</span>
-                    </div>
-                  </div>
-
-                  <!-- Preview Gambar Slide Mini Terintegrasi Langsung di Dalam Konten -->
-                  <div
-                    v-if="kegiatanImagePreviews[activeSlideIndex]"
-                    class="p-2.5 rounded-xl bg-slate-950/80 border border-cyan-500/30 flex items-center justify-between gap-3 shadow-md"
-                  >
-                    <div class="flex items-center gap-3 min-w-0">
-                      <div class="w-14 h-12 rounded-lg overflow-hidden border border-white/10 bg-black shrink-0 relative group">
-                        <img :src="kegiatanImagePreviews[activeSlideIndex]" class="w-full h-full object-cover" />
-                      </div>
-                      <div class="min-w-0">
-                        <div class="flex items-center gap-2">
-                          <span class="text-xs font-bold text-slate-200 truncate">Gambar Slide Terlampir</span>
-                          <span class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-semibold border border-cyan-500/20">
-                            Layout: {{ form.kegiatan[activeSlideIndex].layout }}
-                          </span>
-                        </div>
-                        <p class="text-[11px] text-slate-400 truncate">Gambar akan otomatis tampil sesuai layout pilihan.</p>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-1.5 shrink-0">
-                      <label
-                        :for="'slide-img-' + activeSlideIndex"
-                        class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-bold text-slate-300 cursor-pointer transition border border-white/10 min-h-[34px] flex items-center"
-                      >
-                        Ganti
-                      </label>
-                      <button
-                        type="button"
-                        @click="removeSlideImage(activeSlideIndex)"
-                        class="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-[11px] font-bold transition flex items-center gap-1 min-h-[34px]"
-                      >
-                        <span>🗑️</span>
-                        <span>Hapus</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <AutoTextarea
-                    v-model="form.kegiatan[activeSlideIndex].konten"
-                    placeholder="Tuliskan naskah penjelasan, poin-poin materi, definisi, atau masukkan rumus di atas..."
-                    class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 rounded-2xl p-4 text-xs font-sans text-white leading-relaxed placeholder-slate-600 min-h-[220px]"
-                  />
-                  <p class="text-[11px] text-slate-500">
-                    Tip: Gunakan baris kosong untuk paragraf baru, tanda minus <code class="text-cyan-400">-</code> untuk poin, dan <code class="text-cyan-400">$rumus$</code> untuk rumus inline.
-                  </p>
-                </div>
-
-                <!-- Kolom Kanan: Pratinjau Tampilan Siswa (Real-Time Mockup Sesuai Tema) -->
-                <div class="space-y-2">
-                  <div class="flex items-center justify-between">
-                    <span class="text-xs font-black text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <span>👁️</span> Pratinjau Tampilan Siswa
-                    </span>
-                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-bold">
-                      Tema: {{ form.theme }}
-                    </span>
-                  </div>
-
-                  <!-- Realistic Slide Card Container -->
-                  <div
-                    class="rounded-2xl border p-5 shadow-xl min-h-[220px] flex flex-col justify-between transition-all"
-                    :class="currentThemeConfig.wrapper"
-                  >
-                    <!-- Slide Header inside Mockup -->
-                    <div>
-                      <div class="flex items-center justify-between gap-2 mb-2 pb-2 border-b" :class="currentThemeConfig.footer">
-                        <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded" :class="currentThemeConfig.badge">
-                          {{ form.kegiatan[activeSlideIndex]?.label || 'Konsep Utama' }}
-                        </span>
-                        <span class="text-[10px] font-mono opacity-60">
-                          Slide {{ activeSlideIndex + 1 }} / {{ form.kegiatan.length }}
-                        </span>
-                      </div>
-
-                      <h3 class="text-sm font-black mb-3 leading-snug" :class="currentThemeConfig.title">
-                        {{ form.kegiatan[activeSlideIndex]?.judul || 'Judul Slide Pembelajaran' }}
-                      </h3>
-
-                      <!-- Slide Content & Media Layout Mockup -->
-                      <div v-if="form.kegiatan[activeSlideIndex]?.layout === 'image_left'" class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
-                        <div class="sm:col-span-5 rounded-xl overflow-hidden bg-black/40 border border-white/10 h-28 flex items-center justify-center">
-                          <img v-if="kegiatanImagePreviews[activeSlideIndex]" :src="kegiatanImagePreviews[activeSlideIndex]" class="w-full h-full object-cover" />
-                          <span v-else class="text-[10px] text-slate-500">🖼️ Gambar Kiri</span>
-                        </div>
-                        <div class="sm:col-span-7">
-                          <div
-                            class="line-clamp-6 text-xs leading-relaxed"
-                            :class="currentThemeConfig.prose"
-                            v-html="renderFormulaContent(form.kegiatan[activeSlideIndex]?.konten || '*Belum ada konten slide. Ketik di sebelah kiri.*')"
-                          ></div>
-                        </div>
-                      </div>
-
-                      <div v-else-if="form.kegiatan[activeSlideIndex]?.layout === 'image_right'" class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
-                        <div class="sm:col-span-7">
-                          <div
-                            class="line-clamp-6 text-xs leading-relaxed"
-                            :class="currentThemeConfig.prose"
-                            v-html="renderFormulaContent(form.kegiatan[activeSlideIndex]?.konten || '*Belum ada konten slide. Ketik di sebelah kiri.*')"
-                          ></div>
-                        </div>
-                        <div class="sm:col-span-5 rounded-xl overflow-hidden bg-black/40 border border-white/10 h-28 flex items-center justify-center">
-                          <img v-if="kegiatanImagePreviews[activeSlideIndex]" :src="kegiatanImagePreviews[activeSlideIndex]" class="w-full h-full object-cover" />
-                          <span v-else class="text-[10px] text-slate-500">🖼️ Gambar Kanan</span>
-                        </div>
-                      </div>
-
-                      <div v-else-if="form.kegiatan[activeSlideIndex]?.layout === 'highlight'" class="p-3.5 rounded-xl border border-amber-400/40 bg-amber-500/10">
-                        <div
-                          class="text-xs leading-relaxed"
-                          :class="currentThemeConfig.prose"
-                          v-html="renderFormulaContent(form.kegiatan[activeSlideIndex]?.konten || '*Belum ada konten slide. Ketik di sebelah kiri.*')"
-                        ></div>
-                      </div>
-
-                      <div v-else>
-                        <div v-if="kegiatanImagePreviews[activeSlideIndex]" class="mb-3 rounded-xl overflow-hidden bg-black/40 border border-white/10 max-h-36">
-                          <img :src="kegiatanImagePreviews[activeSlideIndex]" class="w-full h-full object-cover" />
-                        </div>
-                        <div
-                          class="text-xs leading-relaxed"
-                          :class="currentThemeConfig.prose"
-                          v-html="renderFormulaContent(form.kegiatan[activeSlideIndex]?.konten || '*Belum ada konten slide. Ketik di sebelah kiri.*')"
-                        ></div>
-                      </div>
-                    </div>
-
-                    <!-- Mockup Footer -->
-                    <div class="pt-3 mt-4 border-t flex items-center justify-between text-[10px] opacity-70" :class="currentThemeConfig.footer">
-                      <span>SMKS Muhammadiyah 2 Genteng</span>
-                      <span>Modul Interaktif E-Learning</span>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
             </div>
           </div>
 
-        </section>
+          <!-- 3. Active Slide Editor & Preview Body -->
+          <div v-if="form.kegiatan[activeSlideIndex]" class="p-5 space-y-4">
 
-        <!-- Bottom Navigation & Action Bar in Step 2 -->
-        <div class="flex items-center justify-between pt-4 border-t border-white/10">
-          <button
-            type="button"
-            @click="goToConfig"
-            class="px-5 py-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-black text-slate-300 hover:text-white transition flex items-center gap-2 min-h-[44px] active:scale-95"
-          >
-            <span>←</span>
-            <span>Kembali ke Gerbang Masuk</span>
-          </button>
+            <!-- Two-Column Workspace: Editor + Live Preview -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
 
-          <button
-            type="button"
-            @click="submit"
-            :disabled="saving"
-            class="px-6 py-3 rounded-2xl bg-gradient-to-r from-cyan-500 via-teal-500 to-indigo-600 text-white font-black text-xs shadow-xl shadow-cyan-500/25 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 min-h-[44px] flex items-center gap-2"
-          >
-            <span v-if="saving" class="animate-spin">⏳</span>
-            <span v-else>💾</span>
-            <span>{{ saving ? 'Menyimpan Materi...' : 'Simpan Seluruh Materi' }}</span>
-          </button>
+              <!-- ============================================== -->
+              <!-- KOLOM KIRI: EDITOR NASKAH + TOOLBAR INTERAKTIF -->
+              <!-- ============================================== -->
+              <div class="space-y-3">
+
+                <!-- RICH TEXT & ALIGNMENT TOOLBAR -->
+                <div class="bg-slate-950 border border-white/15 rounded-xl p-2 shadow-sm space-y-2">
+                  <div class="flex items-center flex-wrap gap-1">
+
+                    <!-- GAYA TEKS -->
+                    <div class="flex items-center bg-white/5 rounded-lg p-0.5 border border-white/10">
+                      <button
+                        type="button"
+                        @click="applyFormat('bold')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white font-black text-xs transition flex items-center justify-center active:scale-95"
+                        title="Tebal (Bold: **teks**)"
+                      >
+                        B
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('italic')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white italic font-serif text-xs transition flex items-center justify-center active:scale-95"
+                        title="Miring (Italic: *teks*)"
+                      >
+                        I
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('underline')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white underline text-xs transition flex items-center justify-center active:scale-95"
+                        title="Garis Bawah (Underline)"
+                      >
+                        U
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('strikethrough')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white line-through text-xs transition flex items-center justify-center active:scale-95"
+                        title="Coret (Strikethrough)"
+                      >
+                        S
+                      </button>
+                    </div>
+
+                    <!-- HEADING -->
+                    <div class="flex items-center bg-white/5 rounded-lg p-0.5 border border-white/10">
+                      <button
+                        type="button"
+                        @click="applyFormat('h1')"
+                        class="px-2 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white font-black text-xs transition flex items-center justify-center active:scale-95"
+                        title="Judul Besar (Heading 1)"
+                      >
+                        H1
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('h2')"
+                        class="px-2 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white font-bold text-xs transition flex items-center justify-center active:scale-95"
+                        title="Sub-Judul (Heading 2)"
+                      >
+                        H2
+                      </button>
+                    </div>
+
+                    <!-- PERATAAN TEKS (ALIGNMENT) -->
+                    <div class="flex items-center bg-white/5 rounded-lg p-0.5 border border-white/10">
+                      <button
+                        type="button"
+                        @click="applyFormat('align_left')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs transition flex items-center justify-center active:scale-95"
+                        title="Rata Kiri"
+                      >
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M3 5h18v2H3V5zm0 4h12v2H3V9zm0 4h18v2H3v-2zm0 4h12v2H3v-2z"/>
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('align_center')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs transition flex items-center justify-center active:scale-95"
+                        title="Rata Tengah"
+                      >
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M3 5h18v2H3V5zm3 4h12v2H6V9zm-3 4h18v2H3v-2zm3 4h12v2H6v-2z"/>
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('align_right')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs transition flex items-center justify-center active:scale-95"
+                        title="Rata Kanan"
+                      >
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M3 5h18v2H3V5zm6 4h12v2H9V9zm-6 4h18v2H3v-2zm6 4h12v2H9v-2z"/>
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('align_justify')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs transition flex items-center justify-center active:scale-95"
+                        title="Rata Kanan Kiri (Justify)"
+                      >
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M3 5h18v2H3V5zm0 4h18v2H3V9zm0 4h18v2H3v-2zm0 4h18v2H3v-2z"/>
+                        </svg>
+                      </button>
+                    </div>
+
+                    <!-- DAFTAR & LIST -->
+                    <div class="flex items-center bg-white/5 rounded-lg p-0.5 border border-white/10">
+                      <button
+                        type="button"
+                        @click="applyFormat('bullet_list')"
+                        class="px-2 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-1 active:scale-95"
+                        title="List Simbol (Bullet •)"
+                      >
+                        •
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('numbered_list')"
+                        class="px-2 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-1 active:scale-95"
+                        title="List Angka (1, 2, 3)"
+                      >
+                        1.
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('alpha_list')"
+                        class="px-2 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-1 active:scale-95"
+                        title="List Huruf (a, b, c)"
+                      >
+                        a.
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('checklist')"
+                        class="px-2 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-1 active:scale-95"
+                        title="Checklist / Kotak Centang"
+                      >
+                        ☑
+                      </button>
+                    </div>
+
+                    <!-- ELEMEN TAMBAHAN -->
+                    <div class="flex items-center bg-white/5 rounded-lg p-0.5 border border-white/10">
+                      <button
+                        type="button"
+                        @click="applyFormat('quote')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center active:scale-95"
+                        title="Kutipan / Blok Catatan"
+                      >
+                        ”
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('table')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center active:scale-95"
+                        title="Sisipkan Tabel"
+                      >
+                        ⊞
+                      </button>
+                      <button
+                        type="button"
+                        @click="applyFormat('divider')"
+                        class="w-8 h-8 rounded hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center active:scale-95"
+                        title="Garis Pemisah"
+                      >
+                        ―
+                      </button>
+                    </div>
+
+                    <!-- SISIPKAN RUMUS ILMIAH (TOGGLE ON-DEMAND) -->
+                    <button
+                      id="formula-toggle-btn"
+                      type="button"
+                      @click="isFormulaDrawerOpen = !isFormulaDrawerOpen"
+                      class="px-3 h-8 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 active:scale-95 shadow-sm"
+                      :class="isFormulaDrawerOpen
+                        ? 'bg-cyan-500 text-white border-cyan-400'
+                        : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30'"
+                      title="Buka / Tutup Pilihan Rumus Ilmiah"
+                    >
+                      <span>📐</span>
+                      <span>Rumus</span>
+                    </button>
+
+                    <!-- SISIPKAN GAMBAR SLIDE -->
+                    <input
+                      type="file"
+                      :id="'slide-img-' + activeSlideIndex"
+                      @change="onSlideImageSelected(activeSlideIndex, $event)"
+                      accept="image/*"
+                      class="hidden"
+                    />
+                    <label
+                      :for="'slide-img-' + activeSlideIndex"
+                      class="px-3 h-8 rounded-lg bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 text-teal-300 text-xs font-bold cursor-pointer transition flex items-center gap-1.5 active:scale-95 shadow-sm"
+                      title="Tambahkan foto atau ilustrasi pada slide ini"
+                    >
+                      <span>📷</span>
+                      <span>{{ kegiatanImagePreviews[activeSlideIndex] ? 'Ganti Foto' : 'Foto' }}</span>
+                    </label>
+
+                  </div>
+
+                  <!-- POPUP / DRAWER RUMUS ILMIAH (HANYA MUNCUL JIKA DIBUKA) -->
+                  <div
+                    v-if="isFormulaDrawerOpen"
+                    id="formula-drawer-box"
+                    class="p-3 bg-slate-900 border border-cyan-500/40 rounded-xl space-y-2.5 shadow-2xl animate-in fade-in duration-150"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div class="inline-flex rounded-lg bg-slate-950 p-1 border border-white/10">
+                        <button
+                          type="button"
+                          @click="activeFormulaCategory = 'matematika'"
+                          class="px-2.5 py-1 rounded text-xs font-bold transition"
+                          :class="activeFormulaCategory === 'matematika' ? 'bg-cyan-500 text-white shadow' : 'text-slate-400 hover:text-white'"
+                        >
+                          Matematika
+                        </button>
+                        <button
+                          type="button"
+                          @click="activeFormulaCategory = 'fisika'"
+                          class="px-2.5 py-1 rounded text-xs font-bold transition"
+                          :class="activeFormulaCategory === 'fisika' ? 'bg-cyan-500 text-white shadow' : 'text-slate-400 hover:text-white'"
+                        >
+                          Fisika
+                        </button>
+                        <button
+                          type="button"
+                          @click="activeFormulaCategory = 'kimia'"
+                          class="px-2.5 py-1 rounded text-xs font-bold transition"
+                          :class="activeFormulaCategory === 'kimia' ? 'bg-cyan-500 text-white shadow' : 'text-slate-400 hover:text-white'"
+                        >
+                          Kimia
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        @click="isFormulaDrawerOpen = false"
+                        class="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-white/5 hover:bg-white/10"
+                      >
+                        ✕ Tutup
+                      </button>
+                    </div>
+
+                    <div class="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+                      <button
+                        v-for="item in SCIENCE_PRESETS[activeFormulaCategory]"
+                        :key="item.label"
+                        type="button"
+                        @click="applyFormat('formula', item.latex)"
+                        class="px-2.5 py-1 rounded-md bg-slate-950 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-400/40 text-xs text-cyan-200 transition active:scale-95 shadow-sm flex items-center gap-1.5"
+                        :title="item.label"
+                      >
+                        <span class="text-slate-400 text-[11px]">{{ item.label }}:</span>
+                        <span class="text-cyan-300 font-mono font-bold">{{ item.symbol }}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+
+                <!-- Preview Gambar Slide Mini (Jika Ada) -->
+                <div
+                  v-if="kegiatanImagePreviews[activeSlideIndex]"
+                  class="p-2.5 rounded-xl bg-slate-950/80 border border-cyan-500/30 flex items-center justify-between gap-3 shadow-md"
+                >
+                  <div class="flex items-center gap-2.5 min-w-0">
+                    <div class="w-12 h-12 rounded-lg overflow-hidden border border-white/10 bg-black shrink-0">
+                      <img :src="kegiatanImagePreviews[activeSlideIndex]" class="w-full h-full object-cover" />
+                    </div>
+                    <div class="min-w-0">
+                      <p class="text-xs font-bold text-slate-200 truncate">Foto Slide Terlampir</p>
+                      <p class="text-[11px] text-slate-400">Layout: {{ form.kegiatan[activeSlideIndex].layout }}</p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <label
+                      :for="'slide-img-' + activeSlideIndex"
+                      class="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold text-slate-300 cursor-pointer border border-white/10"
+                    >
+                      Ganti
+                    </label>
+                    <button
+                      type="button"
+                      @click="removeSlideImage(activeSlideIndex)"
+                      class="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-xs font-bold transition"
+                    >
+                      Hapus
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Textarea Editor Naskah -->
+                <AutoTextarea
+                  ref="slideTextareaRef"
+                  v-model="form.kegiatan[activeSlideIndex].konten"
+                  placeholder="Ketik penjelasan materi di sini. Gunakan tombol toolbar di atas untuk menebalkan, membuat daftar poin, perataan teks, atau menyisipkan rumus..."
+                  class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/20 rounded-2xl p-4 text-xs font-sans text-white leading-relaxed placeholder-slate-600 min-h-[280px]"
+                />
+
+              </div>
+
+              <!-- ============================================== -->
+              <!-- KOLOM KANAN: REAL-TIME PRATINJAU TAMPILAN SISWA -->
+              <!-- ============================================== -->
+              <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-black text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>👁️</span> Pratinjau Tampilan Siswa
+                  </span>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-bold">
+                    Tema: {{ form.theme }}
+                  </span>
+                </div>
+
+                <!-- Realistic Slide Container -->
+                <div
+                  class="rounded-2xl border p-5 shadow-2xl min-h-[340px] flex flex-col justify-between transition-all"
+                  :class="currentThemeConfig.wrapper"
+                >
+                  <!-- Slide Header inside Mockup -->
+                  <div>
+                    <div class="flex items-center justify-between gap-2 mb-2 pb-2 border-b" :class="currentThemeConfig.footer">
+                      <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded" :class="currentThemeConfig.badge">
+                        {{ form.kegiatan[activeSlideIndex]?.label || 'Konsep Utama' }}
+                      </span>
+                      <span class="text-[10px] font-mono opacity-60">
+                        Slide {{ activeSlideIndex + 1 }} / {{ form.kegiatan.length }}
+                      </span>
+                    </div>
+
+                    <h3 class="text-sm font-black mb-3 leading-snug" :class="currentThemeConfig.title">
+                      {{ form.kegiatan[activeSlideIndex]?.judul || 'Judul Slide Pembelajaran' }}
+                    </h3>
+
+                    <!-- Slide Content & Media Layout Mockup -->
+                    <div v-if="form.kegiatan[activeSlideIndex]?.layout === 'image_left'" class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                      <div class="sm:col-span-5 rounded-xl overflow-hidden bg-black/40 border border-white/10 h-32 flex items-center justify-center">
+                        <img v-if="kegiatanImagePreviews[activeSlideIndex]" :src="kegiatanImagePreviews[activeSlideIndex]" class="w-full h-full object-cover" />
+                        <span v-else class="text-[10px] text-slate-500">🖼️ Foto Kiri</span>
+                      </div>
+                      <div class="sm:col-span-7">
+                        <div
+                          class="text-xs leading-relaxed slide-markdown-content"
+                          :class="currentThemeConfig.prose"
+                          v-html="renderFormulaContent(form.kegiatan[activeSlideIndex]?.konten || '*Ketik naskah di sebelah kiri...*')"
+                        ></div>
+                      </div>
+                    </div>
+
+                    <div v-else-if="form.kegiatan[activeSlideIndex]?.layout === 'image_right'" class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                      <div class="sm:col-span-7">
+                        <div
+                          class="text-xs leading-relaxed slide-markdown-content"
+                          :class="currentThemeConfig.prose"
+                          v-html="renderFormulaContent(form.kegiatan[activeSlideIndex]?.konten || '*Ketik naskah di sebelah kiri...*')"
+                        ></div>
+                      </div>
+                      <div class="sm:col-span-5 rounded-xl overflow-hidden bg-black/40 border border-white/10 h-32 flex items-center justify-center">
+                        <img v-if="kegiatanImagePreviews[activeSlideIndex]" :src="kegiatanImagePreviews[activeSlideIndex]" class="w-full h-full object-cover" />
+                        <span v-else class="text-[10px] text-slate-500">🖼️ Foto Kanan</span>
+                      </div>
+                    </div>
+
+                    <div v-else-if="form.kegiatan[activeSlideIndex]?.layout === 'highlight'" class="p-3.5 rounded-xl border border-amber-400/40 bg-amber-500/10">
+                      <div
+                        class="text-xs leading-relaxed slide-markdown-content"
+                        :class="currentThemeConfig.prose"
+                        v-html="renderFormulaContent(form.kegiatan[activeSlideIndex]?.konten || '*Ketik naskah di sebelah kiri...*')"
+                      ></div>
+                    </div>
+
+                    <div v-else>
+                      <div v-if="kegiatanImagePreviews[activeSlideIndex]" class="mb-3 rounded-xl overflow-hidden bg-black/40 border border-white/10 max-h-40">
+                        <img :src="kegiatanImagePreviews[activeSlideIndex]" class="w-full h-full object-cover" />
+                      </div>
+                      <div
+                        class="text-xs leading-relaxed slide-markdown-content"
+                        :class="currentThemeConfig.prose"
+                        v-html="renderFormulaContent(form.kegiatan[activeSlideIndex]?.konten || '*Ketik naskah di sebelah kiri...*')"
+                      ></div>
+                    </div>
+                  </div>
+
+                  <!-- Mockup Footer -->
+                  <div class="pt-3 mt-4 border-t flex items-center justify-between text-[10px] opacity-70" :class="currentThemeConfig.footer">
+                    <span>SMKS Muhammadiyah 2 Genteng</span>
+                    <span>Modul Interaktif Siswa</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
         </div>
 
+      </section>
+
+      <!-- Bottom Floating Simpan Action -->
+      <div class="flex items-center justify-between pt-4 border-t border-white/10">
+        <button
+          type="button"
+          @click="goBack"
+          class="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-bold text-slate-300 hover:text-white transition active:scale-95 min-h-[44px]"
+        >
+          ← Kembali ke Daftar Materi
+        </button>
+
+        <button
+          type="button"
+          @click="submit"
+          :disabled="saving"
+          class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 via-teal-500 to-indigo-600 text-white font-black text-xs shadow-xl shadow-cyan-500/25 hover:scale-105 active:scale-95 transition disabled:opacity-50 min-h-[44px] flex items-center gap-2"
+        >
+          <span v-if="saving" class="animate-spin">⏳</span>
+          <span v-else>💾</span>
+          <span>{{ saving ? 'Menyimpan Materi...' : 'Simpan Materi' }}</span>
+        </button>
       </div>
 
     </main>
   </div>
 </template>
+
+<style scoped>
+/* Scoped adjustments for Slide Preview Markdown */
+:deep(.slide-markdown-content u) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+:deep(.slide-markdown-content s),
+:deep(.slide-markdown-content del) {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+:deep(.slide-markdown-content ol) {
+  padding-left: 1.5rem;
+  margin: 0.75rem 0;
+  list-style-type: decimal;
+}
+
+:deep(.slide-markdown-content ol[type="a"]) {
+  list-style-type: lower-alpha;
+}
+
+:deep(.slide-markdown-content ol[type="A"]) {
+  list-style-type: upper-alpha;
+}
+
+:deep(.slide-markdown-content ul) {
+  padding-left: 1.25rem;
+  margin: 0.75rem 0;
+  list-style-type: disc;
+}
+
+:deep(.slide-markdown-content li) {
+  margin-bottom: 0.35rem;
+  line-height: 1.5;
+}
+
+:deep(.slide-markdown-content table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.85em;
+}
+
+:deep(.slide-markdown-content th),
+:deep(.slide-markdown-content td) {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
+
+:deep(.slide-markdown-content th) {
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 800;
+}
+
+:deep(.slide-markdown-content blockquote) {
+  border-left: 3px solid #38bdf8;
+  padding: 0.4rem 0.8rem;
+  margin: 0.75rem 0;
+  background: rgba(56, 189, 248, 0.08);
+  border-radius: 0 0.5rem 0.5rem 0;
+  font-style: italic;
+}
+</style>

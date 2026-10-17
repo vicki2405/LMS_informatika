@@ -119,19 +119,7 @@ const latestNilai = computed(() => {
         <span class="text-[10px] font-mono text-cyan-400 font-bold">Pilih Menu</span>
       </div>
       <div class="grid grid-cols-4 gap-2">
-        <!-- 1. CBT -->
-        <button
-          @click="$emit('change-view', 'cbt')"
-          class="flex flex-col items-center justify-center p-2.5 rounded-2xl bg-cyan-500/10 border border-cyan-500/25 active:scale-95 transition-all text-center group"
-        >
-          <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center text-xl text-white shadow-md shadow-cyan-500/30 mb-1 group-hover:scale-105 transition-transform">
-            🎯
-          </div>
-          <span class="text-[11px] font-extrabold text-white leading-tight">Ujian CBT</span>
-          <span class="text-[9px] font-medium text-cyan-300">Online</span>
-        </button>
-
-        <!-- 2. Materi -->
+        <!-- 1. Materi -->
         <button
           @click="$emit('change-view', 'materi')"
           class="flex flex-col items-center justify-center p-2.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/25 active:scale-95 transition-all text-center group"
@@ -141,6 +129,18 @@ const latestNilai = computed(() => {
           </div>
           <span class="text-[11px] font-extrabold text-white leading-tight">Materi</span>
           <span class="text-[9px] font-medium text-indigo-300">Slide PPT</span>
+        </button>
+
+        <!-- 2. CBT -->
+        <button
+          @click="$emit('change-view', 'cbt')"
+          class="flex flex-col items-center justify-center p-2.5 rounded-2xl bg-cyan-500/10 border border-cyan-500/25 active:scale-95 transition-all text-center group"
+        >
+          <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center text-xl text-white shadow-md shadow-cyan-500/30 mb-1 group-hover:scale-105 transition-transform">
+            🎯
+          </div>
+          <span class="text-[11px] font-extrabold text-white leading-tight">Ujian CBT</span>
+          <span class="text-[9px] font-medium text-cyan-300">Online</span>
         </button>
 
         <!-- 3. Tugas -->
