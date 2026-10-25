@@ -133,8 +133,8 @@ const coveredTpCount = computed(() => {
   const coveredIds = new Set(filteredMateriList.value.map(m => m.tpId));
   return coveredIds.size;
 });
-const totalFilesAndVideos = computed(() => {
-  return filteredMateriList.value.filter(m => m.tipe === 'Dokumen PDF/PPT' || m.tipe === 'Video YouTube' || m.tipe === 'Slider PPT').length;
+const totalConnectedCbt = computed(() => {
+  return filteredMateriList.value.filter(m => !!m.cbtJadwal).length;
 });
 const totalPublished = computed(() => {
   return filteredMateriList.value.filter(m => m.isPublished !== false).length;
@@ -176,6 +176,22 @@ function getPreviewThemeConfig(theme) {
         title: 'text-emerald-100',
         prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-emerald-100',
         footer: 'border-emerald-900 text-emerald-400',
+      };
+    case 'aurora':
+      return {
+        wrapper: 'bg-gradient-to-br from-slate-950 via-purple-950/80 to-slate-900 text-purple-100 border-purple-500/30 shadow-xl shadow-purple-950/50',
+        badge: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+        title: 'text-white',
+        prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-purple-100',
+        footer: 'border-purple-500/20 text-purple-300',
+      };
+    case 'monochrome':
+      return {
+        wrapper: 'bg-zinc-900 text-zinc-100 border-zinc-700 shadow-xl',
+        badge: 'bg-zinc-800 text-zinc-200 border-zinc-600',
+        title: 'text-white',
+        prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-zinc-200',
+        footer: 'border-zinc-800 text-zinc-400',
       };
     case 'dark':
     default:
@@ -242,9 +258,7 @@ function goEdit(materi) {
 function getTypeBadge(tipe) {
   if (tipe === 'Slider PPT') return { label: '🖥️ Slider PPT', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' };
   if (tipe === 'Dokumen PDF/PPT') return { label: '📄 Dokumen PDF/PPT', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' };
-  if (tipe === 'Video YouTube' || tipe === 'Video Tutorial') return { label: '🎥 Video Pembelajaran', color: 'bg-red-500/20 text-red-300 border-red-500/30' };
-  if (tipe === 'Tugas Praktik') return { label: '📝 Tugas Praktik', color: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
-  return { label: '📖 Modul Teks', color: 'bg-purple-500/20 text-purple-300 border-purple-500/30' };
+  return { label: '🎥 Video Pembelajaran', color: 'bg-red-500/20 text-red-300 border-red-500/30' };
 }
 </script>
 
@@ -268,15 +282,7 @@ function getTypeBadge(tipe) {
         </p>
       </div>
 
-      <div class="flex items-center gap-2.5 shrink-0 flex-wrap">
-        <a
-          href="/guru/dashboard?tab=tp"
-          class="inline-flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-cyan-300 border border-cyan-500/30 px-4 py-2.5 rounded-2xl font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95 min-h-[44px]"
-          title="Kelola Master Sasaran TP"
-        >
-          <span>🎯</span>
-          <span>Kelola TP</span>
-        </a>
+      <div class="flex items-center gap-2.5 shrink-0">
         <button
           @click="goCreate"
           class="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 via-teal-600 to-indigo-600 text-white px-5 py-2.5 rounded-2xl font-extrabold text-xs sm:text-sm shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-105 active:scale-95 transition-all duration-200 min-h-[44px]"
@@ -309,11 +315,11 @@ function getTypeBadge(tipe) {
 
       <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
         <div class="flex items-center justify-between mb-3">
-          <span class="w-9 h-9 rounded-2xl bg-teal-500/20 text-teal-300 font-black text-sm flex items-center justify-center border border-teal-500/30 shadow-md">🖥️</span>
-          <span class="text-[11px] font-extrabold text-teal-300 bg-teal-500/15 border border-teal-500/30 px-3 py-1 rounded-full font-mono">SLIDER & MEDIA</span>
+          <span class="w-9 h-9 rounded-2xl bg-indigo-500/20 text-indigo-300 font-black text-sm flex items-center justify-center border border-indigo-500/30 shadow-md">🎯</span>
+          <span class="text-[11px] font-extrabold text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-3 py-1 rounded-full font-mono">TERHUBUNG CBT</span>
         </div>
-        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ totalFilesAndVideos }} File</div>
-        <div class="text-xs text-gray-400 font-semibold">PPT, PDF, & Video</div>
+        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ totalConnectedCbt }} Materi</div>
+        <div class="text-xs text-gray-400 font-semibold">Terintegrasi Evaluasi CBT</div>
       </div>
 
       <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
@@ -327,68 +333,76 @@ function getTypeBadge(tipe) {
     </div>
 
     <!-- Filter Controls Bar -->
-    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl space-y-4">
-      <!-- Baris 1: Semester, Sasaran TP, dan Format Konten -->
-      <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
-        <div class="md:col-span-3">
-          <label class="block text-[11px] font-bold text-cyan-300 uppercase mb-1.5">📅 Semester</label>
+    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-4 sm:p-5 border border-white/10 shadow-xl">
+      <div class="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-12 gap-3.5 items-end">
+        <!-- Semester -->
+        <div class="md:col-span-3 lg:col-span-2">
+          <label class="block text-[11px] font-bold text-cyan-300 uppercase mb-1">📅 Semester</label>
           <select
             v-model="selectedSemester"
-            class="w-full bg-slate-800 border border-cyan-500/40 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-cyan-300 font-extrabold focus:border-cyan-400 outline-none min-h-[44px]"
+            class="w-full bg-slate-800 border border-cyan-500/40 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-cyan-300 font-extrabold focus:border-cyan-400 outline-none min-h-[44px]"
           >
-            <option value="Ganjil">Semester Ganjil (1)</option>
-            <option value="Genap">Semester Genap (2)</option>
+            <option value="Ganjil">Semester Ganjil</option>
+            <option value="Genap">Semester Genap</option>
             <option value="Semua">Semua Semester</option>
           </select>
         </div>
 
-        <div class="md:col-span-5">
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🎯 Sasaran TP</label>
+        <!-- Sasaran TP -->
+        <div class="md:col-span-3 lg:col-span-3">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">🎯 Sasaran TP</label>
           <select
             v-model="selectedTpFilter"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
+            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
           >
             <option value="Semua">Semua TP ({{ availableTps.length }} TP)</option>
             <option v-for="tp in availableTps" :key="tp.id" :value="tp.id">{{ formatTpOption(tp) }}</option>
           </select>
         </div>
 
-        <div class="md:col-span-4">
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">📦 Format Konten</label>
+        <!-- Format Konten -->
+        <div class="md:col-span-3 lg:col-span-2">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">📦 Format</label>
           <select
             v-model="selectedTipeFilter"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
+            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
           >
             <option value="Semua">Semua Format</option>
-            <option value="Slider PPT">🖥️ Slider PPT Interaktif</option>
-            <option value="Dokumen PDF/PPT">📄 Dokumen PDF / PPT</option>
-            <option value="Video YouTube">🎥 Video Pembelajaran</option>
+            <option value="Slider PPT">🖥️ Slider PPT</option>
+            <option value="Dokumen PDF/PPT">📄 Dokumen PDF/PPT</option>
+            <option value="Video YouTube">🎥 Video</option>
           </select>
         </div>
-      </div>
 
-      <!-- Baris 2: Status Rilis Siswa & Search Query -->
-      <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
-        <div class="md:col-span-4">
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">⚡ Status Rilis Siswa</label>
+        <!-- Status Rilis -->
+        <div class="md:col-span-3 lg:col-span-2">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">⚡ Status</label>
           <select
             v-model="selectedStatusFilter"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
+            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
           >
             <option value="Semua">Semua Status</option>
-            <option value="ON">🟢 ON (Rilis Siswa)</option>
-            <option value="OFF">⚪ OFF (Draft / Sembunyi)</option>
+            <option value="ON">🟢 ON (Rilis)</option>
+            <option value="OFF">⚪ OFF (Draft)</option>
           </select>
         </div>
 
-        <div class="md:col-span-8">
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🔍 Cari Judul Materi</label>
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Cari materi..."
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-gray-400 focus:border-cyan-400 outline-none min-h-[44px]"
-          />
+        <!-- Search Query -->
+        <div class="md:col-span-6 lg:col-span-3">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">🔍 Cari Judul Materi</label>
+          <div class="relative">
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Cari materi..."
+              class="w-full bg-slate-800 border border-white/10 rounded-2xl pl-4 pr-9 py-2.5 text-xs sm:text-sm text-white placeholder-gray-400 focus:border-cyan-400 outline-none min-h-[44px]"
+            />
+            <button
+              v-if="searchQuery"
+              @click="searchQuery = ''"
+              class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-xs font-bold"
+            >✕</button>
+          </div>
         </div>
       </div>
     </div>
