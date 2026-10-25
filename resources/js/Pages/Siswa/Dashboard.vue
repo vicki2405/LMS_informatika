@@ -26,6 +26,7 @@ const props = defineProps({
   tugasListProp: { type: Array, default: () => [] },
   nilaiTpListProp: { type: Array, default: () => [] },
   tpListProp: { type: Array, default: () => [] },
+  mapelListProp: { type: Array, default: () => [] },
   nilaiListProp: { type: Array, default: () => [] },
 });
 
@@ -176,10 +177,12 @@ function onSubmitTugas({ tugasId, data }) {
         <NilaiPerTP
           v-if="activeView === 'nilai'"
           :tpList="props.tpListProp"
+          :mapelList="props.mapelListProp"
           :nilaiList="props.nilaiListProp"
           :siswaList="props.siswaListProp"
           :kelasSiswa="kelasSiswa"
           :nilaiTPList="nilaiTPList"
+          :siswaObj="props.siswaObjProp"
         />
 
       </main>

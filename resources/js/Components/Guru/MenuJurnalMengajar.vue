@@ -40,16 +40,16 @@ const monthNames = [
 
 // Master School Teaching Period Hours Definition (Jam ke-1 s/d Jam ke-10)
 const schoolPeriodSlots = [
-  { id: 1, label: 'Jam ke-1', time: '07.00 - 07.45' },
-  { id: 2, label: 'Jam ke-2', time: '07.45 - 08.30' },
-  { id: 3, label: 'Jam ke-3', time: '08.30 - 09.15' },
-  { id: 4, label: 'Jam ke-4', time: '09.30 - 10.15' },
-  { id: 5, label: 'Jam ke-5', time: '10.15 - 11.00' },
-  { id: 6, label: 'Jam ke-6', time: '11.00 - 11.45' },
-  { id: 7, label: 'Jam ke-7', time: '12.30 - 13.15' },
-  { id: 8, label: 'Jam ke-8', time: '13.15 - 14.00' },
-  { id: 9, label: 'Jam ke-9', time: '14.15 - 15.00' },
-  { id: 10, label: 'Jam ke-10', time: '15.00 - 15.45' }
+  { id: 1, label: 'Jam ke-1' },
+  { id: 2, label: 'Jam ke-2' },
+  { id: 3, label: 'Jam ke-3' },
+  { id: 4, label: 'Jam ke-4' },
+  { id: 5, label: 'Jam ke-5' },
+  { id: 6, label: 'Jam ke-6' },
+  { id: 7, label: 'Jam ke-7' },
+  { id: 8, label: 'Jam ke-8' },
+  { id: 9, label: 'Jam ke-9' },
+  { id: 10, label: 'Jam ke-10' }
 ];
 
 // Helper: Get Today's Date String YYYY-MM-DD
@@ -1398,7 +1398,7 @@ watch(() => props.shortcutJadwal, (shortcut) => {
                 <span>Pilih Jam Pelajaran Mengajar</span>
               </label>
               <span class="text-xs font-black text-emerald-300 bg-emerald-500/20 px-3 py-1 rounded-full border border-emerald-500/30 font-mono">
-                {{ (Math.max(startPeriod || 1, endPeriod || 1) - Math.min(startPeriod || 1, endPeriod || 1)) + 1 }} Jam Pelajaran
+                {{ (Math.max(startPeriod || 1, endPeriod || 1) - Math.min(startPeriod || 1, endPeriod || 1)) + 1 }} JP (Jam Pelajaran)
               </span>
             </div>
 
@@ -1410,7 +1410,7 @@ watch(() => props.shortcutJadwal, (shortcut) => {
                   class="w-full bg-slate-900 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-xs sm:text-sm font-semibold min-h-[44px]"
                 >
                   <option v-for="slot in schoolPeriodSlots" :key="slot.id" :value="slot.id">
-                    {{ slot.label }} ({{ slot.time.split(' - ')[0] }})
+                    {{ slot.label }}
                   </option>
                 </select>
               </div>
@@ -1422,18 +1422,18 @@ watch(() => props.shortcutJadwal, (shortcut) => {
                   class="w-full bg-slate-900 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-xs sm:text-sm font-semibold min-h-[44px]"
                 >
                   <option v-for="slot in schoolPeriodSlots" :key="slot.id" :value="slot.id">
-                    {{ slot.label }} ({{ slot.time.split(' - ')[1] }})
+                    {{ slot.label }}
                   </option>
                 </select>
               </div>
             </div>
 
-            <div class="p-3 bg-slate-900 rounded-2xl border border-white/10 text-xs font-mono text-cyan-300 font-bold flex items-center justify-between">
+            <div class="p-3 bg-slate-900 rounded-2xl border border-white/10 text-xs font-mono text-cyan-300 font-bold flex items-center justify-between flex-wrap gap-2">
               <span class="flex items-center gap-2">
                 <span>⏱️</span>
-                <span>Hasil Format Jam: <span class="text-white font-sans font-semibold">{{ computedJamLabel }}</span></span>
+                <span>Format Jurnal: <span class="text-white font-sans font-semibold">{{ computedJamLabel }}</span> ({{ (Math.max(startPeriod || 1, endPeriod || 1) - Math.min(startPeriod || 1, endPeriod || 1)) + 1 }} JP)</span>
               </span>
-              <span class="text-[11px] text-gray-400">Otomatis dihitung untuk rekapitulasi jam KBM</span>
+              <span class="text-[11px] text-gray-400">Otomatis dihitung untuk rekapitulasi KBM</span>
             </div>
           </div>
 

@@ -22,6 +22,8 @@ onMounted(() => {
     const savedId = localStorage.getItem('siswacloud_active_siswa_id');
     if (savedId && props.siswaList.some(s => String(s.id) === String(savedId))) {
       activeSiswaId.value = Number(savedId);
+    } else if (props.siswaObj?.id && props.siswaList.some(s => String(s.id) === String(props.siswaObj.id))) {
+      activeSiswaId.value = Number(props.siswaObj.id);
     } else if (props.siswaList.length > 0) {
       showIdentityModal.value = true;
     }
@@ -56,9 +58,26 @@ const filteredSiswaList = computed(() => {
 });
 
 // 2. Filter & Search Materi
-const selectedSemester = ref('Ganjil');
+function getInitialSemester() {
+  try {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('siswa_active_semester') : null;
+    if (saved && ['Ganjil', 'Genap', 'Semua'].includes(saved)) {
+      return saved;
+    }
+  } catch (e) {}
+  const currentMonth = new Date().getMonth() + 1;
+  return (currentMonth >= 1 && currentMonth <= 6) ? 'Genap' : 'Ganjil';
+}
+
+const selectedSemester = ref(getInitialSemester());
 const selectedTipe = ref('Semua');
 const searchQuery = ref('');
+
+watch(selectedSemester, (newVal) => {
+  try {
+    if (typeof window !== 'undefined') localStorage.setItem('siswa_active_semester', newVal);
+  } catch (e) {}
+});
 
 const filteredMateri = computed(() => {
   let list = props.materiList || [];
@@ -383,10 +402,17 @@ async function markCompleted() {
     isCompletedForActiveSiswa.value = true;
     showToast('Selamat! Anda telah menyelesaikan materi ini 🎉', 'success');
 
-    const rec = activeMateri.value.reads?.find(r => String(r.siswaId) === String(activeSiswa.value.id));
+    if (!activeMateri.value.reads) activeMateri.value.reads = [];
+    const rec = activeMateri.value.reads.find(r => String(r.siswaId) === String(activeSiswa.value.id));
     if (rec) {
       rec.status = 'selesai';
       rec.progressPersen = 100;
+    } else {
+      activeMateri.value.reads.push({
+        siswaId: activeSiswa.value.id,
+        status: 'selesai',
+        progressPersen: 100,
+      });
     }
   } catch (err) {
     showToast('Gagal mencatat penyelesaian materi.', 'error');
@@ -508,11 +534,16 @@ onUnmounted(() => {
         <div>
           <!-- Card Header & Badges -->
           <div class="flex items-center justify-between gap-2 mb-3">
-            <span class="text-[11px] font-extrabold uppercase px-3 py-1 rounded-full border tracking-wider"
-              :class="m.tipe === 'Slider PPT' ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300' : (m.tipe === 'Video YouTube' ? 'bg-rose-500/15 border-rose-500/30 text-rose-300' : 'bg-amber-500/15 border-amber-500/30 text-amber-300')"
-            >
-              {{ m.tipe === 'Slider PPT' ? '🖥️ Slider PPT' : (m.tipe === 'Video YouTube' ? '🎥 Video' : '📄 Dokumen') }}
-            </span>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-[11px] font-extrabold uppercase px-3 py-1 rounded-full border tracking-wider"
+                :class="m.tipe === 'Slider PPT' ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300' : (m.tipe === 'Video YouTube' ? 'bg-rose-500/15 border-rose-500/30 text-rose-300' : 'bg-amber-500/15 border-amber-500/30 text-amber-300')"
+              >
+                {{ m.tipe === 'Slider PPT' ? '🖥️ Slider PPT' : (m.tipe === 'Video YouTube' ? '🎥 Video' : '📄 Dokumen') }}
+              </span>
+              <span v-if="m.tpKode" class="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-black px-2.5 py-0.5 rounded-full font-mono">
+                {{ m.tpKode }}
+              </span>
+            </div>
 
             <span class="text-xs font-mono font-bold text-gray-400">
               {{ m.mapel || 'Informatika' }}
@@ -525,9 +556,17 @@ onUnmounted(() => {
           </h3>
 
           <!-- Deskripsi -->
-          <p class="text-xs text-gray-400 line-clamp-2 leading-relaxed mb-4">
+          <p class="text-xs text-gray-400 line-clamp-2 leading-relaxed mb-3">
             {{ m.deskripsi || 'Tidak ada deskripsi singkat.' }}
           </p>
+
+          <!-- Linked CBT Exam Badge -->
+          <div v-if="m.cbtJadwal" class="mb-3">
+            <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-500/35 shadow-sm">
+              <span>🎯 Terhubung CBT:</span>
+              <span class="truncate max-w-[200px]">{{ m.cbtJadwal.judul }}</span>
+            </div>
+          </div>
 
           <!-- Status Belajar Siswa Aktif -->
           <div class="bg-slate-950/60 rounded-2xl p-3 border border-white/5 space-y-2 mb-4">
@@ -1015,12 +1054,13 @@ onUnmounted(() => {
               <div class="text-4xl">📄</div>
               <p class="text-sm font-bold text-white">Dokumen digital tidak memiliki tautan penampil langsung.</p>
               <a
-                v-if="activeMateri.filePath"
-                :href="activeMateri.filePath"
+                v-if="activeMateri.fileUrl || activeMateri.filePath"
+                :href="activeMateri.fileUrl || ('/storage/' + activeMateri.filePath)"
+                target="_blank"
                 download
-                class="px-5 py-2.5 rounded-2xl bg-cyan-500 text-slate-950 font-black text-xs"
+                class="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs shadow-md transition active:scale-95"
               >
-                Unduh Berkas PDF
+                <span>📥 Unduh Berkas PDF / PPT</span>
               </a>
             </div>
           </div>

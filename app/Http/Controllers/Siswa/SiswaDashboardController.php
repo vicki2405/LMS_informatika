@@ -60,6 +60,30 @@ class SiswaDashboardController extends Controller
         $cbtJadwalIds = collect($cbtJadwals)->pluck('id')->toArray();
         $cbtSesis = $this->getCbtSesis($cbtJadwalIds, $kelasId);
 
+        // Ambil mata pelajaran aktif yang terjadwal resmi diajarkan pada kelas siswa ini
+        $kelasMapels = [];
+        if ($kelasId) {
+            $kelasMapels = Jadwal::query()
+                ->where('kelas_id', '=', $kelasId)
+                ->pluck('mata_pelajaran')
+                ->filter()
+                ->unique()
+                ->values()
+                ->toArray();
+
+            if (empty($kelasMapels)) {
+                $kelasMapels = NilaiTp::query()
+                    ->whereHas('siswa', fn ($q) => $q->where('kelas_id', $kelasId))
+                    ->with('tp')
+                    ->get()
+                    ->pluck('tp.mapel')
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->toArray();
+            }
+        }
+
         return Inertia::render('Siswa/Dashboard', [
             'siswaObjProp' => [
                 'id' => $siswaId,
@@ -79,7 +103,8 @@ class SiswaDashboardController extends Controller
             'materiListProp' => $this->getMateriData($kelasId),
             'tugasListProp' => $this->getTugasData($kelasId, $siswaId),
             'nilaiTpListProp' => $this->getNilaiTpData($siswaId),
-            'tpListProp' => $this->getTpData(),
+            'tpListProp' => $this->getTpData($kelasId, $kelasMapels),
+            'mapelListProp' => $kelasMapels,
             'nilaiListProp' => $this->getNilaiDataByKelas($kelasId),
             'tahunAjaranAktifProp' => fn () => TahunAjaran::getActive(),
         ]);
@@ -165,6 +190,8 @@ class SiswaDashboardController extends Controller
                                 });
                             });
                     });
+                } else {
+                    $q->orWhereNull('kelas_id');
                 }
             })
             ->orderBy('id', 'desc')
@@ -172,25 +199,34 @@ class SiswaDashboardController extends Controller
             ->map(function ($m) {
                 return [
                     'id' => $m->id,
+                    'tpId' => $m->tp_id,
                     'tpKode' => $m->tp?->kode ?? 'TP',
+                    'tpJudul' => $m->tp?->judul ?? '',
+                    'tp' => $m->tp ? [
+                        'id' => $m->tp->id,
+                        'kode' => $m->tp->kode,
+                        'judul' => $m->tp->judul,
+                        'mapel' => $m->tp->mapel,
+                    ] : null,
                     'mapel' => $m->mapel?->nama ?? $m->tp?->mapel ?? 'Mata Pelajaran',
                     'judul' => $m->judul,
                     'tipe' => $m->tipe,
                     'semester' => $m->semester ?? $m->tp?->semester ?? 'Ganjil',
                     'mapelId' => $m->mapel_id,
                     'isPublished' => (bool) $m->is_published,
-                    'theme' => $m->theme ?? 'light',
+                    'theme' => $m->theme ?? 'dark',
                     'cbtJadwalId' => $m->cbt_jadwal_id,
                     'cbtJadwal' => $m->cbtJadwal ? [
                         'id' => $m->cbtJadwal->id,
-                        'judul' => $m->cbtJadwal->judul,
-                        'tipe' => $m->cbtJadwal->tipe,
+                        'judul' => $m->cbtJadwal->judul_ujian,
+                        'tipe' => $m->cbtJadwal->mode_ujian ?? 'CBT',
                         'durasiMenit' => $m->cbtJadwal->durasi_menit,
                     ] : null,
                     'fileUrl' => $m->file_path ? asset('storage/'.$m->file_path) : ($m->file_url ?? ''),
                     'filePath' => $m->file_path,
                     'fileName' => $m->file_path ? basename($m->file_path) : '',
                     'deskripsi' => $m->deskripsi ?? '',
+                    'deskripsiSingkat' => $m->deskripsi ?? '',
                     'kegiatan' => $m->kegiatans->map(fn ($s) => [
                         'id' => $s->id,
                         'label' => $s->label,
@@ -482,12 +518,31 @@ class SiswaDashboardController extends Controller
         })->toArray();
     }
 
-    private function getTpData(): array
+    private function getTpData(?int $kelasId = null, array $kelasMapels = []): array
     {
-        return TujuanPembelajaran::query()
+        $activeTa = TahunAjaran::getActive();
+
+        $query = TujuanPembelajaran::query()
             ->with('tahunAjaran')
-            ->orderBy('kode', 'asc')
-            ->get()
+            ->orderBy('kode', 'asc');
+
+        if ($activeTa) {
+            $query->where(function ($q) use ($activeTa) {
+                $q->where('tahun_ajaran_id', '=', $activeTa->id)
+                  ->orWhereNull('tahun_ajaran_id');
+            });
+        }
+
+        if (! empty($kelasMapels)) {
+            $query->where(function ($q) use ($kelasMapels) {
+                $q->whereIn('mapel', $kelasMapels);
+                foreach ($kelasMapels as $m) {
+                    $q->orWhere('mapel', 'LIKE', "%{$m}%");
+                }
+            });
+        }
+
+        return $query->get()
             ->map(function ($t) {
                 return [
                     'id' => $t->id,
@@ -497,7 +552,7 @@ class SiswaDashboardController extends Controller
                     'jenis' => $t->jenis,
                     'kktp' => $t->kktp ?? 75,
                     'semester' => $t->semester ?? 'Ganjil',
-                    'tahunAjaran' => $t->tahunAjaran?->kode ?? '2026/2027',
+                    'tahunAjaran' => $t->tahunAjaran?->kode ?? '2025/2026',
                 ];
             })
             ->toArray();
