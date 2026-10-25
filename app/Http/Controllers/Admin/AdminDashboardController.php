@@ -781,7 +781,7 @@ class AdminDashboardController extends Controller
             $sharedStrings = [];
             $ssXml = $zip->getFromName('xl/sharedStrings.xml');
             if ($ssXml) {
-                $ss = simplexml_load_string($ssXml);
+                $ss = simplexml_load_string($ssXml, 'SimpleXMLElement', LIBXML_NONET);
                 foreach ($ss->si as $si) {
                     $texts = [];
                     foreach ($si->r as $r) {
@@ -798,7 +798,7 @@ class AdminDashboardController extends Controller
                 return redirect()->back()->withErrors(['file' => 'Sheet di dalam file .xlsx tidak ditemukan.']);
             }
 
-            $sheet    = simplexml_load_string($sheetXml);
+            $sheet    = simplexml_load_string($sheetXml, 'SimpleXMLElement', LIBXML_NONET);
             $allRows  = [];
             foreach ($sheet->sheetData->row as $row) {
                 $rowData = array_fill(0, 5, '');

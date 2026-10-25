@@ -15,11 +15,13 @@ use App\Models\NilaiTp;
 use App\Models\PengumpulanTugas;
 use App\Models\Siswa;
 use App\Models\TahunAjaran;
+use App\Models\TujuanPembelajaran;
 use App\Models\Tugas;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -77,6 +79,8 @@ class SiswaDashboardController extends Controller
             'materiListProp' => $this->getMateriData($kelasId),
             'tugasListProp' => $this->getTugasData($kelasId, $siswaId),
             'nilaiTpListProp' => $this->getNilaiTpData($siswaId),
+            'tpListProp' => $this->getTpData(),
+            'nilaiListProp' => $this->getNilaiDataByKelas($kelasId),
             'tahunAjaranAktifProp' => fn () => TahunAjaran::getActive(),
         ]);
     }
@@ -130,11 +134,38 @@ class SiswaDashboardController extends Controller
             return [];
         }
 
+        // Ambil daftar mata pelajaran unik yang aktif diajarkan pada kelas siswa ini dari Jadwal
+        $kelasMapelNames = Jadwal::query()
+            ->where('kelas_id', '=', $kelasId)
+            ->pluck('mata_pelajaran')
+            ->filter()
+            ->map(fn ($m) => strtolower(trim($m)))
+            ->unique()
+            ->values()
+            ->toArray();
+
         return Materi::query()
             ->with(['tp', 'mapel', 'kegiatans', 'cbtJadwal', 'reads'])
             ->where('is_published', '=', true)
-            ->where(function ($q) use ($kelasId) {
-                $q->where('kelas_id', '=', $kelasId)->orWhereNull('kelas_id');
+            ->where(function ($q) use ($kelasId, $kelasMapelNames) {
+                // 1. Ditujukan spesifik untuk kelas siswa ini
+                $q->where('kelas_id', '=', $kelasId);
+
+                // 2. ATAU ditujukan untuk semua kelas pada mapel tersebut (kelas_id null),
+                // TAPI HANYA JIKA kelas siswa ini memang memiliki mapel tersebut dalam jadwal pelajarannya!
+                if (! empty($kelasMapelNames)) {
+                    $q->orWhere(function ($sub) use ($kelasMapelNames) {
+                        $sub->whereNull('kelas_id')
+                            ->where(function ($mQuery) use ($kelasMapelNames) {
+                                $mQuery->whereHas('mapel', function ($mq) use ($kelasMapelNames) {
+                                    $mq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
+                                       ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
+                                })->orWhereHas('tp', function ($tq) use ($kelasMapelNames) {
+                                    $tq->whereIn(DB::raw('LOWER(TRIM(mapel))'), $kelasMapelNames);
+                                });
+                            });
+                    });
+                }
             })
             ->orderBy('id', 'desc')
             ->get()
@@ -447,6 +478,47 @@ class SiswaDashboardController extends Controller
                 'nilai' => $nilai,
                 'predikat' => $predikat,
                 'catatanGuru' => null,
+            ];
+        })->toArray();
+    }
+
+    private function getTpData(): array
+    {
+        return TujuanPembelajaran::query()
+            ->with('tahunAjaran')
+            ->orderBy('kode', 'asc')
+            ->get()
+            ->map(function ($t) {
+                return [
+                    'id' => $t->id,
+                    'kode' => $t->kode,
+                    'mapel' => $t->mapel ?? 'Umum',
+                    'judul' => $t->judul,
+                    'jenis' => $t->jenis,
+                    'kktp' => $t->kktp ?? 75,
+                    'semester' => $t->semester ?? 'Ganjil',
+                    'tahunAjaran' => $t->tahunAjaran?->kode ?? '2026/2027',
+                ];
+            })
+            ->toArray();
+    }
+
+    private function getNilaiDataByKelas(?int $kelasId): array
+    {
+        $query = NilaiTp::query()->with(['tp', 'siswa']);
+        if ($kelasId) {
+            $query->whereHas('siswa', function ($q) use ($kelasId) {
+                $q->where('kelas_id', $kelasId);
+            });
+        }
+
+        return $query->get()->map(function ($n) {
+            return [
+                'id' => $n->id,
+                'tpId' => $n->tp_id,
+                'siswaId' => $n->siswa_id,
+                'nilai' => $n->nilai,
+                'catatan' => $n->catatan,
             ];
         })->toArray();
     }

@@ -183,6 +183,26 @@ const THEME_STYLES = {
     badge: 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300',
     glow: 'rgba(16, 185, 129, 0.12)',
   },
+  aurora: {
+    bg: 'bg-[#10071a] text-pink-50',
+    card: 'bg-gradient-to-b from-[#1a0c2b]/95 via-[#140824] to-[#0e051a] border-purple-400/30 text-white shadow-[0_20px_60px_-15px_rgba(244,63,94,0.18)]',
+    header: 'bg-[#10071a]/95 border-purple-500/20 text-white',
+    accentText: 'text-rose-400',
+    accentBg: 'bg-gradient-to-r from-rose-500 via-pink-500 to-amber-400 text-slate-950 font-black',
+    highlightBox: 'bg-purple-950/60 border-rose-400/40 text-rose-200',
+    badge: 'bg-rose-500/15 border-rose-400/40 text-rose-300',
+    glow: 'rgba(244, 63, 94, 0.15)',
+  },
+  monochrome: {
+    bg: 'bg-slate-950 text-slate-100',
+    card: 'bg-gradient-to-b from-slate-900/95 via-slate-900/90 to-slate-950/95 border-white/20 text-white shadow-[0_20px_60px_-15px_rgba(255,255,255,0.08)] backdrop-blur-xl',
+    header: 'bg-slate-950/95 border-white/10 text-white',
+    accentText: 'text-slate-200',
+    accentBg: 'bg-gradient-to-r from-slate-100 to-slate-300 text-slate-950 font-black',
+    highlightBox: 'bg-white/5 border-white/20 text-slate-200',
+    badge: 'bg-white/10 border-white/20 text-slate-200',
+    glow: 'rgba(255, 255, 255, 0.08)',
+  },
 };
 
 const currentThemeClass = computed(() => {
@@ -262,8 +282,45 @@ async function toggleBrowserFullscreen() {
   } catch (e) {}
 }
 
+// Slide Directional Transition & Auto-Play State
+const slideTransition = ref('slide-left');
+const isAutoPlaying = ref(false);
+let autoPlayTimer = null;
+const autoPlaySeconds = 5;
+
+function toggleAutoPlay() {
+  isAutoPlaying.value = !isAutoPlaying.value;
+  if (isAutoPlaying.value) {
+    startAutoPlay();
+    showToast('Putar slide otomatis aktif (5 dtk)', 'info');
+  } else {
+    stopAutoPlay();
+    showToast('Putar slide otomatis dijeda', 'info');
+  }
+}
+
+function startAutoPlay() {
+  stopAutoPlay();
+  autoPlayTimer = setInterval(() => {
+    nextSlide();
+  }, autoPlaySeconds * 1000);
+}
+
+function stopAutoPlay() {
+  if (autoPlayTimer) {
+    clearInterval(autoPlayTimer);
+    autoPlayTimer = null;
+  }
+}
+
+onUnmounted(() => {
+  stopAutoPlay();
+});
+
 // Close Reader & Exit Fullscreen
 function closeReader() {
+  stopAutoPlay();
+  isAutoPlaying.value = false;
   try {
     if (document.fullscreenElement) {
       document.exitFullscreen();
@@ -274,22 +331,30 @@ function closeReader() {
   isFullscreenMode.value = false;
 }
 
-// Next / Prev Slide
+// Next / Prev Slide with smooth directional transitions
 function nextSlide() {
   if (currentSlideIndex.value < currentSlides.value.length - 1) {
+    slideTransition.value = 'slide-left';
     currentSlideIndex.value++;
+    updateReadingProgress();
+  } else if (isAutoPlaying.value) {
+    // Loop back to start in autoplay mode
+    slideTransition.value = 'slide-left';
+    currentSlideIndex.value = 0;
     updateReadingProgress();
   }
 }
 
 function prevSlide() {
   if (currentSlideIndex.value > 0) {
+    slideTransition.value = 'slide-right';
     currentSlideIndex.value--;
   }
 }
 
 function goToSlide(idx) {
   if (idx >= 0 && idx < currentSlides.value.length) {
+    slideTransition.value = idx > currentSlideIndex.value ? 'slide-left' : 'slide-right';
     currentSlideIndex.value = idx;
     updateReadingProgress();
   }
@@ -386,7 +451,7 @@ onUnmounted(() => {
       <button
         @click="switchStudent"
         type="button"
-        class="px-4 py-2 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold text-xs transition active:scale-95 flex items-center gap-2 shrink-0 shadow-sm"
+        class="min-h-[44px] px-4 py-2 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold text-xs transition active:scale-95 flex items-center justify-center gap-2 shrink-0 shadow-sm"
       >
         <span>🔄</span>
         <span>Ganti Siswa</span>
@@ -654,9 +719,24 @@ onUnmounted(() => {
               :class="activeTheme === tKey ? 'scale-110 shadow ring-2 ring-cyan-400 ' + tObj.accentBg : 'opacity-60 hover:opacity-100'"
               :title="'Ganti Tema: ' + tKey"
             >
-              {{ tKey === 'dark' ? '🌙' : (tKey === 'light' ? '☀️' : (tKey === 'navy' ? '🌊' : '🍃')) }}
+              {{ tKey === 'dark' ? '⚡' : (tKey === 'light' ? '🎨' : (tKey === 'aurora' ? '🌅' : (tKey === 'navy' ? '🌊' : (tKey === 'emerald' ? '🍃' : '💎')))) }}
             </button>
           </div>
+
+          <!-- Auto-Play Slideshow Toggle -->
+          <button
+            v-if="activeMateri.tipe === 'Slider PPT' && currentSlides.length > 1"
+            @click="toggleAutoPlay"
+            type="button"
+            class="px-2.5 py-1.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 active:scale-95 border"
+            :class="isAutoPlaying
+              ? 'bg-cyan-400 text-slate-950 border-cyan-300 shadow-md font-black ring-2 ring-cyan-300'
+              : 'bg-white/10 hover:bg-white/20 text-white border-white/10'"
+            :title="isAutoPlaying ? 'Jeda Putar Otomatis' : 'Putar Slide Otomatis (5 detik)'"
+          >
+            <span>{{ isAutoPlaying ? '⏸' : '▶' }}</span>
+            <span class="hidden lg:inline">{{ isAutoPlaying ? 'Jeda' : 'Auto' }}</span>
+          </button>
 
           <!-- Native Fullscreen Toggle -->
           <button
@@ -756,8 +836,11 @@ onUnmounted(() => {
               :style="{ backgroundColor: currentThemeClass.glow }"
             ></div>
 
-            <!-- SLIDE TOP META HEADER -->
-            <div class="relative z-10 flex items-center justify-between gap-4 border-b border-white/10 pb-4 mb-6">
+            <!-- SLIDE CONTENT WITH CANVA DIRECTIONAL SLIDER TRANSITION -->
+            <Transition :name="slideTransition" mode="out-in">
+              <div :key="currentSlideIndex" class="relative z-10 flex flex-col justify-between flex-1 w-full min-h-0">
+                <!-- SLIDE TOP META HEADER -->
+                <div class="flex items-center justify-between gap-4 border-b border-white/10 pb-4 mb-6">
               <!-- Label Pill -->
               <div class="flex items-center gap-2.5">
                 <span
@@ -765,9 +848,9 @@ onUnmounted(() => {
                   :class="currentThemeClass.badge"
                 >
                   <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-                  <span>{{ currentSlide.label || 'Materi Pembelajaran' }}</span>
+                  <span>{{ (currentSlide.label && currentSlide.label !== 'Apersepsi') ? currentSlide.label : (activeMateri.mapel || 'Materi Pembelajaran') }}</span>
                 </span>
-                <span class="text-[11px] font-mono text-gray-400 hidden sm:inline">
+                <span v-if="currentSlide.label && currentSlide.label !== 'Apersepsi'" class="text-[11px] font-mono text-gray-400 hidden sm:inline">
                   {{ activeMateri.mapel || 'Informatika' }}
                 </span>
               </div>
@@ -873,6 +956,8 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
+          </div>
+        </Transition>
 
             <!-- SLIDE CANVAS BOTTOM META -->
             <div class="relative z-10 flex items-center justify-between border-t border-white/10 pt-4 mt-6 text-[11px] text-gray-400">
@@ -961,8 +1046,18 @@ onUnmounted(() => {
           <span class="text-[11px] sm:text-xs">Sebelumnya</span>
         </button>
 
-        <!-- Slide Indicators / Thumbnails -->
-        <div class="flex items-center gap-1.5 sm:gap-2 overflow-x-auto max-w-[130px] sm:max-w-md py-1 no-scrollbar">
+        <!-- Slide Indicators / Thumbnails + AutoPlay -->
+        <div class="flex items-center gap-1.5 sm:gap-2 overflow-x-auto max-w-[200px] sm:max-w-md py-1 no-scrollbar">
+          <button
+            @click="toggleAutoPlay"
+            type="button"
+            class="px-2 py-1 rounded-xl text-[10px] font-bold border transition flex items-center gap-1 shrink-0"
+            :class="isAutoPlaying ? 'bg-cyan-400 text-slate-950 border-cyan-300 font-black shadow-md shadow-cyan-400/30 ring-1 ring-cyan-300' : 'bg-white/10 hover:bg-white/20 text-white border-white/10'"
+            :title="isAutoPlaying ? 'Jeda Putar Otomatis' : 'Putar Slide Otomatis (5 detik)'"
+          >
+            <span>{{ isAutoPlaying ? '⏸' : '▶' }}</span>
+            <span class="hidden sm:inline">{{ isAutoPlaying ? 'Jeda' : 'Otomatis' }}</span>
+          </button>
           <button
             v-for="(s, idx) in currentSlides"
             :key="idx"
@@ -1096,7 +1191,6 @@ onUnmounted(() => {
   list-style-type: none;
   padding-left: 0;
   margin: 1.25rem 0;
-  space-y: 0.75rem;
 }
 
 .slide-markdown-content ul > li {
@@ -1186,5 +1280,31 @@ onUnmounted(() => {
   background: rgba(56, 189, 248, 0.08);
   border-radius: 0 1rem 1rem 0;
   font-style: italic;
+}
+
+/* Canva-style Directional Slide Transitions */
+.slide-left-enter-active,
+.slide-left-leave-active,
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: all 0.32s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.slide-left-enter-from {
+  opacity: 0;
+  transform: translateX(40px) scale(0.98);
+}
+.slide-left-leave-to {
+  opacity: 0;
+  transform: translateX(-40px) scale(0.98);
+}
+
+.slide-right-enter-from {
+  opacity: 0;
+  transform: translateX(-40px) scale(0.98);
+}
+.slide-right-leave-to {
+  opacity: 0;
+  transform: translateX(40px) scale(0.98);
 }
 </style>

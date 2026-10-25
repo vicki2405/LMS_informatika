@@ -153,7 +153,7 @@ function handleKumpulTugas() {
             <button
               v-if="t.status === 'Belum Dikerjakan'"
               @click="openUploadModal(t)"
-              class="min-h-[40px] px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold text-xs shadow-md shadow-cyan-500/20 flex items-center gap-1.5 active:scale-95 transition-all"
+              class="min-h-[44px] px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold text-xs shadow-md shadow-cyan-500/20 flex items-center gap-1.5 active:scale-95 transition-all"
             >
               🚀 Kumpul Tugas
             </button>
@@ -171,7 +171,7 @@ function handleKumpulTugas() {
 
     <!-- MODAL KUMPUL TUGAS -->
     <div v-if="showUploadModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div class="bg-slate-800 border border-white/10 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl">
+      <div class="bg-slate-800 border border-white/10 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto">
         <h3 class="text-xl font-bold text-white mb-1">Kumpul Tugas Siswa</h3>
         <p class="text-xs text-cyan-300 mb-4">{{ selectedTugasUpload?.judul }} ({{ selectedTugasUpload?.mapel }})</p>
 
@@ -181,7 +181,7 @@ function handleKumpulTugas() {
             <label class="block text-xs font-semibold text-gray-300 uppercase mb-1">Nama Siswa Pengumpul</label>
             <select
               v-model="uploadForm.siswaId"
-              class="w-full bg-slate-700 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-sm"
+              class="w-full min-h-[44px] bg-slate-700 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-cyan-400 outline-none text-sm"
               required
             >
               <option value="" disabled>-- Pilih Nama Anda --</option>
@@ -197,7 +197,7 @@ function handleKumpulTugas() {
               v-model="uploadForm.linkHasil"
               type="url"
               placeholder="https://drive.google.com/..."
-              class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-cyan-400 outline-none text-sm"
+              class="w-full min-h-[44px] bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-cyan-400 outline-none text-sm"
               required
             />
           </div>
@@ -216,13 +216,13 @@ function handleKumpulTugas() {
             <button
               type="button"
               @click="showUploadModal = false"
-              class="min-h-[40px] px-5 py-2.5 rounded-xl border border-white/10 text-gray-400 text-sm font-semibold hover:bg-white/5"
+              class="min-h-[44px] px-5 py-2.5 rounded-xl border border-white/10 text-gray-400 text-sm font-semibold hover:bg-white/5"
             >
               Batal
             </button>
             <button
               type="submit"
-              class="min-h-[40px] px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm font-bold shadow-lg shadow-cyan-500/25 active:scale-95 transition-all"
+              class="min-h-[44px] px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm font-bold shadow-lg shadow-cyan-500/25 active:scale-95 transition-all"
             >
               Kirimkan Tugas
             </button>

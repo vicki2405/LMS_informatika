@@ -416,12 +416,15 @@ class GuruDashboardController extends Controller
 
     private function serializeMateri(Materi $m): array
     {
+        $mapelName = $m->mapel?->nama ?? $m->tp?->mapel ?? '';
+        $targetKelas = $m->kelas?->nama_kelas ?? ($mapelName ? "Semua Kelas ({$mapelName})" : 'Semua Kelas');
+
         return [
             'id' => $m->id,
             'tpId' => $m->tp_id,
             'tpKode' => $m->tp?->kode ?? 'TP-01',
             'kelasId' => $m->kelas_id,
-            'targetKelas' => $m->kelas?->nama_kelas ?? 'Semua Kelas',
+            'targetKelas' => $targetKelas,
             'mapelId' => $m->mapel_id,
             'mapelNama' => $m->mapel?->nama ?? $m->tp?->mapel ?? '',
             'judul' => $m->judul,
@@ -882,7 +885,7 @@ HTML;
         $isPublished = $request->has('is_published') ? $request->boolean('is_published') : ($request->has('isPublished') ? $request->boolean('isPublished') : true);
 
         $tpId = $tpId === '' ? null : $tpId;
-        $kelasId = $kelasId === '' ? null : $kelasId;
+        $kelasId = ($kelasId === '' || $kelasId === 'all' || $kelasId === 'null') ? null : $kelasId;
         $mapelId = $mapelId === '' ? null : $mapelId;
         $cbtJadwalId = $cbtJadwalId === '' ? null : $cbtJadwalId;
 
@@ -1277,8 +1280,8 @@ HTML;
                 'judul' => $materi->judul,
                 'tipe' => $materi->tipe,
                 'theme' => $materi->theme ?? 'dark',
-                'targetKelas' => $materi->kelas?->nama_kelas ?? 'Semua Kelas',
-                'kelas' => $materi->kelas?->nama_kelas ?? 'Semua Kelas',
+                'targetKelas' => $materi->kelas?->nama_kelas ?? ($materi->mapel?->nama ? "Semua Kelas ({$materi->mapel->nama})" : 'Semua Kelas'),
+                'kelas' => $materi->kelas?->nama_kelas ?? ($materi->mapel?->nama ? "Semua Kelas ({$materi->mapel->nama})" : 'Semua Kelas'),
                 'mapel' => $materi->mapel?->nama ?? '-',
                 'cbtJadwal' => $materi->cbtJadwal ? ['id' => $materi->cbtJadwal->id, 'judul' => $materi->cbtJadwal->judul_ujian] : null,
             ],

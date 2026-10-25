@@ -166,6 +166,13 @@ Route::get('/storage/{path}', function (string $path) {
         abort(404);
     }
 
+    // Security Hardening: Block access to scripts, dotfiles, or sensitive config files
+    $ext = strtolower(pathinfo($realPath, PATHINFO_EXTENSION));
+    $blockedExtensions = ['php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'php8', 'phar', 'inc', 'sh', 'pl', 'cgi', 'py', 'asp', 'aspx', 'env', 'htaccess', 'ini'];
+    if (in_array($ext, $blockedExtensions, true) || str_starts_with(basename($realPath), '.')) {
+        abort(403, 'Akses ke berkas ini diblokir.');
+    }
+
     return response()->file($realPath, [
         'Cache-Control' => 'public, max-age=31536000',
     ]);

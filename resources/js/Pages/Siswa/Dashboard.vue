@@ -14,7 +14,6 @@ import CbtSiswa from '@/Components/Siswa/CbtSiswa.vue';
 const MateriSiswa = defineAsyncComponent(() => import('@/Components/Siswa/MateriSiswa.vue'));
 const TugasSiswa = defineAsyncComponent(() => import('@/Components/Siswa/TugasSiswa.vue'));
 const NilaiPerTP = defineAsyncComponent(() => import('@/Components/Siswa/NilaiPerTP.vue'));
-const MenuJadwalSiswa = defineAsyncComponent(() => import('@/Components/Siswa/MenuJadwalSiswa.vue'));
 
 const props = defineProps({
   siswaObjProp: { type: Object, default: () => ({}) },
@@ -26,6 +25,8 @@ const props = defineProps({
   materiListProp: { type: Array, default: () => [] },
   tugasListProp: { type: Array, default: () => [] },
   nilaiTpListProp: { type: Array, default: () => [] },
+  tpListProp: { type: Array, default: () => [] },
+  nilaiListProp: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -35,7 +36,7 @@ const userInitials = computed(() => {
   return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
 });
 
-const validTabs = ['dashboard', 'materi', 'cbt', 'tugas', 'nilai', 'jadwal'];
+const validTabs = ['dashboard', 'materi', 'cbt', 'tugas', 'nilai'];
 
 const getInitialTab = () => {
   if (typeof window !== 'undefined') {
@@ -174,13 +175,11 @@ function onSubmitTugas({ tugasId, data }) {
 
         <NilaiPerTP
           v-if="activeView === 'nilai'"
+          :tpList="props.tpListProp"
+          :nilaiList="props.nilaiListProp"
+          :siswaList="props.siswaListProp"
+          :kelasSiswa="kelasSiswa"
           :nilaiTPList="nilaiTPList"
-        />
-
-        <MenuJadwalSiswa
-          v-if="activeView === 'jadwal'"
-          :siswaObj="siswaObjProp"
-          :jadwalList="jadwalListProp"
         />
 
       </main>

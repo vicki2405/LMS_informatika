@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
 import { renderFormulaContent } from '@/Utils/formulaRenderer';
@@ -31,6 +31,31 @@ const selectedTpFilter = ref('Semua');
 const selectedTipeFilter = ref('Semua');
 const selectedStatusFilter = ref('Semua'); // 'Semua', 'ON', 'OFF'
 const searchQuery = ref('');
+
+// Filter TP berdasarkan Semester yang dipilih agar tidak membludak ratusan TP
+const availableTps = computed(() => {
+  let list = props.tpList || [];
+  if (selectedSemester.value !== 'Semua') {
+    list = list.filter(t => (t.semester || 'Ganjil') === selectedSemester.value);
+  }
+  return list;
+});
+
+// Format teks opsi TP agar tidak melebar merusak render popover browser
+function formatTpOption(tp) {
+  const judul = tp.judul || '';
+  const truncated = judul.length > 45 ? judul.substring(0, 42) + '...' : judul;
+  return `${tp.kode}: ${truncated}`;
+}
+
+watch(selectedSemester, () => {
+  if (selectedTpFilter.value !== 'Semua') {
+    const exists = availableTps.value.some(t => t.id === Number(selectedTpFilter.value));
+    if (!exists) {
+      selectedTpFilter.value = 'Semua';
+    }
+  }
+});
 
 if (typeof window !== 'undefined') {
   try {
@@ -302,9 +327,10 @@ function getTypeBadge(tipe) {
     </div>
 
     <!-- Filter Controls Bar -->
-    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div>
+    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl space-y-4">
+      <!-- Baris 1: Semester, Sasaran TP, dan Format Konten -->
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div class="md:col-span-3">
           <label class="block text-[11px] font-bold text-cyan-300 uppercase mb-1.5">📅 Semester</label>
           <select
             v-model="selectedSemester"
@@ -316,18 +342,18 @@ function getTypeBadge(tipe) {
           </select>
         </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🎯 Tujuan Pembelajaran (TP)</label>
+        <div class="md:col-span-5">
+          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🎯 Sasaran TP</label>
           <select
             v-model="selectedTpFilter"
             class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
           >
-            <option value="Semua">Semua TP (Semester {{ selectedSemester }})</option>
-            <option v-for="tp in tpList" :key="tp.id" :value="tp.id">{{ tp.kode }}: {{ tp.judul }}</option>
+            <option value="Semua">Semua TP ({{ availableTps.length }} TP)</option>
+            <option v-for="tp in availableTps" :key="tp.id" :value="tp.id">{{ formatTpOption(tp) }}</option>
           </select>
         </div>
 
-        <div>
+        <div class="md:col-span-4">
           <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">📦 Format Konten</label>
           <select
             v-model="selectedTipeFilter"
@@ -339,8 +365,11 @@ function getTypeBadge(tipe) {
             <option value="Video YouTube">🎥 Video Pembelajaran</option>
           </select>
         </div>
+      </div>
 
-        <div>
+      <!-- Baris 2: Status Rilis Siswa & Search Query -->
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div class="md:col-span-4">
           <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">⚡ Status Rilis Siswa</label>
           <select
             v-model="selectedStatusFilter"
@@ -352,7 +381,7 @@ function getTypeBadge(tipe) {
           </select>
         </div>
 
-        <div>
+        <div class="md:col-span-8">
           <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🔍 Cari Judul Materi</label>
           <input
             v-model="searchQuery"
@@ -524,6 +553,9 @@ function getTypeBadge(tipe) {
               </span>
               <span v-if="materi.mapelNama" class="bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 text-[10px] font-bold px-2 py-0.5 rounded-full">
                 {{ materi.mapelNama }}
+              </span>
+              <span v-if="materi.targetKelas" class="bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                🏛️ {{ materi.targetKelas }}
               </span>
             </div>
             <!-- Switch Toggle ON / OFF Mobile -->
@@ -957,5 +989,10 @@ function getTypeBadge(tipe) {
   background: rgba(56, 189, 248, 0.08);
   border-radius: 0 0.5rem 0.5rem 0;
   font-style: italic;
+}
+
+select option {
+  background-color: #0f172a;
+  color: #f8fafc;
 }
 </style>

@@ -20,17 +20,10 @@ function selectView(view) {
 
 <template>
   <div>
-    <!-- Sidebar overlay mobile -->
-    <div
-      v-if="sidebarOpen"
-      @click="$emit('update:sidebarOpen', false)"
-      class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-40 lg:hidden transition-opacity"
-    ></div>
-
-    <!-- Sidebar Navigation Drawer -->
+    <!-- Desktop Navigation Sidebar (Mobile menggunakan Bottom Navigation Bar) -->
     <aside
       :class="[
-        'fixed lg:sticky top-16 left-0 h-[calc(100vh-4rem)] w-72 bg-slate-900/95 backdrop-blur-2xl border-r border-white/10 z-40 transition-all duration-300 overflow-y-auto shrink-0 shadow-2xl',
+        'hidden lg:block sticky top-16 left-0 h-[calc(100vh-4rem)] w-72 bg-slate-900/95 backdrop-blur-2xl border-r border-white/10 z-40 transition-all duration-300 overflow-y-auto shrink-0 shadow-2xl',
         sidebarOpen ? 'translate-x-0 ml-0' : '-translate-x-full -ml-72'
       ]"
     >
@@ -132,7 +125,7 @@ function selectView(view) {
             </button>
 
             <div class="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-wider px-3 pt-4 mb-2">
-              Akademik & Jadwal
+              Akademik & Penilaian
             </div>
 
             <!-- 5. Nilai Per TP -->
@@ -149,22 +142,6 @@ function selectView(view) {
                 📊
               </div>
               <span>Nilai TP & Raport</span>
-            </button>
-
-            <!-- 6. Menu Jadwal Pelajaran -->
-            <button
-              @click="selectView('jadwal')"
-              :class="[
-                'w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold transition-all duration-200 active:scale-95 text-left',
-                activeView === 'jadwal'
-                  ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/40 shadow-sm font-extrabold'
-                  : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'
-              ]"
-            >
-              <div class="w-8 h-8 rounded-xl flex items-center justify-center text-base" :class="activeView === 'jadwal' ? 'bg-amber-500/20 text-amber-300' : 'bg-white/5 text-amber-400'">
-                📅
-              </div>
-              <span>Jadwal Pelajaran</span>
             </button>
           </nav>
         </div>

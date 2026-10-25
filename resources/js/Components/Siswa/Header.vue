@@ -62,9 +62,9 @@ function navigateTo(view) {
     <div class="w-full px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-16 gap-4">
         
-        <!-- Left: Brand Logo & Desktop/Mobile Sidebar Collapse Toggle -->
+        <!-- Left: Brand Logo & Desktop Sidebar Collapse Toggle -->
         <div class="flex items-center gap-3.5 shrink-0">
-          <button @click="$emit('toggle-sidebar')" title="Sembunyikan / Tampilkan Sidebar (Sidebar Collapse)" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all">
+          <button @click="$emit('toggle-sidebar')" title="Sembunyikan / Tampilkan Sidebar" class="hidden lg:flex p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all">
             <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
 
@@ -159,10 +159,10 @@ function navigateTo(view) {
               <svg class="w-3.5 h-3.5 text-gray-400 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
 
-            <!-- Profile Dropdown Menu -->
-            <div v-if="userMenuOpen" class="absolute right-0 mt-3 w-[calc(100vw-2rem)] max-w-xs sm:w-72 bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/10 py-2 z-50">
-              <div class="px-4 py-3 border-b border-white/10 flex items-center gap-3">
-                <div class="w-10 h-10 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-md shrink-0">
+            <!-- Profile Dropdown Menu (Murni Info Akun & Sesi) -->
+            <div v-if="userMenuOpen" class="absolute right-0 mt-3 w-72 max-w-[calc(100vw-2rem)] bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/10 p-3 z-50">
+              <div class="px-2 py-2.5 border-b border-white/10 flex items-center gap-3">
+                <div class="w-11 h-11 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-md shrink-0">
                   {{ userInitials || 'SW' }}
                 </div>
                 <div class="min-w-0">
@@ -174,35 +174,27 @@ function navigateTo(view) {
                 </div>
               </div>
 
-              <div class="py-1">
-                <button @click="navigateTo('dashboard')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5">
-                  <span class="text-base">🏠</span>
-                  <span>Beranda Utama</span>
-                </button>
-                <button @click="navigateTo('materi')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5 min-h-[40px]">
-                  <span class="text-base">📚</span>
-                  <span>Materi Pembelajaran</span>
-                </button>
-                <button @click="navigateTo('cbt')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5 min-h-[40px]">
-                  <span class="text-base">🎯</span>
-                  <span>CBT (Ujian Online)</span>
-                </button>
-                <button @click="navigateTo('tugas')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5">
-                  <span class="text-base">📝</span>
-                  <span>Tugas & Portofolio</span>
-                </button>
-                <button @click="navigateTo('nilai')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5">
-                  <span class="text-base">📊</span>
-                  <span>Nilai TP & Raport</span>
-                </button>
-                <button @click="navigateTo('jadwal')" class="w-full text-left px-4 py-2.5 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2.5">
-                  <span class="text-base">📅</span>
-                  <span>Jadwal Pelajaran</span>
-                </button>
+              <!-- Ringkasan Info Akun -->
+              <div class="p-2.5 text-xs text-gray-300 space-y-1.5 bg-white/5 rounded-xl my-2.5 border border-white/5">
+                <div class="flex items-center justify-between text-[11px]">
+                  <span class="text-gray-400">Ruang Kelas</span>
+                  <span class="font-bold text-cyan-300 font-mono">{{ kelasSiswa }}</span>
+                </div>
+                <div class="flex items-center justify-between text-[11px]">
+                  <span class="text-gray-400">Status Sesi</span>
+                  <span class="font-bold text-emerald-400 flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    Aktif Terhubung
+                  </span>
+                </div>
               </div>
 
-              <div class="border-t border-white/10 pt-1 mt-1">
-                <button @click="handleLogout" class="w-full text-left px-4 py-2.5 text-xs font-semibold text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2.5">
+              <!-- Tombol Keluar Sesi -->
+              <div class="pt-1">
+                <button
+                  @click="handleLogout"
+                  class="w-full text-center px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                   Keluar Sesi
                 </button>
