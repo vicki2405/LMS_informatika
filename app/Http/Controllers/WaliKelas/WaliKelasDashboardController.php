@@ -362,17 +362,27 @@ class WaliKelasDashboardController extends Controller
 
         $kelasObj = Kelas::query()->where('nama_kelas', '=', $validated['kelas'])->first();
 
+        $user = $request->user();
+        $assignedClassObj = $this->resolveKelasBinaan($request);
+        $assignedKelasId = $assignedClassObj?->id;
+
         $status = $validated['status'] ?? 'Aktif';
         $tanggal_status = $status !== 'Aktif' ? ($validated['tanggal_status'] ?? null) : null;
         $telepon = !empty($validated['telepon']) ? $validated['telepon'] : ($validated['teleponSiswa'] ?? null);
         $nis = !empty($validated['nis']) ? trim($validated['nis']) : null;
+        $kelasToAssign = (! $user->hasRole('admin') && $assignedKelasId) ? $assignedKelasId : ($kelasObj?->id ?? $assignedKelasId);
 
         if (! empty($validated['id'])) {
-            Siswa::query()->where('id', '=', $validated['id'])->update([
+            $targetSiswa = Siswa::find($validated['id']);
+            if ($targetSiswa && $assignedKelasId && ! $user->hasRole('admin') && $targetSiswa->kelas_id !== $assignedKelasId) {
+                return redirect()->back()->with('error', 'Akses ditolak: Siswa ini bukan anggota kelas binaan Anda.');
+            }
+
+            $targetSiswa?->update([
                 'nis' => $nis,
                 'nama' => $validated['nama'],
                 'jenis_kelamin' => $validated['jenisKelamin'],
-                'kelas_id' => $kelasObj?->id,
+                'kelas_id' => $kelasToAssign,
                 'telepon' => $telepon,
                 'status' => $status,
                 'tanggal_status' => $tanggal_status,
@@ -382,7 +392,7 @@ class WaliKelasDashboardController extends Controller
                 'nis' => $nis,
                 'nama' => $validated['nama'],
                 'jenis_kelamin' => $validated['jenisKelamin'],
-                'kelas_id' => $kelasObj?->id,
+                'kelas_id' => $kelasToAssign,
                 'telepon' => $telepon,
                 'status' => $status,
                 'tanggal_status' => $tanggal_status,
@@ -429,6 +439,14 @@ class WaliKelasDashboardController extends Controller
 
         if (! $assignedClassObj) {
             throw ValidationException::withMessages(['kelas' => 'Anda belum memiliki kelas binaan! Jadwal tidak dapat disimpan.']);
+        }
+
+        if (! empty($validated['id'])) {
+            $user = $request->user();
+            $existingJadwal = Jadwal::find($validated['id']);
+            if ($existingJadwal && ! $user->hasRole('admin') && $existingJadwal->kelas_id !== $assignedClassObj->id) {
+                return redirect()->back()->with('error', 'Akses ditolak: Jadwal ini bukan milik kelas binaan Anda.');
+            }
         }
 
         Jadwal::query()->updateOrCreate(

@@ -87,6 +87,22 @@ class WaliKelasApiController extends Controller
             'catatan' => 'nullable|string',
         ]);
 
+        $user = $request->user();
+        $kelas = $this->getHomeroomKelas($request);
+
+        if ($kelas && ! $user->hasRole('admin')) {
+            $siswa = Siswa::find($validated['siswa_id']);
+            if (! $siswa || $siswa->kelas_id !== $kelas->id) {
+                return response()->json(['success' => false, 'message' => 'Akses ditolak: Siswa ini bukan anggota kelas binaan Anda'], 403);
+            }
+            if (! empty($validated['id'])) {
+                $existingKasus = KasusSiswa::with('siswa')->find($validated['id']);
+                if ($existingKasus && $existingKasus->siswa && $existingKasus->siswa->kelas_id !== $kelas->id) {
+                    return response()->json(['success' => false, 'message' => 'Akses ditolak: Kasus ini bukan milik siswa kelas binaan Anda'], 403);
+                }
+            }
+        }
+
         $kasus = KasusSiswa::updateOrCreate(
             ['id' => $validated['id'] ?? null],
             $validated
@@ -97,7 +113,19 @@ class WaliKelasApiController extends Controller
 
     public function deleteKasus(int $id): JsonResponse
     {
-        KasusSiswa::query()->where('id', '=', $id)->delete();
+        $user = request()->user();
+        $kelas = $this->getHomeroomKelas(request());
+
+        $kasus = KasusSiswa::with('siswa')->find($id);
+        if ($kasus) {
+            if ($kelas && ! $user->hasRole('admin')) {
+                if ($kasus->siswa && $kasus->siswa->kelas_id !== $kelas->id) {
+                    return response()->json(['success' => false, 'message' => 'Akses ditolak: Kasus ini bukan milik siswa kelas binaan Anda'], 403);
+                }
+            }
+            $kasus->delete();
+        }
+
         return response()->json(['success' => true, 'message' => 'Kasus siswa berhasil dihapus']);
     }
 }

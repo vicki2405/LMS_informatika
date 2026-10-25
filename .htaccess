@@ -1,0 +1,16 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Security Hardening: Block direct access to critical environment and repository files
+    RewriteRule ^(\.env|\.git|composer\.(json|lock)|package(-lock)?\.json|phpunit\.xml|vite\.config\.js|tailwind\.config\.js|database/|storage/logs/) - [F,L]
+
+    # Block access to all dotfiles at root
+    RewriteRule (^|/)\.(?!well-known) - [F,L]
+
+    # Automatically route all web requests into public/
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# Prevent directory listings
+Options -Indexes

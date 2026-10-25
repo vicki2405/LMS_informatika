@@ -17,6 +17,7 @@ use App\Models\TahunAjaran;
 use App\Models\TujuanPembelajaran;
 use App\Models\CbtJadwal;
 use App\Models\MateriRead;
+use App\Services\Security\FileSecurityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -909,6 +910,7 @@ HTML;
         $materi = Materi::query()->findOrNew($validated['id'] ?? null);
 
         if ($file) {
+            FileSecurityService::validateUploadedFile($file, ['pdf', 'ppt', 'pptx', 'doc', 'docx', 'mp4', 'mov', 'jpg', 'jpeg', 'png', 'webp']);
             if ($materi->file_path) {
                 Storage::disk('public')->delete($materi->file_path);
             }
@@ -956,6 +958,7 @@ HTML;
             }
 
             if ($newFile) {
+                FileSecurityService::validateUploadedFile($newFile, ['pdf', 'ppt', 'pptx', 'doc', 'docx', 'mp4', 'mov', 'jpg', 'jpeg', 'png', 'webp']);
                 $filePath = $newFile->store('materi', 'public');
             }
             if ($filePath) {

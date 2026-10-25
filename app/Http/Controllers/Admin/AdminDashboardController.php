@@ -15,6 +15,7 @@ use App\Models\Siswa;
 use App\Models\TahunAjaran;
 use App\Models\TujuanPembelajaran;
 use App\Models\User;
+use App\Services\Security\FileSecurityService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -758,8 +759,9 @@ class AdminDashboardController extends Controller
             'file' => 'required|file|mimes:xlsx,xls,csv|max:5120',
         ]);
 
-        $file     = $request->file('file');
-        $ext      = strtolower($file->getClientOriginalExtension());
+        $file = $request->file('file');
+        FileSecurityService::validateUploadedFile($file, ['xlsx', 'xls', 'csv']);
+        $ext = strtolower($file->getClientOriginalExtension());
         $rows     = [];
 
         if ($ext === 'csv') {

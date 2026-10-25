@@ -175,6 +175,7 @@ Route::get('/storage/{path}', function (string $path) {
 
     return response()->file($realPath, [
         'Cache-Control' => 'public, max-age=31536000',
+        'X-Content-Type-Options' => 'nosniff',
     ]);
 })->where('path', '.*')->name('public.storage.file');
 

@@ -9,12 +9,18 @@ use App\Models\Jurnal;
 use App\Models\Materi;
 use App\Models\NilaiTp;
 use App\Models\TujuanPembelajaran;
+use App\Services\Security\FileSecurityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class GuruApiController extends Controller
 {
+    private function resolveGuru(Request $request): ?\App\Models\Guru
+    {
+        $user = $request->user();
+        return $user?->guru ?? \App\Models\Guru::query()->where('user_id', '=', $user?->id)->first();
+    }
     public function getJadwal(Request $request): JsonResponse
     {
         $jadwals = Jadwal::with('kelas')->paginate(50);
@@ -326,6 +332,7 @@ class GuruApiController extends Controller
         // Handle Question Media
         if ($request->hasFile('media_soal_file')) {
             $file = $request->file('media_soal_file');
+            FileSecurityService::validateUploadedFile($file, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp3', 'wav', 'ogg', 'm4a']);
             $ext = strtolower($file->getClientOriginalExtension());
             $isAudio = in_array($ext, ['mp3', 'wav', 'ogg', 'm4a']);
             $path = $file->store('cbt_media/soals', 'public');
@@ -347,6 +354,7 @@ class GuruApiController extends Controller
 
             if ($request->hasFile($fileKey)) {
                 $file = $request->file($fileKey);
+                FileSecurityService::validateUploadedFile($file, ['jpg', 'jpeg', 'png', 'webp', 'gif']);
                 $path = $file->store('cbt_media/opsi', 'public');
                 $data[$colKey] = $path;
             } elseif ($request->boolean($delKey)) {
@@ -363,7 +371,18 @@ class GuruApiController extends Controller
 
     public function deleteCbtSoal(int $id): JsonResponse
     {
-        $soal = \App\Models\CbtSoal::findOrFail($id);
+        $user = request()->user();
+        $guru = $this->resolveGuru(request());
+        $guruId = $guru?->id;
+
+        $soal = \App\Models\CbtSoal::with('bankSoal')->findOrFail($id);
+
+        if ($guruId && ! $user->hasRole('admin')) {
+            if ($soal->bankSoal && $soal->bankSoal->guru_id && $soal->bankSoal->guru_id !== $guruId) {
+                return response()->json(['success' => false, 'message' => 'Akses ditolak: Anda tidak memiliki hak untuk menghapus butir soal ini'], 403);
+            }
+        }
+
         $bankSoalId = $soal->bank_soal_id;
 
         if ($soal->media_soal) {
@@ -405,6 +424,17 @@ class GuruApiController extends Controller
             'bobot' => 'required|numeric|min:0.01',
         ]);
 
+        $user = request()->user();
+        $guru = $this->resolveGuru(request());
+        $guruId = $guru?->id;
+
+        if ($guruId && ! $user->hasRole('admin')) {
+            $bankSoal = \App\Models\CbtBankSoal::find($validated['bank_soal_id']);
+            if ($bankSoal && $bankSoal->guru_id && $bankSoal->guru_id !== $guruId) {
+                return response()->json(['success' => false, 'message' => 'Akses ditolak: Anda tidak memiliki hak untuk mengubah bobot bank soal ini'], 403);
+            }
+        }
+
         $bobot = floatval($validated['bobot']);
 
         $updatedCount = \App\Models\CbtSoal::where('bank_soal_id', $validated['bank_soal_id'])
@@ -435,6 +465,17 @@ class GuruApiController extends Controller
             'soals.*.gambar_base64' => 'nullable|string',
         ]);
 
+        $user = request()->user();
+        $guru = $this->resolveGuru(request());
+        $guruId = $guru?->id;
+
+        if ($guruId && ! $user->hasRole('admin')) {
+            $bankSoal = \App\Models\CbtBankSoal::find($validated['bank_soal_id']);
+            if ($bankSoal && $bankSoal->guru_id && $bankSoal->guru_id !== $guruId) {
+                return response()->json(['success' => false, 'message' => 'Akses ditolak: Anda tidak memiliki hak untuk mengimpor soal ke bank soal ini'], 403);
+            }
+        }
+
         $bankSoalId = $validated['bank_soal_id'];
         $soalsInput = $validated['soals'];
 
@@ -459,9 +500,11 @@ class GuruApiController extends Controller
                     if (preg_match('/^data:image\/(\w+);base64,/', $rawBase64, $matchType)) {
                         $rawBase64 = substr($rawBase64, strpos($rawBase64, ',') + 1);
                         $type = strtolower($matchType[1]);
-                        if (in_array($type, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'])) {
+                        if ($type === 'jpeg') $type = 'jpg';
+                        if (in_array($type, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
                             $decoded = base64_decode($rawBase64);
                             if ($decoded !== false) {
+                                FileSecurityService::validateBase64Image($decoded, $type);
                                 $filename = 'cbt_media/soals/' . \Illuminate\Support\Str::random(30) . '.' . $type;
                                 \Illuminate\Support\Facades\Storage::disk('public')->put($filename, $decoded);
                                 $mediaPath = $filename;

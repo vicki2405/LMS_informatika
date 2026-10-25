@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\Security\FileSecurityService;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
@@ -96,6 +97,7 @@ class BackupController extends Controller
         ]);
 
         $file = $request->file('backup_file');
+        FileSecurityService::validateUploadedFile($file, ['json', 'txt']);
         $content = file_get_contents($file->getRealPath());
         $data = json_decode($content, true);
 
