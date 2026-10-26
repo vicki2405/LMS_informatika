@@ -929,7 +929,8 @@ HTML;
             $materi->file_url = $fileUrl;
         }
         $materi->deskripsi = $deskripsi;
-        $materi->semester = $validated['semester'];
+        $semRaw = strtolower(trim((string)$validated['semester']));
+        $materi->semester = (str_contains($semRaw, 'genap') || $semRaw === '2') ? 'Genap' : 'Ganjil';
         $materi->is_published = $isPublished;
         $materi->save();
 
@@ -1055,13 +1056,16 @@ HTML;
         }
 
         $tpId = !empty($validated['id']) ? intval($validated['id']) : null;
+        $semRaw = strtolower(trim((string)$validated['semester']));
+        $normalizedSemester = (str_contains($semRaw, 'genap') || $semRaw === '2') ? 'Genap' : 'Ganjil';
+
         $dataToSave = [
             'kode' => $validated['kode'],
             'mapel' => $validated['mapel'] ?? null,
             'judul' => $validated['judul'],
             'jenis' => $validated['jenis'],
             'kktp' => $validated['kktp'],
-            'semester' => $validated['semester'],
+            'semester' => $normalizedSemester,
             'tahun_ajaran_id' => $activeTa?->id,
         ];
 
@@ -1137,19 +1141,27 @@ HTML;
             }
         }
 
-        Jadwal::query()->updateOrCreate(
-            ['id' => $targetId],
-            [
-                'guru_id' => $guruId,
-                'kelas_id' => $kelasObj->id,
-                'hari' => $validated['hari'],
-                'jam_ke' => $validated['jam_ke'],
-                'waktu' => $validated['waktu'],
-                'mata_pelajaran' => $validated['mata_pelajaran'],
-                'ruangan' => $validated['ruangan'] ?: 'Ruang Kelas',
-                'keterangan' => $validated['keterangan'] ?? null,
-            ]
-        );
+        $jadwalData = [
+            'guru_id' => $guruId,
+            'kelas_id' => $kelasObj->id,
+            'hari' => $validated['hari'],
+            'jam_ke' => (string)$validated['jam_ke'],
+            'waktu' => $validated['waktu'] ?? null,
+            'mata_pelajaran' => $validated['mata_pelajaran'],
+            'ruangan' => $validated['ruangan'] ?: 'Ruang Kelas',
+            'keterangan' => $validated['keterangan'] ?? null,
+        ];
+
+        if ($targetId) {
+            $jadwalRecord = Jadwal::find($targetId);
+            if ($jadwalRecord) {
+                $jadwalRecord->update($jadwalData);
+            } else {
+                Jadwal::create($jadwalData);
+            }
+        } else {
+            Jadwal::create($jadwalData);
+        }
 
         // Otomatis hubungkan kelas ke tabel pivot guru_kelas jika belum terhubung
         if (! DB::table('guru_kelas')->where('guru_id', $guruId)->where('kelas_id', $kelasObj->id)->exists()) {

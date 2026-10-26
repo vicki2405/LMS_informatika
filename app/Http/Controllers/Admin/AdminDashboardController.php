@@ -553,11 +553,20 @@ class AdminDashboardController extends Controller
         $telepon = !empty($validated['telepon']) ? $validated['telepon'] : ($validated['teleponSiswa'] ?? null);
         $nis = !empty($validated['nis']) ? trim($validated['nis']) : null;
 
+        $jkClean = strtolower(str_replace([' ', '-'], '', (string)$validated['jenisKelamin']));
+        if (str_contains($jkClean, 'laki') || str_contains($jkClean, 'pria') || str_contains($jkClean, 'male') || $jkClean === 'l') {
+            $jenisKelamin = 'Laki-laki';
+        } elseif (str_contains($jkClean, 'perempuan') || str_contains($jkClean, 'wanita') || str_contains($jkClean, 'female') || $jkClean === 'p') {
+            $jenisKelamin = 'Perempuan';
+        } else {
+            $jenisKelamin = 'Laki-laki';
+        }
+
         if (!empty($validated['id'])) {
             Siswa::query()->where('id', '=', $validated['id'])->update([
                 'nis' => $nis,
                 'nama' => $validated['nama'],
-                'jenis_kelamin' => $validated['jenisKelamin'],
+                'jenis_kelamin' => $jenisKelamin,
                 'kelas_id' => $kelasObj?->id,
                 'telepon' => $telepon,
                 'status' => $status,
@@ -567,7 +576,7 @@ class AdminDashboardController extends Controller
             Siswa::create([
                 'nis' => $nis,
                 'nama' => $validated['nama'],
-                'jenis_kelamin' => $validated['jenisKelamin'],
+                'jenis_kelamin' => $jenisKelamin,
                 'kelas_id' => $kelasObj?->id,
                 'telepon' => $telepon,
                 'status' => $status,

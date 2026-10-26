@@ -372,6 +372,15 @@ class WaliKelasDashboardController extends Controller
         $nis = !empty($validated['nis']) ? trim($validated['nis']) : null;
         $kelasToAssign = (! $user->hasRole('admin') && $assignedKelasId) ? $assignedKelasId : ($kelasObj?->id ?? $assignedKelasId);
 
+        $jkClean = strtolower(str_replace([' ', '-'], '', (string)$validated['jenisKelamin']));
+        if (str_contains($jkClean, 'laki') || str_contains($jkClean, 'pria') || str_contains($jkClean, 'male') || $jkClean === 'l') {
+            $jenisKelamin = 'Laki-laki';
+        } elseif (str_contains($jkClean, 'perempuan') || str_contains($jkClean, 'wanita') || str_contains($jkClean, 'female') || $jkClean === 'p') {
+            $jenisKelamin = 'Perempuan';
+        } else {
+            $jenisKelamin = 'Laki-laki';
+        }
+
         if (! empty($validated['id'])) {
             $targetSiswa = Siswa::find($validated['id']);
             if ($targetSiswa && $assignedKelasId && ! $user->hasRole('admin') && $targetSiswa->kelas_id !== $assignedKelasId) {
@@ -381,7 +390,7 @@ class WaliKelasDashboardController extends Controller
             $targetSiswa?->update([
                 'nis' => $nis,
                 'nama' => $validated['nama'],
-                'jenis_kelamin' => $validated['jenisKelamin'],
+                'jenis_kelamin' => $jenisKelamin,
                 'kelas_id' => $kelasToAssign,
                 'telepon' => $telepon,
                 'status' => $status,
@@ -391,7 +400,7 @@ class WaliKelasDashboardController extends Controller
             Siswa::create([
                 'nis' => $nis,
                 'nama' => $validated['nama'],
-                'jenis_kelamin' => $validated['jenisKelamin'],
+                'jenis_kelamin' => $jenisKelamin,
                 'kelas_id' => $kelasToAssign,
                 'telepon' => $telepon,
                 'status' => $status,
