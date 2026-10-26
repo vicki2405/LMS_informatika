@@ -41,6 +41,7 @@ const props = defineProps({
   teacherSubjectProp: { type: String, default: 'Informatika' },
   cbtBankSoalListProp: { type: Array, default: () => [] },
   cbtJadwalListProp: { type: Array, default: () => [] },
+  cbtNilaiJadwalListProp: { type: Array, default: () => [] },
   cbtNilaiListProp: { type: Array, default: () => [] },
 });
 
@@ -80,7 +81,7 @@ const tabDataMap = {
   materi: ['materiListProp', 'kelasListProp', 'tpListProp', 'mapelListProp'],
   'cbt-bank-soal': ['cbtBankSoalListProp', 'masterKelasListProp', 'jurusanListProp', 'mapelListProp'],
   'cbt-jadwal': ['cbtJadwalListProp', 'cbtBankSoalListProp', 'masterKelasListProp'],
-  'cbt-nilai': ['cbtNilaiListProp', 'cbtJadwalListProp', 'masterKelasListProp', 'jurusanListProp', 'mapelListProp', 'siswaListProp', 'tpListProp', 'kelasListProp', 'tahunAjaranListProp'],
+  'cbt-nilai': ['cbtNilaiListProp', 'cbtNilaiJadwalListProp', 'cbtJadwalListProp', 'masterKelasListProp', 'jurusanListProp', 'mapelListProp', 'siswaListProp', 'tpListProp', 'kelasListProp', 'tahunAjaranListProp'],
 };
 
 function reloadTabData(tab) {
@@ -816,7 +817,7 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
         <HasilNilaiCbt
           v-if="activeView === 'cbt-nilai'"
           :nilaiList="props.cbtNilaiListProp"
-          :jadwalList="props.cbtJadwalListProp"
+          :jadwalList="props.cbtNilaiJadwalListProp && props.cbtNilaiJadwalListProp.length ? props.cbtNilaiJadwalListProp : props.cbtJadwalListProp"
           :masterKelasList="props.masterKelasListProp"
           :jurusanList="props.jurusanListProp"
           :mapelList="props.mapelListProp"

@@ -99,6 +99,7 @@ class GuruDashboardController extends Controller
             'mapelListProp' => fn () => $teacherMapels,
             'cbtBankSoalListProp' => fn () => GuruCbtController::getBankSoalsList($guruId),
             'cbtJadwalListProp' => fn () => GuruCbtController::getJadwalsList($guruId),
+            'cbtNilaiJadwalListProp' => fn () => GuruCbtController::getJadwalsList($guruId, true),
             'cbtNilaiListProp' => fn () => GuruCbtController::getNilaisList($guruId),
         ]);
     }

@@ -26,36 +26,6 @@ const searchQuery = ref('');
 const filterStatus = ref('');
 const activeEvaluationTab = ref('nilai'); // 'nilai' | 'belum' | 'pelanggaran'
 
-// Unique Subject List strictly restricted to THIS teacher's subjects (split comma-separated subjects)
-const availableMapels = computed(() => {
-  const set = new Set();
-  if (props.teacherSubject) {
-    String(props.teacherSubject)
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .forEach((s) => set.add(s));
-  }
-  props.jadwalList.forEach((j) => {
-    if (j.mapelNama) {
-      String(j.mapelNama)
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .forEach((s) => set.add(s));
-    }
-  });
-  return Array.from(set).filter(Boolean);
-});
-
-function getJadwalCountByMapel(mapel) {
-  return props.jadwalList.filter((j) => {
-    if (!j.mapelNama) return false;
-    const parts = String(j.mapelNama).toLowerCase().split(',').map((s) => s.trim());
-    return parts.includes(String(mapel).toLowerCase().trim());
-  }).length;
-}
-
 // Helper to extract grade level (X, XI, XII)
 function extractTingkat(kelasName, tingkatProp) {
   if (tingkatProp) return tingkatProp;
@@ -66,11 +36,93 @@ function extractTingkat(kelasName, tingkatProp) {
   return 'X';
 }
 
+// Full effective list of exam sessions: combines props.jadwalList + any historical/completed sessions from props.nilaiList
+const effectiveJadwalList = computed(() => {
+  const map = new Map();
+
+  // 1. Add all schedules provided in props.jadwalList
+  (props.jadwalList || []).forEach((j) => {
+    map.set(String(j.id), {
+      ...j,
+      isDeleted: Boolean(j.isDeleted),
+    });
+  });
+
+  // 2. Synthesize any missing schedules from props.nilaiList (e.g. if the schedule was soft-deleted from cbt-jadwal)
+  (props.nilaiList || []).forEach((n) => {
+    const jId = String(n.jadwalId || '');
+    if (jId && !map.has(jId)) {
+      map.set(jId, {
+        id: n.jadwalId,
+        bankSoalId: null,
+        bankSoalJudul: n.bankSoalJudul || '-',
+        bankSoalKode: '-',
+        mapelNama: n.mapelNama || 'Informatika',
+        jurusanId: null,
+        jurusanNama: n.jurusanNama || 'Semua Jurusan',
+        jurusanKode: n.jurusanKode || 'ALL',
+        kelasId: null,
+        kelasNama: n.kelasNama || 'Semua Kelas',
+        tingkat: n.tingkat || extractTingkat(n.kelasNama, null),
+        judulUjian: n.judulUjian || 'Ujian CBT',
+        waktuMulai: null,
+        waktuSelesai: null,
+        durasiMenit: 60,
+        token: '-',
+        status: 'selesai',
+        modeUjian: 'formal',
+        isDeleted: true,
+      });
+    }
+  });
+
+  return Array.from(map.values());
+});
+
+// Unique Subject List strictly restricted to THIS teacher's subjects (split comma-separated subjects)
+const availableMapels = computed(() => {
+  const set = new Set();
+  if (props.teacherSubject) {
+    String(props.teacherSubject)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((s) => set.add(s));
+  }
+  effectiveJadwalList.value.forEach((j) => {
+    if (j.mapelNama) {
+      String(j.mapelNama)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((s) => set.add(s));
+    }
+  });
+  props.nilaiList.forEach((n) => {
+    if (n.mapelNama) {
+      String(n.mapelNama)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((s) => set.add(s));
+    }
+  });
+  return Array.from(set).filter(Boolean);
+});
+
+function getJadwalCountByMapel(mapel) {
+  return effectiveJadwalList.value.filter((j) => {
+    if (!j.mapelNama) return false;
+    const parts = String(j.mapelNama).toLowerCase().split(',').map((s) => s.trim());
+    return parts.includes(String(mapel).toLowerCase().trim());
+  }).length;
+}
+
 // -----------------------------------------------------------------------------
 // FILTERED SCHEDULE OVERVIEW CARDS (When no specific exam is selected)
 // -----------------------------------------------------------------------------
 const filteredJadwalCards = computed(() => {
-  return props.jadwalList.filter((j) => {
+  return effectiveJadwalList.value.filter((j) => {
     const matchMapel = selectedMapel.value === 'Semua' || (
       j.mapelNama &&
       String(j.mapelNama).toLowerCase().split(',').map((s) => s.trim()).includes(selectedMapel.value.toLowerCase().trim())
@@ -144,7 +196,7 @@ const activeTingkats = computed(() => {
 // Currently Selected CBT Schedule Object
 const selectedJadwal = computed(() => {
   if (!selectedJadwalId.value) return null;
-  return props.jadwalList.find((j) => String(j.id) === String(selectedJadwalId.value)) || null;
+  return effectiveJadwalList.value.find((j) => String(j.id) === String(selectedJadwalId.value)) || null;
 });
 
 // All students belonging to the selected schedule's class
@@ -334,134 +386,7 @@ function openDetail(n) {
   showDetailModal.value = true;
 }
 
-const showTransferModal = ref(false);
-const isTransferring = ref(false);
-const transferForm = ref({
-  jadwal_id: '',
-  mode: 'existing_tp',
-  tp_id: '',
-  kode: '',
-  judul: '',
-  mapel: '',
-  jenis: 'Sumatif',
-  kktp: 75,
-  semester: 'Ganjil',
-  tahun_ajaran_id: '',
-  overwrite: true,
-});
 
-const selectedTransferJadwal = computed(() => {
-  return props.jadwalList.find(j => String(j.id) === String(transferForm.value.jadwal_id));
-});
-
-const matchingTpList = computed(() => {
-  const j = selectedTransferJadwal.value;
-  if (!j) return props.tpList;
-  const targetMapel = (j.mapelNama || '').toLowerCase();
-  const matched = props.tpList.filter(t => (t.mapel || '').toLowerCase() === targetMapel);
-  return matched.length > 0 ? matched : props.tpList;
-});
-
-function openTransferModal(targetJadwalId = null) {
-  const jId = targetJadwalId || selectedJadwalId.value || props.jadwalList[0]?.id || '';
-  const currentJadwal = props.jadwalList.find(j => String(j.id) === String(jId));
-  const activeTa = props.tahunAjaranList.find(t => t.isAktif) || props.tahunAjaranList[0];
-
-  const matchedTp = props.tpList.find(t => 
-    currentJadwal && (t.mapel || '').toLowerCase() === (currentJadwal.mapelNama || '').toLowerCase()
-  ) || props.tpList[0];
-
-  transferForm.value = {
-    jadwal_id: jId,
-    mode: matchedTp ? 'existing_tp' : 'new_tp',
-    tp_id: matchedTp?.id || '',
-    kode: 'TP-CBT' + (props.tpList.length + 1),
-    judul: currentJadwal ? `Ujian CBT - ${currentJadwal.judulUjian}` : 'Ujian CBT',
-    mapel: currentJadwal?.mapelNama || availableMapels.value[0] || 'Informatika',
-    jenis: 'Sumatif',
-    kktp: 75,
-    semester: 'Ganjil',
-    tahun_ajaran_id: activeTa?.id || '',
-    overwrite: true,
-  };
-
-  showTransferModal.value = true;
-}
-
-function onTransferJadwalChange() {
-  const currentJadwal = selectedTransferJadwal.value;
-  if (currentJadwal) {
-    transferForm.value.mapel = currentJadwal.mapelNama || 'Informatika';
-    transferForm.value.judul = `Ujian CBT - ${currentJadwal.judulUjian}`;
-    const m = matchingTpList.value[0];
-    if (m) {
-      transferForm.value.tp_id = m.id;
-    }
-  }
-}
-
-function submitTransferToNilai() {
-  if (!transferForm.value.jadwal_id) {
-    showToast('Pilih sesi ujian CBT terlebih dahulu', 'error');
-    return;
-  }
-  if (transferForm.value.mode === 'existing_tp' && !transferForm.value.tp_id) {
-    showToast('Pilih Tujuan Pembelajaran (TP) tujuan transfer', 'error');
-    return;
-  }
-  if (transferForm.value.mode === 'new_tp' && !transferForm.value.judul) {
-    showToast('Nama Tujuan Pembelajaran wajib diisi', 'error');
-    return;
-  }
-
-  isTransferring.value = true;
-  router.post(route('guru.cbt.transfer-nilai-tp'), transferForm.value, {
-    preserveScroll: true,
-    onSuccess: () => {
-      isTransferring.value = false;
-      showTransferModal.value = false;
-      
-      if (typeof window !== 'undefined' && window.Swal) {
-        window.Swal.fire({
-          title: 'Transfer Nilai Berhasil! 🎉',
-          html: `
-            <div class="text-left text-xs sm:text-sm space-y-2 text-slate-300">
-              <p class="text-white font-semibold">Hasil nilai ujian CBT berhasil dimasukkan ke menu Penilaian TP Siswa sesuai kelas dan mata pelajaran.</p>
-              <p class="text-emerald-400 font-bold">Data nilai tersimpan secara permanen dan otomatis sinkron dengan rapor & ledger guru.</p>
-            </div>
-          `,
-          icon: 'success',
-          showCancelButton: true,
-          confirmButtonColor: '#10b981',
-          cancelButtonColor: '#64748b',
-          confirmButtonText: 'Buka Lembar Penilaian TP ➔',
-          cancelButtonText: 'Tetap di Sini',
-          background: '#0f172a',
-          color: '#f8fafc',
-          customClass: {
-            popup: 'border border-emerald-500/30 rounded-3xl backdrop-blur-xl',
-            confirmButton: 'px-5 py-2.5 rounded-xl font-bold',
-            cancelButton: 'px-5 py-2.5 rounded-xl font-bold'
-          }
-        }).then((result) => {
-          if (result.isConfirmed) {
-            window.location.href = route('guru.dashboard') + '?tab=nilai';
-          }
-        });
-      } else {
-        showSuccessAlert('Transfer Nilai Berhasil', 'Nilai CBT berhasil dimasukkan ke Penilaian TP.');
-      }
-    },
-    onError: (err) => {
-      isTransferring.value = false;
-      const firstErr = Object.values(err)[0] || 'Gagal mentransfer nilai CBT ke TP.';
-      showToast(firstErr, 'error');
-    },
-    onFinish: () => {
-      isTransferring.value = false;
-    }
-  });
-}
 </script>
 
 <template>
@@ -504,7 +429,7 @@ function submitTransferToNilai() {
             <span>📖</span>
             <span>{{ availableMapels[0] || 'Informatika' }}</span>
           </span>
-          <span class="text-xs text-gray-400 font-mono">({{ props.jadwalList.length }} Sesi Ujian Aktif)</span>
+          <span class="text-xs text-gray-400 font-mono">({{ effectiveJadwalList.length }} Sesi Ujian)</span>
         </div>
 
         <!-- Jika guru mengampu lebih dari 1 mapel -->
@@ -520,7 +445,7 @@ function submitTransferToNilai() {
             ]"
           >
             <span>Semua Mapel Guru</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20 font-mono">{{ props.jadwalList.length }}</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20 font-mono">{{ effectiveJadwalList.length }}</span>
           </button>
 
           <button
@@ -668,9 +593,14 @@ function submitTransferToNilai() {
               <!-- Top Badges -->
               <div class="space-y-3">
                 <div class="flex items-start justify-between gap-2">
-                  <span class="px-2.5 py-1 rounded-xl bg-teal-500/15 text-teal-300 border border-teal-500/30 text-[11px] font-black font-mono">
-                    📖 {{ j.mapelNama }}
-                  </span>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="px-2.5 py-1 rounded-xl bg-teal-500/15 text-teal-300 border border-teal-500/30 text-[11px] font-black font-mono">
+                      📖 {{ j.mapelNama }}
+                    </span>
+                    <span v-if="j.isDeleted" class="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
+                      📁 Arsip Selesai
+                    </span>
+                  </div>
                   <span class="px-2.5 py-1 rounded-xl bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[11px] font-black font-mono">
                     👥 {{ j.kelasNama }}
                   </span>
@@ -759,34 +689,29 @@ function submitTransferToNilai() {
           <table class="w-full text-left border-collapse text-xs">
             <thead>
               <tr class="border-b border-white/10 bg-white/5 text-[11px] font-black text-gray-400 uppercase tracking-wider font-mono">
-                <th class="py-3.5 px-4">Mata Pelajaran</th>
                 <th class="py-3.5 px-4">Kelas &amp; Jurusan</th>
-                <th class="py-3.5 px-5">Judul Ujian</th>
-                <th class="py-3.5 px-4 text-center">Durasi</th>
+                <th class="py-3.5 px-5">Mata Pelajaran &amp; Sesi Ujian</th>
                 <th class="py-3.5 px-5 text-center min-w-[180px]">Partisipasi Siswa</th>
-                <th class="py-3.5 px-4 text-center">Rata-Rata</th>
-                <th class="py-3.5 px-4 text-center">Ketuntasan</th>
-                <th class="py-3.5 px-4 text-center">Integritas</th>
+                <th class="py-3.5 px-4 text-center">Rata-Rata Nilai</th>
                 <th class="py-3.5 px-5 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-white/5">
               <tr v-for="j in filteredJadwalCards" :key="j.id" class="hover:bg-white/[0.03] transition-colors group">
-                <td class="py-3.5 px-4 font-mono">
-                  <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-teal-500/15 text-teal-300 border border-teal-500/30 text-xs font-bold">
-                    📖 {{ j.mapelNama }}
-                  </span>
-                </td>
                 <td class="py-3.5 px-4">
                   <span class="font-bold text-white block">{{ j.kelasNama }}</span>
                   <span class="text-[11px] text-gray-400 font-mono">{{ j.jurusanNama }}</span>
                 </td>
                 <td class="py-3.5 px-5">
-                  <p class="font-bold text-white group-hover:text-teal-300 transition-colors">{{ j.judulUjian }}</p>
-                  <span class="text-[11px] text-gray-500 font-mono">{{ j.waktuMulai ? j.waktuMulai : 'Fleksibel' }}</span>
-                </td>
-                <td class="py-3.5 px-4 text-center font-mono text-gray-300">
-                  {{ j.durasiMenit }} Menit
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-teal-500/15 text-teal-300 border border-teal-500/30 text-[11px] font-bold font-mono">
+                      📖 {{ j.mapelNama }}
+                    </span>
+                    <p class="font-bold text-white group-hover:text-teal-300 transition-colors">{{ j.judulUjian }}</p>
+                    <span v-if="j.isDeleted" class="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
+                      📁 Arsip Selesai
+                    </span>
+                  </div>
                 </td>
                 <td class="py-3.5 px-5">
                   <div class="space-y-1">
@@ -804,16 +729,6 @@ function submitTransferToNilai() {
                 </td>
                 <td class="py-3.5 px-4 text-center font-mono">
                   <span class="font-black text-cyan-300 text-sm">{{ j.avgScore }}</span>
-                </td>
-                <td class="py-3.5 px-4 text-center font-mono text-[11px]">
-                  <span class="text-emerald-400 font-bold block">{{ j.tuntasCount }} Tuntas</span>
-                  <span v-if="j.belumUjianCount > 0" class="text-amber-400 block text-[10px]">{{ j.belumUjianCount }} Belum</span>
-                </td>
-                <td class="py-3.5 px-4 text-center">
-                  <span v-if="j.pelanggaranCount > 0" class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-mono font-bold">
-                    ⚠️ {{ j.pelanggaranCount }}x
-                  </span>
-                  <span v-else class="text-gray-500 font-mono text-[11px]">✓ Aman</span>
                 </td>
                 <td class="py-3.5 px-5 text-right">
                   <button
@@ -899,13 +814,10 @@ function submitTransferToNilai() {
         </button>
 
         <div class="flex items-center gap-2">
-          <button
-            type="button"
-            @click="openTransferModal(selectedJadwal.id)"
-            class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-black text-xs shadow-md shadow-indigo-500/20 min-h-[38px]"
-          >
-            <span>📤 Masukkan Nilai Kelas Ini ke TP</span>
-          </button>
+          <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-semibold">
+            <span>✓</span>
+            <span>Otomatis Tersimpan di Nilai Siswa</span>
+          </div>
         </div>
       </div>
 
@@ -922,6 +834,9 @@ function submitTransferToNilai() {
               </span>
               <span class="px-2.5 py-0.5 rounded-full bg-white/10 text-gray-300 text-xs font-mono">
                 🏢 {{ selectedJadwal.jurusanNama }}
+              </span>
+              <span v-if="selectedJadwal.isDeleted" class="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black font-mono">
+                📁 Arsip Selesai
               </span>
             </div>
             <h2 class="text-xl sm:text-2xl font-black text-white">
@@ -1128,9 +1043,6 @@ function submitTransferToNilai() {
               <tr class="border-b border-white/10 bg-white/5 text-[11px] font-black text-gray-400 uppercase tracking-wider font-mono">
                 <th class="py-4 px-4 text-center">🏆 Rangking</th>
                 <th class="py-4 px-5">Nama Siswa (NIS)</th>
-                <th class="py-4 px-4 text-center">Waktu Pengerjaan</th>
-                <th class="py-4 px-4 text-center">Jawaban (B / S)</th>
-                <th class="py-4 px-4 text-center">⚠️ Integritas</th>
                 <th class="py-4 px-4 text-center">Nilai Akhir</th>
                 <th class="py-4 px-4 text-center">Status</th>
                 <th class="py-4 px-5 text-right">Aksi</th>
@@ -1165,37 +1077,6 @@ function submitTransferToNilai() {
                     {{ n.namaSiswa }}
                   </p>
                   <span class="text-[11px] text-gray-400 font-mono">NIS: {{ n.nis }}</span>
-                </td>
-
-                <!-- Waktu / Durasi -->
-                <td class="py-4 px-4 text-center font-mono">
-                  <span class="text-gray-300 font-bold block">{{ n.durasiMenitRiil ? n.durasiMenitRiil + ' Menit' : '-' }}</span>
-                  <span class="text-[10px] text-gray-500">{{ n.waktuSelesai }}</span>
-                </td>
-
-                <!-- Jawaban Benar / Salah -->
-                <td class="py-4 px-4 text-center">
-                  <div class="inline-flex items-center gap-1.5 text-xs font-black">
-                    <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      {{ n.jumlahBenar }} B
-                    </span>
-                    <span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                      {{ n.jumlahSalah }} S
-                    </span>
-                  </div>
-                </td>
-
-                <!-- Pelanggaran Anti-Cheat -->
-                <td class="py-4 px-4 text-center">
-                  <span
-                    v-if="(n.jumlahPelanggaran || 0) > 0"
-                    class="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10.5px] font-mono font-black"
-                  >
-                    ⚠️ {{ n.jumlahPelanggaran }}x
-                  </span>
-                  <span v-else class="text-gray-500 font-mono text-[11px]">
-                    Bersih ✓
-                  </span>
                 </td>
 
                 <!-- Nilai Akhir -->
@@ -1233,9 +1114,10 @@ function submitTransferToNilai() {
                       type="button"
                       @click="openDetail(n)"
                       title="Lihat Rincian Siswa"
-                      class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+                      class="px-2.5 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 transition-colors min-h-[36px] flex items-center gap-1 text-xs font-bold"
                     >
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                      <span>Detail</span>
                     </button>
                     <button
                       type="button"
@@ -1530,116 +1412,7 @@ function submitTransferToNilai() {
       </div>
     </div>
 
-    <!-- ======================================================================= -->
-    <!-- MODAL TRANSFER NILAI CBT KE PENILAIAN TP                                -->
-    <!-- ======================================================================= -->
-    <div v-if="showTransferModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-      <div class="w-full max-w-lg rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 space-y-5 shadow-2xl">
-        <div class="flex items-center justify-between border-b border-white/10 pb-3">
-          <div class="flex items-center gap-2.5">
-            <span class="text-xl">📤</span>
-            <div>
-              <h3 class="text-base font-black text-white">Masukkan Nilai CBT ke Buku Nilai TP</h3>
-              <p class="text-xs text-gray-400">Sinkronkan hasil ujian ke lembar penilaian resmi guru</p>
-            </div>
-          </div>
-          <button @click="showTransferModal = false" class="p-1.5 rounded-lg text-gray-400 hover:text-white">✕</button>
-        </div>
 
-        <form @submit.prevent="submitTransferToNilai" class="space-y-4">
-          <!-- Pilih Sesi CBT -->
-          <div>
-            <label class="block text-xs font-bold text-gray-300 uppercase mb-1">Pilih Sesi Ujian CBT *</label>
-            <select
-              v-model="transferForm.jadwal_id"
-              @change="onTransferJadwalChange"
-              required
-              class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/10 text-white text-xs sm:text-sm min-h-[42px]"
-            >
-              <option value="">Pilih Sesi Ujian</option>
-              <option v-for="j in jadwalList" :key="j.id" :value="j.id">
-                [{{ j.kelasNama }}] {{ j.judulUjian }} ({{ j.mapelNama }})
-              </option>
-            </select>
-          </div>
-
-          <!-- Mode Transfer -->
-          <div class="space-y-2">
-            <label class="block text-xs font-bold text-gray-300 uppercase">Target Penilaian TP</label>
-            <div class="grid grid-cols-2 gap-2">
-              <label :class="['p-3 rounded-2xl border text-xs font-bold cursor-pointer transition-all flex items-center gap-2', transferForm.mode === 'existing_tp' ? 'bg-indigo-500/20 border-indigo-400 text-white' : 'bg-white/5 border-white/10 text-gray-400']">
-                <input type="radio" v-model="transferForm.mode" value="existing_tp" class="hidden" />
-                <span>📌 Gunakan TP yang Ada</span>
-              </label>
-              <label :class="['p-3 rounded-2xl border text-xs font-bold cursor-pointer transition-all flex items-center gap-2', transferForm.mode === 'new_tp' ? 'bg-indigo-500/20 border-indigo-400 text-white' : 'bg-white/5 border-white/10 text-gray-400']">
-                <input type="radio" v-model="transferForm.mode" value="new_tp" class="hidden" />
-                <span>✨ Buat TP Baru</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- If existing TP -->
-          <div v-if="transferForm.mode === 'existing_tp'">
-            <label class="block text-xs font-bold text-gray-300 uppercase mb-1">Pilih TP Tujuan *</label>
-            <select
-              v-model="transferForm.tp_id"
-              required
-              class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/10 text-white text-xs sm:text-sm min-h-[42px]"
-            >
-              <option value="">Pilih Tujuan Pembelajaran</option>
-              <option v-for="tp in matchingTpList" :key="tp.id" :value="tp.id">
-                {{ tp.kode }} - {{ tp.judul }} ({{ tp.mapel }})
-              </option>
-            </select>
-          </div>
-
-          <!-- If new TP -->
-          <div v-else class="space-y-3 p-3.5 rounded-2xl bg-white/5 border border-white/5">
-            <div>
-              <label class="block text-xs font-bold text-gray-300 uppercase mb-1">Nama / Judul TP Baru *</label>
-              <input
-                v-model="transferForm.judul"
-                type="text"
-                required
-                placeholder="Contoh: Sumatif Akhir Lingkup Materi Bab 1"
-                class="w-full px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs sm:text-sm min-h-[40px]"
-              />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-xs font-bold text-gray-300 uppercase mb-1">Jenis Penilaian</label>
-                <select v-model="transferForm.jenis" class="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs min-h-[38px]">
-                  <option value="Sumatif">Sumatif</option>
-                  <option value="Formatif">Formatif</option>
-                  <option value="Tugas">Tugas</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-xs font-bold text-gray-300 uppercase mb-1">KKTP / KKM</label>
-                <input v-model.number="transferForm.kktp" type="number" class="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-xs min-h-[38px]" />
-              </div>
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-3 pt-3 border-t border-white/10">
-            <button
-              type="button"
-              @click="showTransferModal = false"
-              class="px-4 py-2 rounded-xl bg-white/5 text-gray-400 font-bold text-xs hover:text-white min-h-[38px]"
-            >
-              Batal
-            </button>
-            <button
-              type="submit"
-              :disabled="isTransferring"
-              class="px-5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-black text-xs shadow-lg shadow-indigo-500/20 active:scale-95 min-h-[38px] disabled:opacity-50"
-            >
-              {{ isTransferring ? 'Memproses Transfer...' : '🚀 Transfer Sekarang' }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
 
   </div>
 </template>

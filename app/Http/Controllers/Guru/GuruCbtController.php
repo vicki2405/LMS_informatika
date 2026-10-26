@@ -114,9 +114,10 @@ class GuruCbtController extends Controller
     /**
      * Get list of CBT Schedules for Inertia props.
      */
-    public static function getJadwalsList(?int $guruId = null): array
+    public static function getJadwalsList(?int $guruId = null, bool $withTrashed = false): array
     {
         $query = CbtJadwal::query()
+            ->when($withTrashed, fn ($q) => $q->withTrashed())
             ->with([
                 'bankSoal.mataPelajaran:id,nama',
                 'jurusan:id,nama,kode',
@@ -162,6 +163,7 @@ class GuruCbtController extends Controller
                 'modeUjian' => $j->mode_ujian ?? 'formal',
                 'jumlahPeserta' => $j->nilais->count(),
                 'rataRataNilai' => $avgScore,
+                'isDeleted' => method_exists($j, 'trashed') ? $j->trashed() : false,
             ];
         })->toArray();
     }
@@ -653,6 +655,17 @@ class GuruCbtController extends Controller
         $bankSoalList = self::getBankSoalsList($guruId);
         $jurusanList = Jurusan::query()->orderBy('id', 'asc')->get();
 
+        $guruJadwals = \App\Models\Jadwal::query()
+            ->when($guruId, fn ($q) => $q->where('guru_id', $guruId))
+            ->get(['kelas_id', 'mata_pelajaran']);
+
+        $mapelsByKelasId = [];
+        foreach ($guruJadwals as $gj) {
+            if ($gj->kelas_id && $gj->mata_pelajaran) {
+                $mapelsByKelasId[$gj->kelas_id][] = $gj->mata_pelajaran;
+            }
+        }
+
         $masterKelasList = Kelas::query()->with(['jurusan'])->get()
             ->sort(function ($a, $b) {
                 $t = strcmp($a->tingkat ?? 'X', $b->tingkat ?? 'X');
@@ -660,7 +673,8 @@ class GuruCbtController extends Controller
                 return strnatcasecmp($a->nama_kelas, $b->nama_kelas);
             })
             ->values()
-            ->map(function ($k) {
+            ->map(function ($k) use ($mapelsByKelasId) {
+                $mapels = array_values(array_unique($mapelsByKelasId[$k->id] ?? []));
                 return [
                     'id' => $k->id,
                     'namaKelas' => $k->nama_kelas,
@@ -668,6 +682,7 @@ class GuruCbtController extends Controller
                     'jurusan' => $k->jurusan?->nama ?? '',
                     'jurusanId' => $k->jurusan_id,
                     'jurusanKode' => $k->jurusan?->kode ?? '',
+                    'mapels' => $mapels,
                 ];
             })->toArray();
 
@@ -708,7 +723,7 @@ class GuruCbtController extends Controller
             'bank_soal_id' => 'required|integer|exists:cbt_bank_soals,id',
             'jurusan_id' => 'nullable|integer',
             'kelas_id' => 'nullable|integer',
-            'judul_ujian' => 'required|string|max:255',
+            'judul_ujian' => 'nullable|string|max:255',
             'waktu_mulai' => 'nullable|date',
             'waktu_selesai' => 'nullable|date',
             'durasi_menit' => 'nullable|integer|min:5|max:300',
@@ -718,6 +733,11 @@ class GuruCbtController extends Controller
             'status' => 'nullable|string|in:aktif,nonaktif',
             'mode_ujian' => 'nullable|string|in:formal,game',
         ]);
+
+        $bankSoal = CbtBankSoal::find($validated['bank_soal_id']);
+        $judulUjian = !empty($validated['judul_ujian']) 
+            ? trim($validated['judul_ujian']) 
+            : ($bankSoal?->judul ?? 'Ujian CBT');
 
         $jurusanId = !empty($validated['jurusan_id']) ? $validated['jurusan_id'] : null;
         if (!$jurusanId && !empty($validated['kelas_id'])) {
@@ -729,7 +749,7 @@ class GuruCbtController extends Controller
             'jurusan_id' => $jurusanId,
             'kelas_id' => !empty($validated['kelas_id']) ? $validated['kelas_id'] : null,
             'guru_id' => $guru?->id,
-            'judul_ujian' => $validated['judul_ujian'],
+            'judul_ujian' => $judulUjian,
             'waktu_mulai' => !empty($validated['waktu_mulai']) ? Carbon::parse($validated['waktu_mulai']) : null,
             'waktu_selesai' => !empty($validated['waktu_selesai']) ? Carbon::parse($validated['waktu_selesai']) : null,
             'durasi_menit' => $validated['durasi_menit'] ?? 60,
@@ -771,16 +791,103 @@ class GuruCbtController extends Controller
     }
 
     /**
-     * Delete CBT Schedule.
+     * Automatically synchronize a CBT score into TujuanPembelajaran (NilaiTp).
+     */
+    public static function syncCbtNilaiToTp(CbtNilai $cbtNilai, ?CbtJadwal $jadwal = null): void
+    {
+        if (! $jadwal) {
+            $jadwal = $cbtNilai->jadwal()->withTrashed()->with(['bankSoal.mataPelajaran'])->first();
+        }
+
+        $mapel = $jadwal?->bankSoal?->mataPelajaran?->nama 
+            ?? $cbtNilai->bankSoal?->mataPelajaran?->nama 
+            ?? 'Informatika';
+
+        $activeTa = TahunAjaran::getActive();
+        $taId = $activeTa?->id ?? 1;
+        $semester = $activeTa?->semester ?? 'Ganjil';
+
+        $rawTitle = $jadwal?->judul_ujian ?? $cbtNilai->bankSoal?->judul ?? 'Ujian CBT';
+        $tpTitle = str_starts_with($rawTitle, 'CBT:') ? $rawTitle : ('CBT: ' . $rawTitle);
+
+        $tp = TujuanPembelajaran::where('judul', $tpTitle)
+            ->where('mapel', $mapel)
+            ->first();
+
+        if (! $tp) {
+            $tp = TujuanPembelajaran::where('judul', $rawTitle)
+                ->where('mapel', $mapel)
+                ->first();
+        }
+
+        if (! $tp) {
+            $nextCount = TujuanPembelajaran::where('mapel', $mapel)->count() + 1;
+            $tpKode = 'TP-CBT' . $nextCount;
+
+            $tp = TujuanPembelajaran::create([
+                'kode' => $tpKode,
+                'judul' => $tpTitle,
+                'mapel' => $mapel,
+                'jenis' => 'Sumatif',
+                'kktp' => 75,
+                'semester' => $semester,
+                'tahun_ajaran_id' => $taId,
+            ]);
+        }
+
+        NilaiTp::updateOrCreate(
+            [
+                'tp_id' => $tp->id,
+                'siswa_id' => $cbtNilai->siswa_id,
+            ],
+            [
+                'nilai' => floatval($cbtNilai->nilai),
+                'catatan' => "Nilai CBT Otomatis ({$cbtNilai->jumlah_benar} Benar, {$cbtNilai->jumlah_salah} Salah)",
+                'guru_id' => $jadwal?->guru_id,
+            ]
+        );
+    }
+
+    /**
+     * Batch synchronize all CBT scores into TujuanPembelajaran (NilaiTp).
+     */
+    public static function syncAllPendingCbtScoresToTp(?int $guruId = null): int
+    {
+        $query = CbtNilai::with(['jadwal' => fn ($q) => $q->withTrashed()->with('bankSoal.mataPelajaran'), 'bankSoal.mataPelajaran']);
+        if ($guruId) {
+            $query->whereHas('jadwal', function ($q) use ($guruId) {
+                $q->withTrashed()->where(function ($inner) use ($guruId) {
+                    $inner->where('guru_id', $guruId)->orWhereNull('guru_id');
+                });
+            });
+        }
+
+        $allScores = $query->get();
+        $synced = 0;
+        foreach ($allScores as $score) {
+            self::syncCbtNilaiToTp($score, $score->jadwal);
+            $synced++;
+        }
+        return $synced;
+    }
+
+    /**
+     * Delete CBT Schedule (Soft-delete: preserves student exam scores in cbt-nilai and tab=nilai).
      */
     public function deleteJadwal(int $id): RedirectResponse
     {
         $jadwal = CbtJadwal::find($id);
         if ($jadwal) {
+            // Pastikan seluruh nilai tersinkronisasi aman ke NilaiTp sebelum jadwal di-softdelete
+            $cbtNilais = CbtNilai::where('jadwal_id', $jadwal->id)->get();
+            foreach ($cbtNilais as $n) {
+                self::syncCbtNilaiToTp($n, $jadwal);
+            }
+
             $jadwal->delete();
         }
 
-        return redirect()->back()->with('message', 'Jadwal CBT berhasil dihapus (riwayat nilai siswa tetap tersimpan aman)!');
+        return redirect()->back()->with('message', 'Jadwal CBT berhasil dihapus (riwayat nilai siswa tetap tersimpan aman di CBT Nilai dan Nilai TP)!');
     }
 
     /**
@@ -814,10 +921,15 @@ class GuruCbtController extends Controller
 
         if (! empty($validated['id'])) {
             CbtNilai::where('id', $validated['id'])->update($data);
+            $cbtNilai = CbtNilai::find($validated['id']);
             $msg = 'Hasil nilai CBT berhasil diperbarui!';
         } else {
-            CbtNilai::create($data);
+            $cbtNilai = CbtNilai::create($data);
             $msg = 'Hasil nilai CBT berhasil dicatat!';
+        }
+
+        if ($cbtNilai) {
+            self::syncCbtNilaiToTp($cbtNilai);
         }
 
         return redirect()->back()->with('message', $msg);

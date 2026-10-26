@@ -269,6 +269,8 @@ class SiswaApiController extends Controller
             ]
         );
 
+        \App\Http\Controllers\Guru\GuruCbtController::syncCbtNilaiToTp($cbtNilai, $jadwal);
+
         \App\Models\CbtSesi::where('jadwal_id', $jadwal->id)
             ->where('siswa_id', $siswaId)
             ->update([

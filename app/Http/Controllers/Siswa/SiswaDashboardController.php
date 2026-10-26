@@ -17,6 +17,7 @@ use App\Models\Siswa;
 use App\Models\TahunAjaran;
 use App\Models\TujuanPembelajaran;
 use App\Models\Tugas;
+use App\Http\Controllers\Guru\GuruCbtController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -795,7 +796,7 @@ class SiswaDashboardController extends Controller
         $finalScore = $totalBobot > 0 ? round(($bobotBenar / $totalBobot) * 100, 1) : 0;
         $status = $finalScore >= 75 ? 'Tuntas' : 'Belum Tuntas';
 
-        CbtNilai::updateOrCreate(
+        $cbtNilai = CbtNilai::updateOrCreate(
             [
                 'jadwal_id' => $jadwal->id,
                 'siswa_id' => $siswaId,
@@ -811,6 +812,9 @@ class SiswaDashboardController extends Controller
                 'waktu_selesai' => now(),
             ]
         );
+
+        // Otomatis sinkronkan nilai ke Lembar Nilai Siswa (NilaiTp)
+        GuruCbtController::syncCbtNilaiToTp($cbtNilai, $jadwal);
 
         // Count actual non-empty answered questions
         $actualAnsweredCount = collect($answers)->filter(function ($val) {
