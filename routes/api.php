@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     
     // 1. Authentication Endpoints
-    Route::post('/auth/login', [AuthApiController::class, 'login']);
+    Route::post('/auth/login', [AuthApiController::class, 'login'])->middleware('throttle:10,1');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/auth/me', [AuthApiController::class, 'me']);

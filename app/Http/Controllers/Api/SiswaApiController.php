@@ -24,11 +24,42 @@ class SiswaApiController extends Controller
 
     private function resolveSiswa($user): ?Siswa
     {
-        $siswa = Siswa::where('nama', $user->name)->first();
-        if (!$siswa && $user->kelas_id) {
-            $siswa = Siswa::where('kelas_id', $user->kelas_id)->first();
+        return $this->resolveAuthorizedSiswa($user);
+    }
+
+    private function resolveAuthorizedSiswa($user, ?int $requestedSiswaId = null): ?Siswa
+    {
+        if (! $user) {
+            return null;
         }
-        return $siswa ?: null;
+
+        $userName = trim($user->name);
+
+        $personalSiswa = Siswa::where(function ($q) use ($userName) {
+            $q->where('nama', $userName)
+              ->orWhereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)]);
+        })
+        ->when($user->kelas_id, fn ($q) => $q->where('kelas_id', $user->kelas_id))
+        ->first();
+
+        if ($personalSiswa) {
+            return $personalSiswa;
+        }
+
+        if ($user->kelas_id) {
+            if ($requestedSiswaId) {
+                return Siswa::where('id', $requestedSiswaId)
+                    ->where('kelas_id', $user->kelas_id)
+                    ->first();
+            }
+            return Siswa::where('kelas_id', $user->kelas_id)->first();
+        }
+
+        if ($requestedSiswaId) {
+            return Siswa::find($requestedSiswaId);
+        }
+
+        return null;
     }
 
     public function getNilai(Request $request): JsonResponse
@@ -124,18 +155,15 @@ class SiswaApiController extends Controller
         ]);
 
         $user = $request->user();
-        $siswaId = $validated['siswa_id'] ?? null;
-        if (! $siswaId) {
-            $siswa = $this->resolveSiswa($user);
-            $siswaId = $siswa?->id;
-        }
+        $siswa = $this->resolveAuthorizedSiswa($user, $validated['siswa_id'] ?? null);
 
-        if (! $siswaId) {
+        if (! $siswa) {
             return response()->json([
                 'success' => false,
-                'message' => 'Identitas siswa tidak ditemukan atau akun tidak terhubung ke data siswa.',
-            ], 404);
+                'message' => 'Identitas siswa tidak ditemukan atau akun tidak memiliki akses.',
+            ], 403);
         }
+        $siswaId = $siswa->id;
 
         $jadwal = CbtJadwal::with(['bankSoal.soals'])->findOrFail($validated['jadwal_id']);
         $soals = $jadwal->bankSoal?->soals ?? collect();
@@ -339,15 +367,12 @@ class SiswaApiController extends Controller
         ]);
 
         $user = $request->user();
-        $siswaId = $validated['siswa_id'] ?? null;
-        if (! $siswaId) {
-            $siswa = $this->resolveSiswa($user);
-            $siswaId = $siswa?->id;
-        }
+        $siswa = $this->resolveAuthorizedSiswa($user, $validated['siswa_id'] ?? null);
 
-        if (! $siswaId) {
-            return response()->json(['success' => false, 'message' => 'Data siswa tidak ditemukan'], 404);
+        if (! $siswa) {
+            return response()->json(['success' => false, 'message' => 'Data siswa tidak ditemukan atau akun tidak memiliki akses.'], 403);
         }
+        $siswaId = $siswa->id;
 
         $pengumpulan = PengumpulanTugas::updateOrCreate(
             [

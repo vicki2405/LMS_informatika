@@ -1,5 +1,6 @@
 import katex from 'katex';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 // Configure marked with GFM (GitHub Flavored Markdown) and line breaks
 marked.setOptions({
@@ -9,7 +10,8 @@ marked.setOptions({
 
 /**
  * Render text containing Markdown and LaTeX formulas to HTML.
- * Preserves KaTeX equations while fully parsing tables, lists, code, and typography.
+ * Preserves KaTeX equations while fully parsing tables, lists, code, and typography,
+ * while safely sanitizing HTML to prevent Stored XSS.
  */
 export function renderFormulaContent(rawText) {
   if (!rawText) return '';
@@ -50,7 +52,14 @@ export function renderFormulaContent(rawText) {
   // 3. Parse Markdown using marked
   let html = marked.parse(text);
 
-  // 4. Restore KaTeX tokens
+  // 4. Sanitize markdown HTML with DOMPurify to prevent Stored XSS
+  if (typeof DOMPurify !== 'undefined' && DOMPurify.sanitize) {
+    html = DOMPurify.sanitize(html, {
+      ADD_ATTR: ['target', 'rel', 'class', 'style'],
+    });
+  }
+
+  // 5. Restore KaTeX tokens
   mathTokens.forEach(({ token, html: mathHtml }) => {
     html = html.replace(token, mathHtml);
   });

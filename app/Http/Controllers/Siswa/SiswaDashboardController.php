@@ -580,6 +580,53 @@ class SiswaDashboardController extends Controller
     }
 
     /**
+     * Resolve and authorize the active student for student-role operations.
+     * Prevents IDOR (Insecure Direct Object Reference) while supporting both
+     * individual student accounts and shared classroom accounts.
+     */
+    private function resolveAuthorizedSiswa(Request $request, ?int $requestedSiswaId = null): ?Siswa
+    {
+        $user = $request->user();
+        if (! $user) {
+            return null;
+        }
+
+        $userName = trim($user->name);
+
+        // 1. Check if user is an individual student (user's name matches a Siswa record)
+        $personalSiswa = Siswa::query()
+            ->where(function ($q) use ($userName) {
+                $q->where('nama', '=', $userName)
+                  ->orWhereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)]);
+            })
+            ->when($user->kelas_id, fn ($q) => $q->where('kelas_id', $user->kelas_id))
+            ->first();
+
+        if ($personalSiswa) {
+            // Individual student account: always strictly bound to themselves
+            return $personalSiswa;
+        }
+
+        // 2. If user is a shared classroom account (user has kelas_id)
+        if ($user->kelas_id) {
+            if ($requestedSiswaId) {
+                return Siswa::query()
+                    ->where('id', $requestedSiswaId)
+                    ->where('kelas_id', $user->kelas_id)
+                    ->first();
+            }
+            return Siswa::query()->where('kelas_id', $user->kelas_id)->first();
+        }
+
+        // 3. Fallback for admin or unassigned accounts
+        if ($requestedSiswaId) {
+            return Siswa::query()->find($requestedSiswaId);
+        }
+
+        return null;
+    }
+
+    /**
      * Persist a student task submission (pengumpulan tugas) into the database.
      */
     public function submitTugas(Request $request): RedirectResponse
@@ -591,32 +638,11 @@ class SiswaDashboardController extends Controller
             'catatan' => 'nullable|string|max:1000',
         ]);
 
-        $user = $request->user();
-        $siswaId = $validated['siswa_id'] ?? $request->input('siswa_id') ?? $request->input('siswaId');
-        $siswaObj = null;
-
-        if ($siswaId) {
-            $siswaObj = Siswa::query()->find($siswaId);
-        }
+        $requestedId = $validated['siswa_id'] ?? $request->input('siswa_id') ?? $request->input('siswaId');
+        $siswaObj = $this->resolveAuthorizedSiswa($request, $requestedId ? (int) $requestedId : null);
 
         if (! $siswaObj) {
-            $siswaObj = Siswa::query()->where('nama', '=', $user->name)->first();
-        }
-
-        if (! $siswaObj) {
-            $siswaObj = Siswa::all()->first(fn ($s) => mb_strtolower(trim($s->nama)) === mb_strtolower(trim($user->name)));
-        }
-
-        if (! $siswaObj && $user->kelas_id) {
-            $siswaObj = Siswa::query()->where('kelas_id', $user->kelas_id)->first();
-        }
-
-        if (! $siswaObj) {
-            return redirect()->back()->with('error', 'Akun siswa tidak terhubung ke data siswa. Silakan pilih identitas siswa.');
-        }
-
-        if ($user->kelas_id && $siswaObj->kelas_id !== $user->kelas_id) {
-            return redirect()->back()->with('error', 'Akses ditolak: siswa bukan anggota kelas ini.');
+            return redirect()->back()->with('error', 'Akun siswa tidak terhubung ke data siswa yang valid. Silakan pilih identitas siswa.');
         }
 
         PengumpulanTugas::updateOrCreate(
@@ -647,32 +673,7 @@ class SiswaDashboardController extends Controller
             'waktu_mulai' => 'nullable|string',
         ]);
 
-        $user = $request->user();
-        $siswaId = $validated['siswa_id'] ?? null;
-        $siswaObj = null;
-
-        if ($siswaId) {
-            $query = Siswa::query()->where('id', $siswaId);
-            if ($user->kelas_id) {
-                $query->where('kelas_id', $user->kelas_id);
-            }
-            $siswaObj = $query->first();
-        }
-
-        if (! $siswaObj) {
-            $query = Siswa::query()->where('nama', '=', $user->name);
-            if ($user->kelas_id) {
-                $query->where('kelas_id', $user->kelas_id);
-            }
-            $siswaObj = $query->first();
-        }
-
-        if (! $siswaObj && $user->kelas_id) {
-            $siswaObj = Siswa::query()
-                ->where('kelas_id', $user->kelas_id)
-                ->get()
-                ->first(fn ($s) => mb_strtolower(trim($s->nama)) === mb_strtolower(trim($user->name)));
-        }
+        $siswaObj = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
 
         if (! $siswaObj) {
             return redirect()->back()->with('error', 'Identitas siswa tidak valid atau tidak terdaftar di kelas ini.');
@@ -881,22 +882,18 @@ class SiswaDashboardController extends Controller
     {
         $validated = $request->validate([
             'jadwal_id' => 'required|integer|exists:cbt_jadwals,id',
-            'siswa_id' => 'required|integer|exists:siswas,id',
+            'siswa_id' => 'nullable|integer|exists:siswas,id',
         ]);
 
-        $user = $request->user();
-        $siswa = Siswa::find($validated['siswa_id']);
+        $siswa = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
         if (! $siswa) {
-            return response()->json(['success' => false, 'message' => 'Data siswa tidak valid.'], 404);
-        }
-        if ($user->kelas_id && $siswa->kelas_id !== $user->kelas_id) {
-            return response()->json(['success' => false, 'message' => 'Akses ditolak: siswa bukan anggota kelas ini.'], 403);
+            return response()->json(['success' => false, 'message' => 'Akses ditolak: siswa tidak valid atau bukan anggota kelas ini.'], 403);
         }
 
         $sesi = CbtSesi::firstOrCreate(
             [
                 'jadwal_id' => $validated['jadwal_id'],
-                'siswa_id' => $validated['siswa_id'],
+                'siswa_id' => $siswa->id,
             ],
             [
                 'status' => 'menunggu',
@@ -940,11 +937,16 @@ class SiswaDashboardController extends Controller
     {
         $validated = $request->validate([
             'jadwal_id' => 'required|integer|exists:cbt_jadwals,id',
-            'siswa_id' => 'required|integer|exists:siswas,id',
+            'siswa_id' => 'nullable|integer|exists:siswas,id',
         ]);
 
+        $siswa = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
+        if (! $siswa) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak: identitas siswa tidak valid.'], 403);
+        }
+
         CbtSesi::where('jadwal_id', $validated['jadwal_id'])
-            ->where('siswa_id', $validated['siswa_id'])
+            ->where('siswa_id', $siswa->id)
             ->where('status', 'menunggu')
             ->delete();
 
@@ -961,21 +963,17 @@ class SiswaDashboardController extends Controller
     {
         $validated = $request->validate([
             'jadwal_id' => 'required|integer|exists:cbt_jadwals,id',
-            'siswa_id' => 'required|integer|exists:siswas,id',
+            'siswa_id' => 'nullable|integer|exists:siswas,id',
             'jenis' => 'nullable|string',
         ]);
 
-        $user = $request->user();
-        $siswa = Siswa::find($validated['siswa_id']);
+        $siswa = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
         if (! $siswa) {
-            return response()->json(['success' => false, 'message' => 'Data siswa tidak valid.'], 404);
-        }
-        if ($user->kelas_id && $siswa->kelas_id !== $user->kelas_id) {
-            return response()->json(['success' => false, 'message' => 'Akses ditolak: siswa bukan anggota kelas ini.'], 403);
+            return response()->json(['success' => false, 'message' => 'Data siswa tidak valid atau akses ditolak.'], 403);
         }
 
         $sesi = CbtSesi::where('jadwal_id', $validated['jadwal_id'])
-            ->where('siswa_id', $validated['siswa_id'])
+            ->where('siswa_id', $siswa->id)
             ->first();
 
         if ($sesi) {
@@ -1008,14 +1006,19 @@ class SiswaDashboardController extends Controller
     {
         $validated = $request->validate([
             'jadwal_id' => 'required|integer|exists:cbt_jadwals,id',
-            'siswa_id' => 'required|integer|exists:siswas,id',
+            'siswa_id' => 'nullable|integer|exists:siswas,id',
             'soal_terjawab' => 'nullable|integer',
             'sisa_waktu_detik' => 'nullable|integer',
             'status' => 'nullable|string|in:menunggu,mengerjakan,selesai,terkunci',
         ]);
 
+        $siswa = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
+        if (! $siswa) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak: data siswa tidak valid.'], 403);
+        }
+
         $sesi = CbtSesi::where('jadwal_id', $validated['jadwal_id'])
-            ->where('siswa_id', $validated['siswa_id'])
+            ->where('siswa_id', $siswa->id)
             ->first();
 
         if ($sesi) {
@@ -1056,15 +1059,20 @@ class SiswaDashboardController extends Controller
     public function trackMateriOpen(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([
-            'siswa_id' => 'required|integer|exists:siswas,id',
+            'siswa_id' => 'nullable|integer|exists:siswas,id',
             'progress_persen' => 'nullable|integer|min:0|max:100',
         ]);
+
+        $siswa = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
+        if (! $siswa) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak: siswa tidak valid.'], 403);
+        }
 
         $materi = Materi::findOrFail($id);
 
         $read = MateriRead::firstOrNew([
             'materi_id' => $materi->id,
-            'siswa_id' => $validated['siswa_id'],
+            'siswa_id' => $siswa->id,
         ]);
 
         if (! $read->exists) {
@@ -1101,14 +1109,19 @@ class SiswaDashboardController extends Controller
     public function trackMateriComplete(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([
-            'siswa_id' => 'required|integer|exists:siswas,id',
+            'siswa_id' => 'nullable|integer|exists:siswas,id',
         ]);
+
+        $siswa = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
+        if (! $siswa) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak: siswa tidak valid.'], 403);
+        }
 
         $materi = Materi::findOrFail($id);
 
         $read = MateriRead::firstOrNew([
             'materi_id' => $materi->id,
-            'siswa_id' => $validated['siswa_id'],
+            'siswa_id' => $siswa->id,
         ]);
 
         if (! $read->opened_at) {

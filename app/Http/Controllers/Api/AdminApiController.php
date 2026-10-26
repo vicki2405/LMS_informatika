@@ -13,6 +13,7 @@ use App\Models\Kelas;
 use App\Models\Siswa;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 
 class AdminApiController extends Controller
@@ -68,9 +69,14 @@ class AdminApiController extends Controller
 
     public function deleteGuru(int $id): JsonResponse
     {
+        $currentUserId = Auth::id();
+
         $guru = Guru::find($id);
         if ($guru) {
             $userId = $guru->user_id;
+            if ($currentUserId && $userId === $currentUserId) {
+                return response()->json(['success' => false, 'message' => 'Anda tidak dapat menghapus akun Anda sendiri'], 403);
+            }
             $guru->delete();
             if ($userId) {
                 User::destroy($userId);
@@ -78,6 +84,9 @@ class AdminApiController extends Controller
         } else {
             $user = User::find($id);
             if ($user) {
+                if ($currentUserId && $user->id === $currentUserId) {
+                    return response()->json(['success' => false, 'message' => 'Anda tidak dapat menghapus akun Anda sendiri'], 403);
+                }
                 if ($user->guru) {
                     $user->guru->delete();
                 }

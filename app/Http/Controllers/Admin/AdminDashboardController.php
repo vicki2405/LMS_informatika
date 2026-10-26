@@ -19,6 +19,7 @@ use App\Services\Security\FileSecurityService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Inertia\Inertia;
@@ -719,6 +720,10 @@ class AdminDashboardController extends Controller
      */
     public function deleteUser(int $id): RedirectResponse
     {
+        if (Auth::id() === $id) {
+            return redirect()->back()->with('error', 'Anda tidak dapat menghapus akun Anda sendiri saat sedang aktif digunakan.');
+        }
+
         $user = User::query()->where('id', '=', $id)->first();
         if ($user) {
             // Unlink homeroom class if user is a homeroom teacher
