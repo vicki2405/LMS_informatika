@@ -109,43 +109,11 @@ function generateToken() {
 }
 
 function openCreateModal() {
-  isEditing.value = false;
-  form.value = {
-    id: null,
-    bank_soal_id: props.bankSoalList[0]?.id || '',
-    jurusan_id: '',
-    kelas_id: '',
-    judul_ujian: '',
-    waktu_mulai: new Date().toISOString().slice(0, 16),
-    waktu_selesai: new Date(Date.now() + 4 * 3600 * 1000).toISOString().slice(0, 16),
-    durasi_menit: 60,
-    token: Math.random().toString(36).substring(2, 8).toUpperCase(),
-    acak_soal: true,
-    acak_opsi: true,
-    status: 'aktif',
-    mode_ujian: 'formal',
-  };
-  showModal.value = true;
+  router.visit(route('guru.cbt.jadwal.create'));
 }
 
 function openEditModal(j) {
-  isEditing.value = true;
-  form.value = {
-    id: j.id,
-    bank_soal_id: j.bankSoalId,
-    jurusan_id: j.jurusanId || '',
-    kelas_id: j.kelasId || '',
-    judul_ujian: j.judulUjian,
-    waktu_mulai: j.waktuMulai ? j.waktuMulai.replace(' ', 'T').slice(0, 16) : '',
-    waktu_selesai: j.waktuSelesai ? j.waktuSelesai.replace(' ', 'T').slice(0, 16) : '',
-    durasi_menit: j.durasiMenit || 60,
-    token: j.token || '',
-    acak_soal: j.acakSoal !== undefined ? !!j.acakSoal : true,
-    acak_opsi: j.acakOpsi !== undefined ? !!j.acakOpsi : true,
-    status: j.status || 'aktif',
-    mode_ujian: j.modeUjian || 'formal',
-  };
-  showModal.value = true;
+  router.visit(route('guru.cbt.jadwal.edit', j.id));
 }
 
 function submitForm() {
@@ -185,7 +153,7 @@ function toggleStatus(j) {
 function deleteJadwal(id) {
   confirmDelete({
     title: 'Hapus Jadwal CBT?',
-    text: 'Sesi ujian dan riwayat nilai terkait di jadwal ini akan dihapus!',
+    text: 'Jadwal akan dihapus dari daftar aktif. Riwayat nilai siswa yang sudah masuk tetap tersimpan aman di sistem.',
     confirmButtonText: 'Ya, Hapus Jadwal!',
   }).then((res) => {
     if (res.isConfirmed) {

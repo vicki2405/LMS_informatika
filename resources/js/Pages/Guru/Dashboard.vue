@@ -761,6 +761,7 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
           :tahunAjaranList="tahunAjaranList"
           :teacherSubject="teacherSubject"
           :mapelList="mapelListProp"
+          :jadwalList="jadwalList"
           :cbtJadwalList="props.cbtJadwalListProp"
           :cbtNilaiList="props.cbtNilaiListProp"
           @save-tp="onSaveTp"

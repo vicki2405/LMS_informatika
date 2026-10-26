@@ -21,6 +21,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
+use App\Models\Jurusan;
+use App\Models\Kelas;
+use Inertia\Inertia;
+use Inertia\Response;
 class GuruCbtController extends Controller
 {
     /**
@@ -169,7 +173,7 @@ class GuruCbtController extends Controller
     {
         $query = CbtNilai::query()
             ->with([
-                'jadwal:id,judul_ujian,kelas_id,bank_soal_id,guru_id',
+                'jadwal' => fn ($q) => $q->withTrashed()->select('id', 'judul_ujian', 'kelas_id', 'bank_soal_id', 'guru_id'),
                 'jadwal.bankSoal.mataPelajaran:id,nama',
                 'jadwal.bankSoal.jurusan:id,nama,kode',
                 'jadwal.kelas:id,nama_kelas,tingkat',
@@ -180,7 +184,9 @@ class GuruCbtController extends Controller
 
         if ($guruId) {
             $query->whereHas('jadwal', function ($q) use ($guruId) {
-                $q->where('guru_id', $guruId)->orWhereNull('guru_id');
+                $q->withTrashed()->where(function ($inner) use ($guruId) {
+                    $inner->where('guru_id', $guruId)->orWhereNull('guru_id');
+                });
             });
         }
 
@@ -271,7 +277,11 @@ class GuruCbtController extends Controller
             $msg = 'Bank Soal CBT baru berhasil ditambahkan!';
         }
 
-        return redirect()->back()->with('message', $msg);
+        $redirectTo = $request->input('redirect_to');
+        if ($redirectTo) {
+            return redirect($redirectTo)->with('message', $msg);
+        }
+        return redirect()->to(route('guru.dashboard') . '?tab=cbt-jadwal')->with('message', $msg);
     }
 
     /**
@@ -612,6 +622,83 @@ class GuruCbtController extends Controller
     /**
      * Store or update CBT Schedule.
      */
+    /**
+     * Render Dedicated Page: Buat Jadwal Pelaksanaan CBT Baru.
+     */
+    public function createJadwal(Request $request): Response
+    {
+        return $this->cbtJadwalFormData($request, null);
+    }
+
+    /**
+     * Render Dedicated Page: Edit Jadwal Pelaksanaan CBT.
+     */
+    public function editJadwal(int $id, Request $request): Response
+    {
+        $jadwal = CbtJadwal::query()
+            ->with(['bankSoal.mataPelajaran', 'jurusan', 'kelas'])
+            ->findOrFail($id);
+
+        return $this->cbtJadwalFormData($request, $jadwal);
+    }
+
+    /**
+     * Helper to prepare Inertia props for CbtJadwalForm page.
+     */
+    private function cbtJadwalFormData(Request $request, ?CbtJadwal $jadwal): Response
+    {
+        $guru = $this->resolveGuru($request);
+        $guruId = $guru?->id;
+
+        $bankSoalList = self::getBankSoalsList($guruId);
+        $jurusanList = Jurusan::query()->orderBy('id', 'asc')->get();
+
+        $masterKelasList = Kelas::query()->with(['jurusan'])->get()
+            ->sort(function ($a, $b) {
+                $t = strcmp($a->tingkat ?? 'X', $b->tingkat ?? 'X');
+                if ($t !== 0) return $t;
+                return strnatcasecmp($a->nama_kelas, $b->nama_kelas);
+            })
+            ->values()
+            ->map(function ($k) {
+                return [
+                    'id' => $k->id,
+                    'namaKelas' => $k->nama_kelas,
+                    'tingkat' => $k->tingkat ?? 'X',
+                    'jurusan' => $k->jurusan?->nama ?? '',
+                    'jurusanId' => $k->jurusan_id,
+                    'jurusanKode' => $k->jurusan?->kode ?? '',
+                ];
+            })->toArray();
+
+        $serializedJadwal = null;
+        if ($jadwal) {
+            $jurusanId = $jadwal->jurusan_id ?? $jadwal->kelas?->jurusan_id;
+            $serializedJadwal = [
+                'id' => $jadwal->id,
+                'bank_soal_id' => $jadwal->bank_soal_id,
+                'jurusan_id' => $jurusanId,
+                'kelas_id' => $jadwal->kelas_id,
+                'judul_ujian' => $jadwal->judul_ujian,
+                'waktu_mulai' => $jadwal->waktu_mulai ? $jadwal->waktu_mulai->format('Y-m-d\TH:i') : '',
+                'waktu_selesai' => $jadwal->waktu_selesai ? $jadwal->waktu_selesai->format('Y-m-d\TH:i') : '',
+                'durasi_menit' => $jadwal->durasi_menit ?? 60,
+                'token' => $jadwal->token ?? '',
+                'acak_soal' => (bool) ($jadwal->acak_soal ?? true),
+                'acak_opsi' => (bool) ($jadwal->acak_opsi ?? true),
+                'status' => $jadwal->status ?? 'aktif',
+                'mode_ujian' => $jadwal->mode_ujian ?? 'formal',
+            ];
+        }
+
+        return Inertia::render('Guru/CbtJadwalForm', [
+            'jadwalProp' => $serializedJadwal,
+            'bankSoalList' => $bankSoalList,
+            'masterKelasList' => $masterKelasList,
+            'jurusanList' => $jurusanList,
+        ]);
+    }
+
     public function storeJadwal(Request $request): RedirectResponse
     {
         $guru = $this->resolveGuru($request);
@@ -661,7 +748,12 @@ class GuruCbtController extends Controller
             $msg = 'Jadwal CBT baru berhasil dibuat!';
         }
 
-        return redirect()->back()->with('message', $msg);
+        $redirectTo = $request->input('redirect_to');
+        if ($redirectTo) {
+            return redirect($redirectTo)->with('message', $msg);
+        }
+
+        return redirect()->to(route('guru.dashboard') . '?tab=cbt-jadwal')->with('message', $msg);
     }
 
     /**
@@ -683,9 +775,12 @@ class GuruCbtController extends Controller
      */
     public function deleteJadwal(int $id): RedirectResponse
     {
-        CbtJadwal::where('id', $id)->delete();
+        $jadwal = CbtJadwal::find($id);
+        if ($jadwal) {
+            $jadwal->delete();
+        }
 
-        return redirect()->back()->with('message', 'Jadwal CBT berhasil dihapus!');
+        return redirect()->back()->with('message', 'Jadwal CBT berhasil dihapus (riwayat nilai siswa tetap tersimpan aman)!');
     }
 
     /**

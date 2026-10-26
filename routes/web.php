@@ -98,6 +98,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/absensi/bulk-date', [GuruDashboardController::class, 'deleteAbsensiBulkDate'])->name('absensi.bulk-delete');
         Route::delete('/absensi/{id}', [GuruDashboardController::class, 'deleteAbsensi'])->name('absensi.delete');
         Route::post('/nilai/store-batch', [GuruDashboardController::class, 'storeNilaiBatch'])->name('nilai.store-batch');
+        Route::post('/nilai/clear-kolom', [GuruDashboardController::class, 'clearNilaiTpKolom'])->name('nilai.clear-kolom');
+        Route::post('/nilai/swap-tp', [GuruDashboardController::class, 'swapOrMoveNilaiTp'])->name('nilai.swap-tp');
         Route::post('/jurnal/store', [GuruDashboardController::class, 'storeJurnal'])->name('jurnal.store');
         Route::delete('/jurnal/{id}', [GuruDashboardController::class, 'deleteJurnal'])->name('jurnal.delete');
         Route::post('/materi/store', [GuruDashboardController::class, 'storeMateri'])->name('materi.store');
@@ -119,6 +121,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/cbt/soal/{id}', [GuruCbtController::class, 'deleteSoal'])->name('cbt.soal.delete');
         Route::post('/cbt/soal/update-all-bobot', [GuruCbtController::class, 'updateAllBobot'])->name('cbt.soal.update-all-bobot');
         Route::post('/cbt/soal/import-bulk', [GuruCbtController::class, 'importBulkSoal'])->name('cbt.soal.import-bulk');
+        Route::get('/cbt/jadwal/create', [GuruCbtController::class, 'createJadwal'])->name('cbt.jadwal.create');
+        Route::get('/cbt/jadwal/{id}/edit', [GuruCbtController::class, 'editJadwal'])->name('cbt.jadwal.edit');
         Route::post('/cbt/jadwal/store', [GuruCbtController::class, 'storeJadwal'])->name('cbt.jadwal.store');
         Route::patch('/cbt/jadwal/{id}/toggle-status', [GuruCbtController::class, 'toggleJadwalStatus'])->name('cbt.jadwal.toggle-status');
         Route::delete('/cbt/jadwal/{id}', [GuruCbtController::class, 'deleteJadwal'])->name('cbt.jadwal.delete');

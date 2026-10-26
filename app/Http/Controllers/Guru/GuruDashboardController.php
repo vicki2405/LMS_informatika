@@ -647,6 +647,107 @@ class GuruDashboardController extends Controller
     }
 
     /**
+     * Kosongkan / Hapus seluruh nilai satu kolom TP untuk kelas tertentu.
+     */
+    public function clearNilaiTpKolom(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'tpId' => 'required|integer|exists:tujuan_pembelajarans,id',
+            'kelas' => 'required|string',
+        ]);
+
+        $kelasObj = Kelas::where('nama_kelas', $validated['kelas'])->first();
+        if ($kelasObj) {
+            $siswaIds = Siswa::where('kelas_id', $kelasObj->id)->pluck('id')->toArray();
+            if (!empty($siswaIds)) {
+                NilaiTp::where('tp_id', $validated['tpId'])
+                    ->whereIn('siswa_id', $siswaIds)
+                    ->delete();
+            }
+        }
+
+        return redirect()->back()->with('message', 'Seluruh nilai pada kolom TP berhasil dikosongkan untuk kelas ' . $validated['kelas'] . '.');
+    }
+
+    /**
+     * Tukar atau pindahkan nilai antar-TP untuk kelas tertentu.
+     */
+    public function swapOrMoveNilaiTp(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'sourceTpId' => 'required|integer|exists:tujuan_pembelajarans,id|different:targetTpId',
+            'targetTpId' => 'required|integer|exists:tujuan_pembelajarans,id',
+            'kelas' => 'required|string',
+            'mode' => 'required|in:swap,move',
+        ]);
+
+        $kelasObj = Kelas::where('nama_kelas', $validated['kelas'])->first();
+        if (! $kelasObj) {
+            return redirect()->back()->withErrors(['kelas' => 'Data kelas tidak ditemukan.']);
+        }
+
+        $user = $request->user();
+        $guru = $user?->guru ?? Guru::query()->where('user_id', '=', $user?->id)->first();
+        $guruId = $guru?->id;
+
+        $siswaIds = Siswa::where('kelas_id', $kelasObj->id)->pluck('id')->toArray();
+        $sourceTpId = (int)$validated['sourceTpId'];
+        $targetTpId = (int)$validated['targetTpId'];
+
+        DB::transaction(function () use ($sourceTpId, $targetTpId, $siswaIds, $validated, $guruId) {
+            $sourceRecords = NilaiTp::where('tp_id', $sourceTpId)->whereIn('siswa_id', $siswaIds)->get()->keyBy('siswa_id');
+            $targetRecords = NilaiTp::where('tp_id', $targetTpId)->whereIn('siswa_id', $siswaIds)->get()->keyBy('siswa_id');
+
+            if ($validated['mode'] === 'swap') {
+                foreach ($siswaIds as $sId) {
+                    $src = $sourceRecords->get($sId);
+                    $tgt = $targetRecords->get($sId);
+
+                    $srcNilai = $src?->nilai;
+                    $srcCatatan = $src?->catatan;
+                    $tgtNilai = $tgt?->nilai;
+                    $tgtCatatan = $tgt?->catatan;
+
+                    // Update Target dengan data Source
+                    if ($srcNilai !== null && $srcNilai !== '') {
+                        NilaiTp::updateOrCreate(
+                            ['tp_id' => $targetTpId, 'siswa_id' => $sId],
+                            ['nilai' => $srcNilai, 'catatan' => $srcCatatan, 'guru_id' => $guruId]
+                        );
+                    } else {
+                        NilaiTp::where('tp_id', $targetTpId)->where('siswa_id', $sId)->delete();
+                    }
+
+                    // Update Source dengan data Target
+                    if ($tgtNilai !== null && $tgtNilai !== '') {
+                        NilaiTp::updateOrCreate(
+                            ['tp_id' => $sourceTpId, 'siswa_id' => $sId],
+                            ['nilai' => $tgtNilai, 'catatan' => $tgtCatatan, 'guru_id' => $guruId]
+                        );
+                    } else {
+                        NilaiTp::where('tp_id', $sourceTpId)->where('siswa_id', $sId)->delete();
+                    }
+                }
+            } elseif ($validated['mode'] === 'move') {
+                foreach ($siswaIds as $sId) {
+                    $src = $sourceRecords->get($sId);
+                    if ($src && $src->nilai !== null && $src->nilai !== '') {
+                        NilaiTp::updateOrCreate(
+                            ['tp_id' => $targetTpId, 'siswa_id' => $sId],
+                            ['nilai' => $src->nilai, 'catatan' => $src->catatan, 'guru_id' => $guruId]
+                        );
+                    }
+                }
+                // Hapus nilai source pada kelas ini
+                NilaiTp::where('tp_id', $sourceTpId)->whereIn('siswa_id', $siswaIds)->delete();
+            }
+        });
+
+        $modeLabel = $validated['mode'] === 'swap' ? 'ditukar' : 'dipindahkan';
+        return redirect()->back()->with('message', "Nilai antar TP berhasil {$modeLabel} untuk kelas {$validated['kelas']}.");
+    }
+
+    /**
      * Store or update Jurnal Mengajar.
      */
     public function storeJurnal(Request $request): RedirectResponse

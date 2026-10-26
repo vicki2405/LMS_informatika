@@ -40,7 +40,7 @@ class CbtSesi extends Model
 
     public function jadwal(): BelongsTo
     {
-        return $this->belongsTo(CbtJadwal::class, 'jadwal_id');
+        return $this->belongsTo(CbtJadwal::class, 'jadwal_id')->withTrashed();
     }
 
     public function siswa(): BelongsTo

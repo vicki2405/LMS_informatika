@@ -435,5 +435,292 @@ class ComprehensiveInputAuditTest extends TestCase
             'status' => 'Sudah Dikirim',
         ]);
     }
-}
 
+    /** Test 13: Guru dapat mengosongkan seluruh nilai satu kolom TP */
+    public function test_guru_can_clear_nilai_tp_kolom(): void
+    {
+        $tp = \App\Models\TujuanPembelajaran::create([
+            'kode' => 'TP-CLR-1',
+            'judul' => 'Uji Coba Clear Kolom',
+            'mapel' => 'Informatika',
+            'kktp' => 75,
+            'semester' => 'Ganjil',
+            'tahun_ajaran' => '2025/2026',
+        ]);
+
+        \App\Models\NilaiTp::create([
+            'tp_id' => $tp->id,
+            'siswa_id' => $this->siswa->id,
+            'guru_id' => $this->guru->id,
+            'nilai' => 88.5,
+            'catatan' => 'Bagus',
+        ]);
+
+        $this->assertDatabaseHas('nilai_tps', [
+            'tp_id' => $tp->id,
+            'siswa_id' => $this->siswa->id,
+            'nilai' => 88.5,
+        ]);
+
+        $response = $this->actingAs($this->guruUser)->post(route('guru.nilai.clear-kolom'), [
+            'tpId' => $tp->id,
+            'kelas' => $this->kelas->nama_kelas,
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertDatabaseMissing('nilai_tps', [
+            'tp_id' => $tp->id,
+            'siswa_id' => $this->siswa->id,
+        ]);
+    }
+
+    /** Test 14: Guru dapat menukar (swap) nilai antar-TP untuk kelas terpilih */
+    public function test_guru_can_swap_nilai_antar_tp(): void
+    {
+        $tpA = \App\Models\TujuanPembelajaran::create([
+            'kode' => 'TP-SWP-A',
+            'judul' => 'Materi A',
+            'mapel' => 'Informatika',
+            'kktp' => 75,
+            'semester' => 'Ganjil',
+            'tahun_ajaran' => '2025/2026',
+        ]);
+
+        $tpB = \App\Models\TujuanPembelajaran::create([
+            'kode' => 'TP-SWP-B',
+            'judul' => 'Materi B',
+            'mapel' => 'Informatika',
+            'kktp' => 75,
+            'semester' => 'Ganjil',
+            'tahun_ajaran' => '2025/2026',
+        ]);
+
+        \App\Models\NilaiTp::create([
+            'tp_id' => $tpA->id,
+            'siswa_id' => $this->siswa->id,
+            'guru_id' => $this->guru->id,
+            'nilai' => 70,
+            'catatan' => 'Nilai Awal TP A',
+        ]);
+
+        \App\Models\NilaiTp::create([
+            'tp_id' => $tpB->id,
+            'siswa_id' => $this->siswa->id,
+            'guru_id' => $this->guru->id,
+            'nilai' => 95,
+            'catatan' => 'Nilai Awal TP B',
+        ]);
+
+        $response = $this->actingAs($this->guruUser)->post(route('guru.nilai.swap-tp'), [
+            'sourceTpId' => $tpA->id,
+            'targetTpId' => $tpB->id,
+            'kelas' => $this->kelas->nama_kelas,
+            'mode' => 'swap',
+        ]);
+
+        $response->assertSessionHasNoErrors();
+
+        // Nilai TP A sekarang harus 95 (milik B sebelumnya)
+        $this->assertDatabaseHas('nilai_tps', [
+            'tp_id' => $tpA->id,
+            'siswa_id' => $this->siswa->id,
+            'nilai' => 95,
+            'catatan' => 'Nilai Awal TP B',
+        ]);
+
+        // Nilai TP B sekarang harus 70 (milik A sebelumnya)
+        $this->assertDatabaseHas('nilai_tps', [
+            'tp_id' => $tpB->id,
+            'siswa_id' => $this->siswa->id,
+            'nilai' => 70,
+            'catatan' => 'Nilai Awal TP A',
+        ]);
+    }
+
+    /** Test 15: Guru dapat memindahkan (move) nilai dari TP Asal ke TP Tujuan */
+    public function test_guru_can_move_nilai_antar_tp(): void
+    {
+        $tpSrc = \App\Models\TujuanPembelajaran::create([
+            'kode' => 'TP-MOV-SRC',
+            'judul' => 'Source TP',
+            'mapel' => 'Informatika',
+            'kktp' => 75,
+            'semester' => 'Ganjil',
+            'tahun_ajaran' => '2025/2026',
+        ]);
+
+        $tpTgt = \App\Models\TujuanPembelajaran::create([
+            'kode' => 'TP-MOV-TGT',
+            'judul' => 'Target TP',
+            'mapel' => 'Informatika',
+            'kktp' => 75,
+            'semester' => 'Ganjil',
+            'tahun_ajaran' => '2025/2026',
+        ]);
+
+        \App\Models\NilaiTp::create([
+            'tp_id' => $tpSrc->id,
+            'siswa_id' => $this->siswa->id,
+            'guru_id' => $this->guru->id,
+            'nilai' => 85,
+            'catatan' => 'Pindahan dari TP Asal',
+        ]);
+
+        $response = $this->actingAs($this->guruUser)->post(route('guru.nilai.swap-tp'), [
+            'sourceTpId' => $tpSrc->id,
+            'targetTpId' => $tpTgt->id,
+            'kelas' => $this->kelas->nama_kelas,
+            'mode' => 'move',
+        ]);
+
+        $response->assertSessionHasNoErrors();
+
+        // Nilai TP Asal harus terhapus/kosong
+        $this->assertDatabaseMissing('nilai_tps', [
+            'tp_id' => $tpSrc->id,
+            'siswa_id' => $this->siswa->id,
+        ]);
+
+        // Nilai TP Tujuan harus berisi nilai 85
+        $this->assertDatabaseHas('nilai_tps', [
+            'tp_id' => $tpTgt->id,
+            'siswa_id' => $this->siswa->id,
+            'nilai' => 85,
+            'catatan' => 'Pindahan dari TP Asal',
+        ]);
+    }
+
+    /** Test 16: Guru dapat membuka Dedicated Page Tambah Jadwal CBT */
+    public function test_guru_can_render_cbt_jadwal_create_page(): void
+    {
+        $response = $this->actingAs($this->guruUser)->get(route('guru.cbt.jadwal.create'));
+        $response->assertStatus(200);
+        $response->assertInertia(fn ($page) => $page
+            ->component('Guru/CbtJadwalForm')
+            ->has('bankSoalList')
+            ->has('masterKelasList')
+            ->has('jurusanList')
+            ->where('jadwalProp', null)
+        );
+    }
+
+    /** Test 17: Guru dapat membuka Dedicated Page Edit Jadwal CBT */
+    public function test_guru_can_render_cbt_jadwal_edit_page(): void
+    {
+        $bank = \App\Models\CbtBankSoal::create([
+            'kode' => 'BANK-JAD-1',
+            'judul' => 'Bank Soal Uji Jadwal',
+            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'guru_id' => $this->guru->id,
+            'tingkat' => 'X',
+        ]);
+
+        $jadwal = \App\Models\CbtJadwal::create([
+            'bank_soal_id' => $bank->id,
+            'guru_id' => $this->guru->id,
+            'judul_ujian' => 'Ujian Tengah Semester Informatika',
+            'durasi_menit' => 90,
+            'token' => 'UTS90X',
+            'status' => 'aktif',
+            'mode_ujian' => 'game',
+        ]);
+
+        $response = $this->actingAs($this->guruUser)->get(route('guru.cbt.jadwal.edit', $jadwal->id));
+        $response->assertStatus(200);
+        $response->assertInertia(fn ($page) => $page
+            ->component('Guru/CbtJadwalForm')
+            ->where('jadwalProp.id', $jadwal->id)
+            ->where('jadwalProp.token', 'UTS90X')
+            ->where('jadwalProp.mode_ujian', 'game')
+        );
+    }
+
+    /** Test 18: Guru dapat menyimpan Jadwal CBT dan redirect kembali ke tab cbt-jadwal */
+    public function test_guru_can_store_cbt_jadwal_and_redirects_to_cbt_jadwal_tab(): void
+    {
+        $bank = \App\Models\CbtBankSoal::create([
+            'kode' => 'BANK-JAD-2',
+            'judul' => 'Bank Soal Baru',
+            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'guru_id' => $this->guru->id,
+            'tingkat' => 'X',
+        ]);
+
+        $response = $this->actingAs($this->guruUser)->post(route('guru.cbt.jadwal.store'), [
+            'bank_soal_id' => $bank->id,
+            'judul_ujian' => 'Penilaian Harian Jaringan Komputer',
+            'durasi_menit' => 45,
+            'token' => 'PHJK01',
+            'acak_soal' => true,
+            'acak_opsi' => true,
+            'status' => 'aktif',
+            'mode_ujian' => 'formal',
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $response->assertRedirect(route('guru.dashboard') . '?tab=cbt-jadwal');
+
+        $this->assertDatabaseHas('cbt_jadwals', [
+            'judul_ujian' => 'Penilaian Harian Jaringan Komputer',
+            'token' => 'PHJK01',
+            'durasi_menit' => 45,
+            'mode_ujian' => 'formal',
+        ]);
+    }
+
+    /** Test 19: Menghapus Jadwal CBT tidak menghapus nilai siswa (Soft Delete) */
+    public function test_deleting_cbt_jadwal_preserves_student_scores(): void
+    {
+        $bank = \App\Models\CbtBankSoal::create([
+            'kode' => 'BANK-PRESERVE-1',
+            'judul' => 'Bank Soal Aman Nilai',
+            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'guru_id' => $this->guru->id,
+            'tingkat' => 'X',
+        ]);
+
+        $jadwal = \App\Models\CbtJadwal::create([
+            'bank_soal_id' => $bank->id,
+            'guru_id' => $this->guru->id,
+            'judul_ujian' => 'Ujian Akhir Yang Dihapus',
+            'durasi_menit' => 60,
+            'token' => 'KEEP99',
+            'status' => 'aktif',
+            'mode_ujian' => 'formal',
+        ]);
+
+        $nilai = \App\Models\CbtNilai::create([
+            'jadwal_id' => $jadwal->id,
+            'siswa_id' => $this->siswa->id,
+            'bank_soal_id' => $bank->id,
+            'jumlah_soal' => 20,
+            'jumlah_benar' => 18,
+            'jumlah_salah' => 2,
+            'nilai' => 90.00,
+            'status' => 'Tuntas',
+        ]);
+
+        // Guru menghapus jadwal
+        $response = $this->actingAs($this->guruUser)->delete(route('guru.cbt.jadwal.delete', $jadwal->id));
+        $response->assertSessionHas('message');
+
+        // Pastikan jadwal di soft-delete (tidak tampil di query normal)
+        $this->assertSoftDeleted('cbt_jadwals', ['id' => $jadwal->id]);
+        $this->assertNull(\App\Models\CbtJadwal::find($jadwal->id));
+        $this->assertNotNull(\App\Models\CbtJadwal::withTrashed()->find($jadwal->id));
+
+        // Pastikan nilai siswa TIDAK terhapus dari database!
+        $this->assertDatabaseHas('cbt_nilais', [
+            'id' => $nilai->id,
+            'jadwal_id' => $jadwal->id,
+            'nilai' => 90.00,
+        ]);
+
+        // Pastikan daftar nilai (Hasil Nilai CBT) tetap dapat membaca nilai ini
+        $nilaiList = \App\Http\Controllers\Guru\GuruCbtController::getNilaisList($this->guru->id);
+        $found = collect($nilaiList)->firstWhere('id', $nilai->id);
+        $this->assertNotNull($found, 'Nilai siswa harus tetap muncul di daftar hasil nilai');
+        $this->assertEquals(90.00, $found['nilai']);
+        $this->assertEquals('Ujian Akhir Yang Dihapus', $found['judulUjian']);
+    }
+}
