@@ -258,6 +258,7 @@ function navigateToMateri(tp) {
           <option value="Sumatif">Sumatif</option>
           <option value="Teori">Teori</option>
           <option value="Praktik">Praktik</option>
+          <option value="Proyek">Proyek</option>
         </select>
 
         <button

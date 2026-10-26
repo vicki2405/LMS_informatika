@@ -205,5 +205,33 @@ class GuruDashboardTest extends TestCase
         $fileResponse = $this->get($storageUrl);
         $fileResponse->assertOk();
     }
-}
 
+    public function test_guru_can_create_and_update_tp_with_teori_and_custom_jenis(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $user = User::factory()->create();
+        $user->assignRole('guru');
+        $guru = Guru::create([
+            'user_id' => $user->id,
+            'nama' => 'Guru Informatika',
+            'nip' => '1987654321',
+            'mata_pelajaran' => 'KKA,Informatika',
+        ]);
+
+        $response = $this->actingAs($user)->post(route('guru.tp.store'), [
+            'kode' => 'TP 3.3',
+            'mapel' => 'KKA',
+            'judul' => 'Murid mengidentifikasi permasalahan nyata di lingkungan sekitar yang dapat diselesaikan melalui pendekatan berpikir komputasional.',
+            'jenis' => 'Teori',
+            'kktp' => 76,
+            'semester' => 'Ganjil',
+        ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('tujuan_pembelajarans', [
+            'kode' => 'TP 3.3',
+            'jenis' => 'Teori',
+            'kktp' => 76,
+        ]);
+    }
+}
