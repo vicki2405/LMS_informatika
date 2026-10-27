@@ -205,45 +205,10 @@ function getPreviewThemeConfig(theme) {
   }
 }
 
-// Monitoring Modal State
-const showMonitoringModal = ref(false);
-const monitoringLoading = ref(false);
-const monitoringData = ref(null);
-const monitoringStatusFilter = ref('semua');
-const monitoringSearch = ref('');
-
-async function openMonitoringModal(materi) {
-  showMonitoringModal.value = true;
-  monitoringLoading.value = true;
-  monitoringData.value = null;
-  monitoringStatusFilter.value = 'semua';
-  monitoringSearch.value = '';
-
-  try {
-    const res = await axios.get(route('guru.materi.monitoring', materi.id));
-    monitoringData.value = res.data;
-  } catch (err) {
-    console.error('Gagal memuat data monitoring:', err);
-  } finally {
-    monitoringLoading.value = false;
-  }
+// Navigation to dedicated Monitoring Pembaca page
+function openMonitoring(materiId) {
+  router.visit(route('guru.materi.monitoring', materiId));
 }
-
-const filteredStudents = computed(() => {
-  if (!monitoringData.value?.students) return [];
-  let rows = monitoringData.value.students;
-
-  if (monitoringStatusFilter.value !== 'semua') {
-    rows = rows.filter(s => s.status === monitoringStatusFilter.value);
-  }
-
-  if (monitoringSearch.value.trim()) {
-    const q = monitoringSearch.value.toLowerCase();
-    rows = rows.filter(s => s.nama.toLowerCase().includes(q) || s.nis.toLowerCase().includes(q));
-  }
-
-  return rows;
-});
 
 // Navigation to dedicated form pages
 function goCreate() {
@@ -483,7 +448,7 @@ function getTypeBadge(tipe) {
               <!-- Monitoring Siswa Button / Badge -->
               <td class="px-4 py-4 text-center border-r border-white/5">
                 <button
-                  @click="openMonitoringModal(materi)"
+                  @click="openMonitoring(materi.id)"
                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition active:scale-95 shadow-sm"
                   title="Klik untuk melihat siapa saja yang telah membuka/membaca materi ini"
                 >
@@ -617,7 +582,7 @@ function getTypeBadge(tipe) {
 
             <div class="flex items-center gap-1.5">
               <button
-                @click="openMonitoringModal(materi)"
+                @click="openMonitoring(materi.id)"
                 class="px-2.5 py-1 text-xs font-bold text-cyan-300 bg-cyan-500/15 rounded-lg border border-cyan-500/30"
               >
                 👥 Pantau
@@ -635,162 +600,6 @@ function getTypeBadge(tipe) {
                 🗑️
               </button>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- MODAL MONITORING PEMBACA SISWA -->
-    <div
-      v-if="showMonitoringModal"
-      class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6"
-    >
-      <div class="bg-slate-900 border border-white/15 rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-        <!-- Modal Header -->
-        <div class="p-5 bg-slate-950 border-b border-white/10 flex items-center justify-between gap-4">
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="text-xl">📊</span>
-              <h2 class="text-base sm:text-lg font-black text-white">Monitoring Pembaca Materi</h2>
-            </div>
-            <p v-if="monitoringData?.materi" class="text-xs text-cyan-300 font-semibold truncate mt-0.5">
-              {{ monitoringData.materi.judul }} ({{ monitoringData.materi.targetKelas }})
-            </p>
-          </div>
-          <button
-            @click="showMonitoringModal = false"
-            class="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center transition"
-          >✕</button>
-        </div>
-
-        <!-- Loading State -->
-        <div v-if="monitoringLoading" class="p-16 text-center text-slate-400 space-y-3">
-          <div class="animate-spin text-3xl">⏳</div>
-          <p class="text-sm font-bold">Memuat data aktivitas siswa...</p>
-        </div>
-
-        <!-- Monitoring Content Body -->
-        <div v-else-if="monitoringData" class="flex-1 overflow-y-auto p-5 space-y-5">
-          <!-- Summary Banner -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div class="bg-slate-950/60 p-4 rounded-2xl border border-white/10">
-              <span class="text-[10px] font-black uppercase text-slate-400">Total Siswa Kelas</span>
-              <div class="text-2xl font-black text-white mt-1">{{ monitoringData.summary.totalSiswa }} Siswa</div>
-            </div>
-            <div class="bg-emerald-950/30 p-4 rounded-2xl border border-emerald-500/30">
-              <span class="text-[10px] font-black uppercase text-emerald-400">🟢 Selesai Membaca</span>
-              <div class="text-2xl font-black text-emerald-300 mt-1">{{ monitoringData.summary.selesaiCount }} Siswa</div>
-              <span class="text-[10px] text-emerald-400 font-bold">({{ monitoringData.summary.persentaseSelesai }}%)</span>
-            </div>
-            <div class="bg-amber-950/30 p-4 rounded-2xl border border-amber-500/30">
-              <span class="text-[10px] font-black uppercase text-amber-400">🟡 Sedang Baca</span>
-              <div class="text-2xl font-black text-amber-300 mt-1">{{ monitoringData.summary.membacaCount }} Siswa</div>
-            </div>
-            <div class="bg-slate-950/60 p-4 rounded-2xl border border-white/10">
-              <span class="text-[10px] font-black uppercase text-slate-400">⚪ Belum Buka</span>
-              <div class="text-2xl font-black text-slate-300 mt-1">{{ monitoringData.summary.belumBukaCount }} Siswa</div>
-            </div>
-          </div>
-
-          <!-- Progress Bar Global -->
-          <div class="space-y-1.5">
-            <div class="flex items-center justify-between text-xs font-bold">
-              <span class="text-slate-300">Tingkat Ketuntasan Baca Kelas</span>
-              <span class="text-emerald-400 font-mono">{{ monitoringData.summary.persentaseSelesai }}% Tuntas</span>
-            </div>
-            <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-white/10 flex">
-              <div
-                class="bg-emerald-500 transition-all duration-500"
-                :style="{ width: monitoringData.summary.persentaseSelesai + '%' }"
-              ></div>
-            </div>
-          </div>
-
-          <!-- Filters & Search -->
-          <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-            <div class="flex items-center gap-1.5 flex-wrap">
-              <button
-                v-for="st in [
-                  { id: 'semua', label: 'Semua Siswa' },
-                  { id: 'selesai', label: '🟢 Selesai' },
-                  { id: 'sedang_membaca', label: '🟡 Sedang Baca' },
-                  { id: 'belum_baca', label: '⚪ Belum Buka' }
-                ]"
-                :key="st.id"
-                @click="monitoringStatusFilter = st.id"
-                class="px-3 py-1.5 rounded-xl text-xs font-bold border transition"
-                :class="monitoringStatusFilter === st.id
-                  ? 'bg-cyan-500 text-white border-cyan-400 shadow'
-                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'"
-              >
-                {{ st.label }}
-              </button>
-            </div>
-
-            <input
-              v-model="monitoringSearch"
-              type="text"
-              placeholder="Cari nama / NIS siswa..."
-              class="w-full sm:w-64 bg-slate-950 border border-white/15 focus:border-cyan-400 rounded-xl px-3.5 py-1.5 text-xs text-white placeholder-slate-500"
-            />
-          </div>
-
-          <!-- Student List Table -->
-          <div class="rounded-2xl border border-white/10 overflow-hidden bg-slate-950/60">
-            <table class="w-full text-left text-xs">
-              <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold border-b border-white/10">
-                <tr>
-                  <th class="px-4 py-3 w-10">No</th>
-                  <th class="px-4 py-3">Nama Siswa</th>
-                  <th class="px-4 py-3">Status</th>
-                  <th class="px-4 py-3 w-40">Progres Baca</th>
-                  <th class="px-4 py-3 text-right">Terakhir Dibaca</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-white/5 font-medium">
-                <tr v-for="(s, idx) in filteredStudents" :key="s.id" class="hover:bg-white/5">
-                  <td class="px-4 py-3 font-mono text-slate-500">{{ idx + 1 }}</td>
-                  <td class="px-4 py-3">
-                    <div class="font-bold text-white">{{ s.nama }}</div>
-                    <div class="text-[10px] text-slate-400 font-mono">{{ s.nis }}</div>
-                  </td>
-                  <td class="px-4 py-3">
-                    <span v-if="s.status === 'selesai'" class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      🟢 Selesai
-                    </span>
-                    <span v-else-if="s.status === 'sedang_membaca'" class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      🟡 Sedang Baca
-                    </span>
-                    <span v-else class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-white/10">
-                      ⚪ Belum Buka
-                    </span>
-                  </td>
-                  <td class="px-4 py-3">
-                    <div class="flex items-center gap-2">
-                      <div class="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
-                        <div
-                          class="h-full transition-all duration-300"
-                          :class="s.status === 'selesai' ? 'bg-emerald-400' : (s.progressPersen > 0 ? 'bg-amber-400' : 'bg-transparent')"
-                          :style="{ width: (s.progressPersen || 0) + '%' }"
-                        ></div>
-                      </div>
-                      <span class="font-mono text-[10px] font-bold text-slate-300 w-8 text-right">
-                        {{ s.progressPersen || 0 }}%
-                      </span>
-                    </div>
-                  </td>
-                  <td class="px-4 py-3 text-right text-[11px] text-slate-400 font-mono">
-                    {{ s.terakhirDibaca || '-' }}
-                  </td>
-                </tr>
-
-                <tr v-if="filteredStudents.length === 0">
-                  <td colspan="5" class="px-4 py-8 text-center text-slate-500">
-                    Tidak ditemukan data siswa untuk filter yang dipilih.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
           </div>
         </div>
       </div>

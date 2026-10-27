@@ -793,4 +793,31 @@ class ComprehensiveInputAuditTest extends TestCase
             ->where('bankSoal.judul', 'Bank Soal Uji Render Import')
         );
     }
+
+    public function test_guru_can_render_materi_monitoring_page(): void
+    {
+        $kelas = \App\Models\Kelas::first();
+        $mapel = \App\Models\MataPelajaran::first();
+
+        $materi = \App\Models\Materi::create([
+            'guru_id' => $this->guru->id,
+            'kelas_id' => $kelas->id,
+            'mata_pelajaran_id' => $mapel->id,
+            'judul' => 'Materi Uji Monitoring Page',
+            'tipe' => 'slider',
+            'is_published' => true,
+        ]);
+
+        $response = $this->actingAs($this->guruUser)->get(route('guru.materi.monitoring', $materi->id));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Guru/MateriMonitoringPage')
+            ->has('materi')
+            ->has('summary')
+            ->has('students')
+            ->where('materi.id', $materi->id)
+            ->where('materi.judul', 'Materi Uji Monitoring Page')
+        );
+    }
 }

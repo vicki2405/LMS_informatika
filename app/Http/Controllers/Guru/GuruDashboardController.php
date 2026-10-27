@@ -1357,7 +1357,7 @@ HTML;
     /**
      * Get monitoring read status for all students in the material's class.
      */
-    public function getMateriMonitoring(Request $request, int $id): JsonResponse
+    public function getMateriMonitoring(Request $request, int $id): Response|JsonResponse
     {
         $materi = Materi::with(['kelas', 'mapel', 'cbtJadwal', 'reads.siswa'])->findOrFail($id);
 
@@ -1391,7 +1391,7 @@ HTML;
         $belumBukaCount = max(0, $totalSiswa - $totalRead);
         $persentase = $totalSiswa > 0 ? round(($selesaiCount / $totalSiswa) * 100) : 0;
 
-        return response()->json([
+        $payload = [
             'materi' => [
                 'id' => $materi->id,
                 'judul' => $materi->judul,
@@ -1415,6 +1415,12 @@ HTML;
             'persentase' => $persentase,
             'students' => $siswaStatusList,
             'siswaList' => $siswaStatusList,
-        ]);
+        ];
+
+        if ($request->wantsJson() && ! $request->header('X-Inertia')) {
+            return response()->json($payload);
+        }
+
+        return Inertia::render('Guru/MateriMonitoringPage', $payload);
     }
 }
