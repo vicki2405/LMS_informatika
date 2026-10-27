@@ -121,6 +121,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/cbt/soal/{id}', [GuruCbtController::class, 'deleteSoal'])->name('cbt.soal.delete');
         Route::post('/cbt/soal/update-all-bobot', [GuruCbtController::class, 'updateAllBobot'])->name('cbt.soal.update-all-bobot');
         Route::post('/cbt/soal/import-bulk', [GuruCbtController::class, 'importBulkSoal'])->name('cbt.soal.import-bulk');
+        Route::get('/cbt/bank-soal/{bankSoalId}/import', [GuruCbtController::class, 'renderImportPage'])->name('cbt.bank-soal.import-page');
         Route::get('/cbt/jadwal/create', [GuruCbtController::class, 'createJadwal'])->name('cbt.jadwal.create');
         Route::get('/cbt/jadwal/{id}/edit', [GuruCbtController::class, 'editJadwal'])->name('cbt.jadwal.edit');
         Route::post('/cbt/jadwal/store', [GuruCbtController::class, 'storeJadwal'])->name('cbt.jadwal.store');

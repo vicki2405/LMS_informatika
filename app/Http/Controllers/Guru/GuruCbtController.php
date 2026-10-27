@@ -530,6 +530,46 @@ class GuruCbtController extends Controller
     }
 
     /**
+     * Render Dedicated Page: Import Butir Soal CBT Massal (Word / CSV).
+     */
+    public function renderImportPage(int $bankSoalId, Request $request): Response
+    {
+        $guru = $this->resolveGuru($request);
+        $guruId = $guru?->id;
+
+        $bankSoal = CbtBankSoal::query()
+            ->with([
+                'jurusan:id,kode,nama',
+                'kelas:id,nama_kelas,tingkat',
+                'mataPelajaran:id,kode,nama',
+            ])
+            ->findOrFail($bankSoalId);
+
+        $user = $request->user();
+        if ($guruId && ! $user->hasRole('admin')) {
+            if ($bankSoal->guru_id && $bankSoal->guru_id !== $guruId) {
+                abort(403, 'Akses ditolak: Anda tidak memiliki izin untuk mengelola bank soal ini.');
+            }
+        }
+
+        $existingQuestionsCount = CbtSoal::where('bank_soal_id', $bankSoalId)->count();
+
+        return Inertia::render('Guru/CbtImportSoalPage', [
+            'bankSoal' => [
+                'id' => $bankSoal->id,
+                'kode' => $bankSoal->kode,
+                'judul' => $bankSoal->judul,
+                'tingkat' => $bankSoal->tingkat,
+                'jurusan' => $bankSoal->jurusan?->nama,
+                'jurusanKode' => $bankSoal->jurusan?->kode,
+                'kelas' => $bankSoal->kelas?->nama_kelas,
+                'mataPelajaran' => $bankSoal->mataPelajaran?->nama,
+                'existingCount' => $existingQuestionsCount,
+            ],
+        ]);
+    }
+
+    /**
      * Bulk import CBT questions (from Word parser or CSV).
      */
     public function importBulkSoal(Request $request): RedirectResponse
@@ -618,7 +658,11 @@ class GuruCbtController extends Controller
         });
 
         $count = count($soalsInput);
-        return redirect()->back()->with('message', "Berhasil mengimpor {$count} butir soal ke dalam Bank Soal!");
+        $redirectTo = $request->input('redirect_to');
+        if ($redirectTo) {
+            return redirect($redirectTo)->with('message', "Berhasil mengimpor {$count} butir soal ke dalam Bank Soal!");
+        }
+        return redirect()->to(route('guru.dashboard') . '?tab=cbt-bank-soal')->with('message', "Berhasil mengimpor {$count} butir soal ke dalam Bank Soal!");
     }
 
     /**

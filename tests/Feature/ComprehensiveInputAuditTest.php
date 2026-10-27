@@ -723,4 +723,74 @@ class ComprehensiveInputAuditTest extends TestCase
         $this->assertEquals(90.00, $found['nilai']);
         $this->assertEquals('Ujian Akhir Yang Dihapus', $found['judulUjian']);
     }
+
+    public function test_guru_can_import_bulk_20_soal_into_cbt_bank_soal(): void
+    {
+        $bank = \App\Models\CbtBankSoal::create([
+            'guru_id' => $this->guru->id,
+            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'judul' => 'Bank Soal Ujian 20 Soal',
+            'kode' => 'BANK-20',
+            'tingkat' => 'X',
+            'total_soal' => 0,
+        ]);
+
+        $soals = [];
+        for ($i = 1; $i <= 20; $i++) {
+            $is4Options = ($i % 2 === 0);
+            $soals[] = [
+                'pertanyaan' => "Pertanyaan ke-{$i}: Berapakah hasil dari {$i} + 10?",
+                'opsi_a' => "Jawaban A untuk nomor {$i}",
+                'opsi_b' => "Jawaban B untuk nomor {$i}",
+                'opsi_c' => "Jawaban C untuk nomor {$i}",
+                'opsi_d' => "Jawaban D untuk nomor {$i}",
+                'opsi_e' => $is4Options ? '-' : "Jawaban E untuk nomor {$i}",
+                'kunci_jawaban' => ['A', 'B', 'C', 'D'][$i % 4],
+                'bobot' => '2,5',
+                'posisi_media_soal' => 'bawah',
+            ];
+        }
+
+        $response = $this->actingAs($this->guruUser)->post(route('guru.cbt.soal.import-bulk'), [
+            'bank_soal_id' => $bank->id,
+            'soals' => $soals,
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $response->assertRedirect();
+
+        // Pastikan ke-20 soal tersimpan lengkap di database
+        $this->assertEquals(20, \App\Models\CbtSoal::where('bank_soal_id', $bank->id)->count());
+
+        $firstSoal = \App\Models\CbtSoal::where('bank_soal_id', $bank->id)->where('nomor_urut', 1)->first();
+        $this->assertNotNull($firstSoal);
+        $this->assertEquals('Pertanyaan ke-1: Berapakah hasil dari 1 + 10?', $firstSoal->pertanyaan);
+        $this->assertEquals(2.5, $firstSoal->bobot);
+
+        $twentiethSoal = \App\Models\CbtSoal::where('bank_soal_id', $bank->id)->where('nomor_urut', 20)->first();
+        $this->assertNotNull($twentiethSoal);
+        $this->assertEquals('-', $twentiethSoal->opsi_e);
+    }
+
+    public function test_guru_can_render_cbt_bank_soal_import_page(): void
+    {
+        $bank = \App\Models\CbtBankSoal::create([
+            'guru_id' => $this->guru->id,
+            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'judul' => 'Bank Soal Uji Render Import',
+            'kode' => 'BANK-RENDER',
+            'tingkat' => 'XI',
+            'total_soal' => 0,
+        ]);
+
+        $response = $this->actingAs($this->guruUser)->get(route('guru.cbt.bank-soal.import-page', $bank->id));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Guru/CbtImportSoalPage')
+            ->has('bankSoal')
+            ->where('bankSoal.id', $bank->id)
+            ->where('bankSoal.judul', 'Bank Soal Uji Render Import')
+        );
+    }
 }

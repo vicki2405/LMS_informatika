@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 import { confirmDelete, showSuccessAlert, showToast } from '@/Utils/sweetalert';
 
@@ -102,28 +102,7 @@ const previewLargeImageUrl = ref(null);
 const bulkBobotInput = ref('2,5');
 const isSubmittingBulkBobot = ref(false);
 
-// Import Soal Massal State
-const showImportModal = ref(false);
-const importTab = ref('word'); // 'word' | 'csv'
-const rawImportText = ref('');
-const importDefaultBobot = ref('2,0');
-const parsedQuestions = ref([]);
-const isSubmittingImport = ref(false);
-const importSearchQuery = ref('');
-
-const filteredParsedQuestions = computed(() => {
-  if (!importSearchQuery.value.trim()) return parsedQuestions.value;
-  const q = importSearchQuery.value.toLowerCase();
-  return parsedQuestions.value.filter((item) => {
-    return item.pertanyaan.toLowerCase().includes(q) ||
-      String(item.nomor_urut).includes(q) ||
-      item.opsi_a.toLowerCase().includes(q) ||
-      item.opsi_b.toLowerCase().includes(q) ||
-      item.opsi_c.toLowerCase().includes(q) ||
-      item.opsi_d.toLowerCase().includes(q) ||
-      (item.opsi_e && item.opsi_e.toLowerCase().includes(q));
-  });
-});
+// Smart Import is handled on dedicated page CbtImportSoalPage.vue
 
 // Active Bank Soal computed dynamically from props so it updates instantly
 const activeBankSoal = computed(() => {
@@ -247,11 +226,46 @@ function openKelolaSoal(b) {
   currentView.value = 'editor_soal';
   mobileStudioTab.value = 'form';
   resetSoalFormToNew();
+  if (typeof window !== 'undefined') {
+    const url = new URL(window.location.href);
+    url.searchParams.set('bank_id', String(b.id));
+    window.history.replaceState({}, '', url.toString());
+  }
 }
 
 function backToBankList() {
   currentView.value = 'bank_list';
+  activeBankSoalId.value = null;
+  if (typeof window !== 'undefined') {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('bank_id');
+    window.history.replaceState({}, '', url.toString());
+  }
 }
+
+function checkUrlForActiveBank() {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(window.location.search);
+  const bankIdParam = params.get('bank_id');
+  if (bankIdParam) {
+    const targetId = String(bankIdParam);
+    const foundBank = props.bankSoalList.find(b => String(b.id) === targetId);
+    if (foundBank && (String(activeBankSoalId.value) !== targetId || currentView.value !== 'editor_soal')) {
+      activeBankSoalId.value = foundBank.id;
+      currentView.value = 'editor_soal';
+      mobileStudioTab.value = 'list';
+      resetSoalFormToNew();
+    }
+  }
+}
+
+onMounted(() => {
+  checkUrlForActiveBank();
+});
+
+watch(() => props.bankSoalList, () => {
+  checkUrlForActiveBank();
+}, { immediate: true });
 
 function resetSoalFormToNew() {
   isEditingSoal.value = false;
@@ -747,444 +761,14 @@ function deleteSoal(id) {
   });
 }
 
-// --- SMART IMPORT METHODS (WORD & CSV) ---
+// --- NAVIGATION TO DEDICATED IMPORT PAGE ---
 
-function openImportModal() {
-  importTab.value = 'word';
-  importDefaultBobot.value = bulkBobotInput.value || '2,0';
-  rawImportText.value = '';
-  parsedQuestions.value = [];
-  importSearchQuery.value = '';
-  isSubmittingImport.value = false;
-  showImportModal.value = true;
+function navigateToImportPage(bankSoalId) {
+  const id = bankSoalId || activeBankSoalId.value;
+  if (!id) return;
+  router.visit(route('guru.cbt.bank-soal.import-page', id));
 }
 
-function loadSampleWordText() {
-  rawImportText.value = `1. Komponen perangkat keras komputer yang berfungsi sebagai otak pemroses data utama adalah...
-A. Random Access Memory (RAM)
-B. Central Processing Unit (CPU)
-C. Hard Disk Drive (HDD)
-D. Power Supply Unit (PSU)
-E. Video Graphics Array (VGA)
-Kunci: B
-
-2. Protokol jaringan yang digunakan untuk mentransfer halaman web secara aman dengan enkripsi SSL/TLS adalah...
-A. HTTP
-B. FTP
-C. HTTPS
-D. SMTP
-E. Telnet
-Kunci: C
-
-3. Topologi jaringan komputer di mana setiap workstation terhubung langsung ke switch atau konsentrator pusat disebut...
-A. Topologi Bus
-B. Topologi Star
-C. Topologi Ring
-D. Topologi Mesh
-E. Topologi Tree
-Kunci: B`;
-  parseRawImportText();
-}
-
-function parseRawImportText() {
-  if (!rawImportText.value.trim()) {
-    parsedQuestions.value = [];
-    return;
-  }
-  const defaultBobot = importDefaultBobot.value ? String(importDefaultBobot.value).trim() : '2,0';
-  parsedQuestions.value = parseQuestionsFromText(rawImportText.value, defaultBobot);
-  if (parsedQuestions.value.length === 0) {
-    showToast('Tidak ada butir soal yang berhasil diekstrak. Pastikan teks memuat nomor soal dan opsi A-E.', 'warning');
-  } else {
-    showToast(`${parsedQuestions.value.length} butir soal berhasil diekstrak!`, 'success');
-  }
-}
-
-function parseQuestionsFromText(text, defaultBobot = '2,0') {
-  if (!text || !text.trim()) return [];
-
-  const rawLines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-  const items = [];
-  let currentItem = null;
-  const questionStartRegex = /^\s*(?:soal\s*(?:no\.?)?\s*)?(?:\(?(\d+)\s*[-.)\:]|\((\d+)\))\s*(.*)$/i;
-  const optionRegex = /^\s*(?:\(?([A-Ea-e])\s*[-.)\:]|\(([A-Ea-e])\))\s*(.*)$/;
-  const keyRegex = /^\s*(?:kunci(?:\s+jawaban)?|jawaban|answer|ans)[\s:\-=]+(?:opsi\s*|pilihan\s*)?\(?([A-Ea-e])\)?/i;
-
-  for (let i = 0; i < rawLines.length; i++) {
-    const line = rawLines[i].trim();
-    if (!line) continue;
-
-    // Check Answer Key
-    const keyMatch = line.match(keyRegex);
-    if (keyMatch && currentItem) {
-      currentItem.kunci_jawaban = keyMatch[1].toUpperCase();
-      currentItem.is_key_detected = true;
-      continue;
-    }
-
-    // Check Option
-    const optMatch = line.match(optionRegex);
-    if (optMatch && currentItem && (currentItem.pertanyaan || currentItem.hasStartedOptions)) {
-      const optLetter = (optMatch[1] || optMatch[2]).toUpperCase();
-      const optText = optMatch[3] ? optMatch[3].trim() : '';
-      const keyMap = { 'A': 'opsi_a', 'B': 'opsi_b', 'C': 'opsi_c', 'D': 'opsi_d', 'E': 'opsi_e' };
-      if (keyMap[optLetter]) {
-        currentItem[keyMap[optLetter]] = optText;
-        currentItem.hasStartedOptions = true;
-        continue;
-      }
-    }
-
-    // Check Question Start
-    const qMatch = line.match(questionStartRegex);
-    if (qMatch) {
-      if (currentItem && currentItem.pertanyaan) {
-        items.push(finalizeParsedItem(currentItem, defaultBobot));
-      }
-      currentItem = {
-        nomor_urut: items.length + 1,
-        pertanyaan: qMatch[2] ? qMatch[2].trim() : '',
-        opsi_a: '',
-        opsi_b: '',
-        opsi_c: '',
-        opsi_d: '',
-        opsi_e: '',
-        kunci_jawaban: '',
-        is_key_detected: false,
-        bobot: defaultBobot,
-        hasStartedOptions: false,
-      };
-      continue;
-    }
-
-    // Content continuation
-    if (currentItem) {
-      if (!currentItem.hasStartedOptions) {
-        currentItem.pertanyaan += (currentItem.pertanyaan ? '\n' : '') + line;
-      } else {
-        if (currentItem.opsi_e) currentItem.opsi_e += ' ' + line;
-        else if (currentItem.opsi_d) currentItem.opsi_d += ' ' + line;
-        else if (currentItem.opsi_c) currentItem.opsi_c += ' ' + line;
-        else if (currentItem.opsi_b) currentItem.opsi_b += ' ' + line;
-        else if (currentItem.opsi_a) currentItem.opsi_a += ' ' + line;
-      }
-    } else {
-      currentItem = {
-        nomor_urut: 1,
-        pertanyaan: line,
-        opsi_a: '',
-        opsi_b: '',
-        opsi_c: '',
-        opsi_d: '',
-        opsi_e: '',
-        kunci_jawaban: '',
-        is_key_detected: false,
-        bobot: defaultBobot,
-        hasStartedOptions: false,
-      };
-    }
-  }
-
-  if (currentItem && currentItem.pertanyaan) {
-    items.push(finalizeParsedItem(currentItem, defaultBobot));
-  }
-
-  return items.map((item, idx) => ({
-    ...item,
-    nomor_urut: idx + 1,
-  }));
-}
-
-function finalizeParsedItem(item, defaultBobot) {
-  delete item.hasStartedOptions;
-  const keyDetected = Boolean(item.kunci_jawaban);
-  const hasImageTag = Boolean(item.pertanyaan && item.pertanyaan.match(/\[(?:gambar|img|image)\]|\((?:gambar|img|image)\)/i));
-  return {
-    ...item,
-    kunci_jawaban: keyDetected ? item.kunci_jawaban : 'A',
-    is_key_detected: keyDetected,
-    bobot: item.bobot || defaultBobot,
-    has_image_tag: hasImageTag,
-    gambar_base64: null,
-    gambar_preview: null,
-    posisi_media_soal: 'bawah',
-  };
-}
-
-function triggerParsedImageUpload(idx) {
-  const el = document.getElementById('parsed-img-input-' + idx);
-  if (el) el.click();
-}
-
-function handleParsedImageSelected(idx, e) {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  if (!file.type.startsWith('image/')) {
-    showToast('File harus berupa gambar (JPG, PNG, WEBP)', 'error');
-    return;
-  }
-  if (file.size > 10 * 1024 * 1024) {
-    showToast('Ukuran gambar maksimal 10MB', 'error');
-    return;
-  }
-  attachImageToParsedItem(idx, file);
-  e.target.value = '';
-}
-
-function attachImageToParsedItem(idx, file) {
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    if (parsedQuestions.value[idx]) {
-      parsedQuestions.value[idx].gambar_base64 = e.target.result;
-      parsedQuestions.value[idx].gambar_preview = e.target.result;
-      showToast(`Gambar berhasil dipasang pada Soal #${parsedQuestions.value[idx].nomor_urut}!`, 'success');
-    }
-  };
-  reader.readAsDataURL(file);
-}
-
-function removeParsedImage(idx) {
-  if (parsedQuestions.value[idx]) {
-    parsedQuestions.value[idx].gambar_base64 = null;
-    parsedQuestions.value[idx].gambar_preview = null;
-  }
-}
-
-function handlePasteOnParsedItem(idx, e) {
-  const clipboardData = e.clipboardData || window.clipboardData;
-  if (!clipboardData) return;
-  const items = clipboardData.items;
-  if (!items) return;
-
-  for (let i = 0; i < items.length; i++) {
-    if (items[i].type && items[i].type.startsWith('image/')) {
-      const file = items[i].getAsFile();
-      if (file) {
-        if (file.size > 10 * 1024 * 1024) {
-          showToast('Ukuran gambar dari clipboard melebihi 10MB', 'error');
-          return;
-        }
-        attachImageToParsedItem(idx, file);
-        e.preventDefault();
-        break;
-      }
-    }
-  }
-}
-
-function setParsedKey(itemIndex, letter) {
-  if (parsedQuestions.value[itemIndex]) {
-    parsedQuestions.value[itemIndex].kunci_jawaban = letter;
-    parsedQuestions.value[itemIndex].is_key_detected = true;
-  }
-}
-
-function removeParsedItem(itemIndex) {
-  parsedQuestions.value.splice(itemIndex, 1);
-  parsedQuestions.value.forEach((item, idx) => {
-    item.nomor_urut = idx + 1;
-  });
-}
-
-function applyBulkBobotToParsed() {
-  const cleanVal = importDefaultBobot.value ? String(importDefaultBobot.value).trim() : '2,0';
-  parsedQuestions.value.forEach((item) => {
-    item.bobot = cleanVal;
-  });
-  showToast(`Bobot seluruh soal pratinjau diubah menjadi ${cleanVal}`, 'info');
-}
-
-// Download CSV Template
-function downloadCsvTemplate() {
-  const headers = ['No', 'Pertanyaan', 'Opsi A', 'Opsi B', 'Opsi C', 'Opsi D', 'Opsi E', 'Kunci Jawaban', 'Bobot'];
-  const sampleRows = [
-    ['1', 'Ibukota negara Indonesia saat ini adalah...', 'Jakarta', 'Bandung', 'Surabaya', 'Medan', 'Semarang', 'A', '2.0'],
-    ['2', 'Organ pernapasan utama pada manusia adalah...', 'Jantung', 'Paru-paru', 'Hati', 'Ginjal', 'Lambung', 'B', '2.0'],
-    ['3', 'Satuan besaran arus listrik menurut SI adalah...', 'Volt', 'Watt', 'Ampere', 'Ohm', 'Joule', 'C', '2.0'],
-  ];
-
-  const csvContent = '\uFEFF' + [
-    headers.map(h => `"${h}"`).join(','),
-    ...sampleRows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
-  ].join('\r\n');
-
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.setAttribute('download', 'Template_Bank_Soal_CBT.csv');
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
-
-// Detect Delimiter (Comma, Semicolon, or Tab)
-function detectDelimiter(firstLine) {
-  const countComma = (firstLine.match(/,/g) || []).length;
-  const countSemicolon = (firstLine.match(/;/g) || []).length;
-  const countTab = (firstLine.match(/\t/g) || []).length;
-  if (countSemicolon > countComma && countSemicolon > countTab) return ';';
-  if (countTab > countComma && countTab > countSemicolon) return '\t';
-  return ',';
-}
-
-// Handle CSV File Upload
-function handleCsvUpload(e) {
-  const file = e.target.files?.[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = (evt) => {
-    const text = evt.target.result;
-    parseCsvText(text);
-  };
-  reader.readAsText(file);
-  e.target.value = ''; // Reset so the same file can be re-selected if edited
-}
-
-function parseCsvText(text) {
-  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-  if (lines.length < 2) {
-    showToast('File CSV kosong atau tidak memiliki baris data.', 'error');
-    return;
-  }
-
-  const delimiter = detectDelimiter(lines[0]);
-  const headerCells = parseCsvLine(lines[0], delimiter).map(c => c.toLowerCase().trim());
-
-  // Smart column mapping based on header text
-  let colQ = headerCells.findIndex(c => /pertanyaan|soal|question/i.test(c));
-  let colA = headerCells.findIndex(c => /opsi\s*a|pilihan\s*a|option\s*a/i.test(c));
-  let colB = headerCells.findIndex(c => /opsi\s*b|pilihan\s*b|option\s*b/i.test(c));
-  let colC = headerCells.findIndex(c => /opsi\s*c|pilihan\s*c|option\s*c/i.test(c));
-  let colD = headerCells.findIndex(c => /opsi\s*d|pilihan\s*d|option\s*d/i.test(c));
-  let colE = headerCells.findIndex(c => /opsi\s*e|pilihan\s*e|option\s*e/i.test(c));
-  let colKey = headerCells.findIndex(c => /kunci|jawaban|answer|key/i.test(c));
-  let colBobot = headerCells.findIndex(c => /bobot|poin|nilai|score/i.test(c));
-
-  // Intelligent fallback positions if headers don't match exactly
-  if (colQ === -1) colQ = headerCells.length > 8 ? 1 : 0;
-  if (colA === -1) colA = colQ + 1;
-  if (colB === -1) colB = colQ + 2;
-  if (colC === -1) colC = colQ + 3;
-  if (colD === -1) colD = colQ + 4;
-  if (colE === -1) colE = colQ + 5;
-  if (colKey === -1) colKey = colQ + 6;
-  if (colBobot === -1) colBobot = colQ + 7;
-
-  const defaultBobot = importDefaultBobot.value ? String(importDefaultBobot.value).trim() : '2,0';
-  const items = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-
-    const cells = parseCsvLine(line, delimiter);
-    if (cells.length > colQ && cells[colQ] && cells[colQ].trim()) {
-      const detectedKey = (colKey !== -1 && cells[colKey]) ? cells[colKey].toUpperCase().trim() : '';
-      const bobotRaw = (colBobot !== -1 && cells[colBobot]) ? String(cells[colBobot]).trim() : defaultBobot;
-
-      items.push({
-        nomor_urut: items.length + 1,
-        pertanyaan: cells[colQ] || `Soal #${items.length + 1}`,
-        opsi_a: cells[colA] || '',
-        opsi_b: cells[colB] || '',
-        opsi_c: cells[colC] || '',
-        opsi_d: cells[colD] || '',
-        opsi_e: (colE !== -1 && cells[colE] && cells[colE] !== '-') ? cells[colE] : '-',
-        kunci_jawaban: detectedKey || 'A',
-        is_key_detected: Boolean(detectedKey),
-        bobot: bobotRaw || defaultBobot,
-      });
-    }
-  }
-
-  if (items.length > 0) {
-    parsedQuestions.value = items;
-    showToast(`Berhasil membaca ${items.length} butir soal dari CSV!`, 'success');
-  } else {
-    showToast('Gagal mengekstrak baris soal dari CSV. Pastikan kolom sesuai template.', 'error');
-  }
-}
-
-function parseCsvLine(line, delimiter = ',') {
-  const result = [];
-  let current = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === delimiter && !inQuotes) {
-      result.push(current.trim());
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  result.push(current.trim());
-  return result;
-}
-
-function submitBulkImport() {
-  if (parsedQuestions.value.length === 0) {
-    showToast('Belum ada butir soal yang diekstrak untuk diimpor.', 'warning');
-    return;
-  }
-
-  for (let i = 0; i < parsedQuestions.value.length; i++) {
-    const q = parsedQuestions.value[i];
-    if (!q.pertanyaan.trim()) {
-      showToast(`Soal #${i + 1} tidak memiliki teks pertanyaan!`, 'error');
-      return;
-    }
-    if (!q.opsi_a.trim() || !q.opsi_b.trim() || !q.opsi_c.trim() || !q.opsi_d.trim()) {
-      showToast(`Soal #${i + 1} belum memiliki opsi lengkap (A, B, C, D wajib diisi)!`, 'error');
-      return;
-    }
-  }
-
-  isSubmittingImport.value = true;
-  const payload = {
-    bank_soal_id: activeBankSoalId.value,
-    soals: parsedQuestions.value.map(q => ({
-      pertanyaan: q.pertanyaan,
-      opsi_a: q.opsi_a,
-      opsi_b: q.opsi_b,
-      opsi_c: q.opsi_c,
-      opsi_d: q.opsi_d,
-      opsi_e: q.opsi_e || '-',
-      kunci_jawaban: q.kunci_jawaban || 'A',
-      bobot: String(q.bobot || importDefaultBobot.value || '2,0').replace(',', '.'),
-      posisi_media_soal: q.posisi_media_soal || 'bawah',
-      gambar_base64: q.gambar_base64 || null,
-    })),
-  };
-
-  router.post(route('guru.cbt.soal.import-bulk'), payload, {
-    preserveScroll: true,
-    onSuccess: () => {
-      isSubmittingImport.value = false;
-      showImportModal.value = false;
-      showSuccessAlert(
-        'Import Soal Berhasil!',
-        `Sebanyak ${payload.soals.length} butir soal telah berhasil ditambahkan ke dalam Bank Soal.`
-      );
-      resetSoalFormToNew();
-    },
-    onError: () => {
-      isSubmittingImport.value = false;
-      showToast('Gagal mengimpor soal. Periksa kembali format data.', 'error');
-    },
-    onFinish: () => {
-      isSubmittingImport.value = false;
-    }
-  });
-}
 </script>
 
 <template>
@@ -1307,6 +891,7 @@ function submitBulkImport() {
                     </svg>
                     <span>Input &amp; Kelola Soal</span>
                   </button>
+
                   <button
                     @click="openEditBankModal(b)"
                     title="Edit Paket"
@@ -1366,6 +951,7 @@ function submitBulkImport() {
               </svg>
               <span>Input &amp; Kelola Soal</span>
             </button>
+
             <button
               @click="openEditBankModal(b)"
               class="p-2.5 rounded-xl bg-white/5 text-gray-300 border border-white/10 min-h-[40px] min-w-[40px] flex items-center justify-center"
@@ -1427,7 +1013,7 @@ function submitBulkImport() {
           <!-- Quick Actions on Header -->
           <div class="flex items-center gap-2.5 shrink-0 flex-wrap">
             <button
-              @click="openImportModal"
+              @click="navigateToImportPage(activeBankSoal.id)"
               class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-emerald-500/20 transition-all active:scale-95 min-h-[42px]"
               title="Import puluhan butir soal sekaligus dari dokumen Word atau file CSV"
             >
@@ -2263,13 +1849,7 @@ function submitBulkImport() {
               </div>
 
               <div class="flex items-center gap-1.5">
-                <button
-                  @click="openImportModal"
-                  class="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 text-xs font-black hover:bg-emerald-500/30 transition-colors flex items-center gap-1"
-                  title="Import puluhan butir soal dari Word atau file CSV"
-                >
-                  <span>📥 Import</span>
-                </button>
+
                 <button
                   @click="resetSoalFormToNew"
                   class="px-3 py-1.5 rounded-xl bg-cyan-500/20 text-cyan-300 text-xs font-black hover:bg-cyan-500/30 transition-colors"
@@ -2555,383 +2135,6 @@ function submitBulkImport() {
             </button>
           </div>
         </form>
-      </div>
-    </div>
-
-    <!-- ========================================================================= -->
-    <!-- MODAL SMART IMPORT SOAL MASSAL (WORD COPY-PASTE & CSV TEMPLATE)           -->
-    <!-- ========================================================================= -->
-    <div v-if="showImportModal" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
-      <div class="w-full max-w-4xl rounded-3xl bg-slate-900 border border-cyan-500/30 p-5 sm:p-7 space-y-6 shadow-2xl my-6 max-h-[92vh] flex flex-col">
-        
-        <!-- Modal Header -->
-        <div class="flex items-start justify-between border-b border-white/10 pb-4 shrink-0">
-          <div>
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-black uppercase tracking-wider mb-1.5">
-              <span>⚡ Smart Bulk Question Importer</span>
-            </div>
-            <h3 class="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
-              <span>Import Butir Soal CBT Massal</span>
-            </h3>
-            <p class="text-xs sm:text-sm text-gray-400 mt-0.5">
-              Paket Tujuan: <strong class="text-cyan-300">{{ activeBankSoal?.judul }}</strong> ({{ activeBankSoal?.kode }})
-            </p>
-          </div>
-          <button
-            @click="showImportModal = false"
-            class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-          >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
-        </div>
-
-        <!-- Tab Switcher (Word Paste vs CSV Upload) -->
-        <div class="grid grid-cols-2 gap-2 bg-slate-950/60 p-1.5 rounded-2xl border border-white/10 shrink-0">
-          <button
-            type="button"
-            @click="importTab = 'word'"
-            :class="[
-              'py-2.5 px-4 text-xs sm:text-sm font-black rounded-xl transition-all flex items-center justify-center gap-2',
-              importTab === 'word'
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                : 'text-gray-400 hover:text-white'
-            ]"
-          >
-            <span>📋 Tempel Teks dari Word</span>
-            <span class="text-[10px] uppercase px-2 py-0.5 rounded-full bg-black/20 font-bold hidden sm:inline">Paling Cepat</span>
-          </button>
-          <button
-            type="button"
-            @click="importTab = 'csv'"
-            :class="[
-              'py-2.5 px-4 text-xs sm:text-sm font-black rounded-xl transition-all flex items-center justify-center gap-2',
-              importTab === 'csv'
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                : 'text-gray-400 hover:text-white'
-            ]"
-          >
-            <span>📊 Upload Template CSV</span>
-          </button>
-        </div>
-
-        <!-- Scrollable Modal Body -->
-        <div class="space-y-6 overflow-y-auto pr-1 custom-scrollbar flex-1">
-
-          <!-- TAB 1: WORD SMART TEXT PARSER -->
-          <div v-if="importTab === 'word'" class="space-y-4">
-            <!-- Instructions & Quick Sample -->
-            <div class="p-4 rounded-2xl bg-cyan-950/30 border border-cyan-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div class="space-y-1">
-                <p class="text-xs font-bold text-cyan-200 flex items-center gap-1.5">
-                  <span>💡 Cara Cepat Import dari Microsoft Word:</span>
-                </p>
-                <p class="text-[11px] text-gray-300 leading-relaxed">
-                  Buka file Word soal Anda, tekan <kbd class="px-1.5 py-0.5 rounded bg-white/10 font-mono text-cyan-300">Ctrl+A</kbd> lalu <kbd class="px-1.5 py-0.5 rounded bg-white/10 font-mono text-cyan-300">Ctrl+C</kbd>, kemudian tempel (<kbd class="px-1.5 py-0.5 rounded bg-white/10 font-mono text-cyan-300">Ctrl+V</kbd>) di kotak teks di bawah. Format didukung: <code class="text-cyan-300">1. Pertanyaan</code>, <code class="text-cyan-300">A. Opsi</code>, <code class="text-cyan-300">Kunci: B</code>, serta penanda <code class="text-amber-300">[gambar]</code> jika soal memiliki gambar/diagram.
-                </p>
-              </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  @click="loadSampleWordText"
-                  class="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-black transition-all"
-                >
-                  Contoh Format Word
-                </button>
-                <button
-                  v-if="rawImportText"
-                  type="button"
-                  @click="rawImportText = ''; parsedQuestions = []"
-                  class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-rose-400 text-xs font-bold transition-all"
-                >
-                  Bersihkan
-                </button>
-              </div>
-            </div>
-
-            <!-- Textarea Area -->
-            <div class="space-y-2">
-              <label class="block text-xs font-bold text-gray-300 uppercase tracking-wider">
-                Tempel Seluruh Teks Soal dari Word di Sini:
-              </label>
-              <textarea
-                v-model="rawImportText"
-                rows="8"
-                placeholder="Contoh:
-1. Apa fungsi utama RAM pada komputer?
-A. Penyimpanan data permanen
-B. Memori utama sementara berkecepatan tinggi
-C. Mengolah instruksi grafis
-D. Menyuplai daya
-E. Mencetak dokumen
-Kunci: B
-
-2. Protokol untuk transfer web aman adalah...
-A. HTTP
-B. HTTPS
-C. FTP
-D. SMTP
-E. Telnet
-Kunci: B"
-                class="w-full px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white font-mono text-xs sm:text-sm leading-relaxed placeholder-gray-500 focus:outline-none focus:border-cyan-400 custom-scrollbar"
-              ></textarea>
-            </div>
-
-            <!-- Parser Action Bar -->
-            <div class="p-3.5 rounded-2xl bg-white/[0.02] border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div class="flex items-center gap-2 w-full sm:w-auto">
-                <label class="text-xs font-bold text-gray-300 shrink-0">Bobot Default:</label>
-                <input
-                  v-model="importDefaultBobot"
-                  type="text"
-                  placeholder="Misal: 2,0"
-                  class="w-24 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white font-mono font-bold text-xs text-center focus:outline-none focus:border-cyan-400 min-h-[38px]"
-                />
-                <span class="text-xs text-gray-400">Poin / butir soal</span>
-              </div>
-
-              <button
-                type="button"
-                @click="parseRawImportText"
-                class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 font-black text-xs sm:text-sm shadow-md shadow-cyan-500/20 active:scale-95 transition-all min-h-[40px] flex items-center justify-center gap-2"
-              >
-                <span>⚡ Ekstrak &amp; Pratinjau Soal</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- TAB 2: CSV TEMPLATE UPLOAD -->
-          <div v-else-if="importTab === 'csv'" class="space-y-5">
-            <div class="p-5 rounded-2xl bg-indigo-950/30 border border-indigo-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div class="space-y-1">
-                <h4 class="text-sm font-black text-white flex items-center gap-2">
-                  <span>📥 Template Spreadsheet CSV</span>
-                </h4>
-                <p class="text-xs text-gray-300">
-                  Unduh format template CSV, isi baris pertanyaan dan opsi di Excel, lalu unggah kembali file tersebut di sini.
-                </p>
-              </div>
-              <button
-                type="button"
-                @click="downloadCsvTemplate"
-                class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs sm:text-sm shadow-md shadow-indigo-600/30 transition-all active:scale-95 min-h-[40px] flex items-center gap-2 shrink-0"
-              >
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                <span>Unduh Format CSV</span>
-              </button>
-            </div>
-
-            <!-- Upload Drop Area -->
-            <div class="relative border-2 border-dashed border-white/20 hover:border-cyan-400 rounded-3xl p-8 text-center transition-colors bg-white/[0.01]">
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                @change="handleCsvUpload"
-                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
-              <div class="space-y-3 pointer-events-none">
-                <div class="w-12 h-12 rounded-2xl bg-cyan-500/20 text-cyan-300 mx-auto flex items-center justify-center text-xl">
-                  📄
-                </div>
-                <div>
-                  <p class="text-sm font-black text-white">Klik atau Tarik File CSV ke Sini</p>
-                  <p class="text-xs text-gray-400 mt-0.5">Mendukung file .csv dari Excel atau Google Sheets</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- INTERACTIVE PREVIEW SECTION (WHEN QUESTIONS PARSED) -->
-          <div v-if="parsedQuestions.length > 0" class="space-y-4 pt-4 border-t border-white/10">
-            <!-- Preview Stat Banner -->
-            <div class="p-4 rounded-2xl bg-slate-950/80 border border-cyan-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-              <div class="flex items-center gap-3 flex-wrap">
-                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 font-black text-xs border border-emerald-500/30">
-                  <span>✅</span>
-                  <span>{{ parsedQuestions.length }} Butir Soal Terdeteksi</span>
-                </span>
-                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-purple-500/20 text-purple-300 font-black text-xs border border-purple-500/30">
-                  <span>🎯</span>
-                  <span>Total Estimasi {{ formatBobot(parsedQuestions.reduce((sum, q) => sum + (parseFloat(String(q.bobot).replace(',', '.')) || 0), 0)) }} Poin</span>
-                </span>
-              </div>
-
-              <!-- Quick Search inside preview -->
-              <div class="w-full md:w-64">
-                <input
-                  v-model="importSearchQuery"
-                  type="text"
-                  placeholder="Cari dalam hasil pratinjau..."
-                  class="w-full px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-cyan-400 min-h-[36px]"
-                />
-              </div>
-            </div>
-
-            <!-- Preview Questions Cards List -->
-            <div class="space-y-3 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
-              <div
-                v-for="(q, idx) in filteredParsedQuestions"
-                :key="idx"
-                @paste="handlePasteOnParsedItem(idx, $event)"
-                class="p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/10 transition-all space-y-3"
-              >
-                <div class="flex items-start justify-between gap-3">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <span class="w-7 h-7 rounded-xl bg-cyan-500/20 text-cyan-300 font-black text-xs flex items-center justify-center">
-                      #{{ q.nomor_urut }}
-                    </span>
-                    <span
-                      :class="[
-                        'px-2 py-0.5 rounded-full text-[10px] font-black border',
-                        q.is_key_detected
-                          ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-                          : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
-                      ]"
-                    >
-                      {{ q.is_key_detected ? '✓ Kunci: Opsi ' + q.kunci_jawaban : '⚠️ Kunci Otomatis (A) - Silakan Cek' }}
-                    </span>
-                    <span class="text-[11px] font-mono font-bold text-gray-400">
-                      {{ q.bobot }} Poin
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    @click="removeParsedItem(idx)"
-                    title="Hapus butir soal ini dari daftar import"
-                    class="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors"
-                  >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                  </button>
-                </div>
-
-                <!-- Teks Pertanyaan -->
-                <p class="text-xs font-semibold text-white whitespace-pre-line leading-relaxed">
-                  {{ q.pertanyaan }}
-                </p>
-
-                <!-- Indikator Tag [gambar] & Upload Gambar Soal pada Kartu Import -->
-                <div class="p-2.5 rounded-xl bg-slate-800/60 border border-white/10 space-y-2">
-                  <!-- Hidden file input for this parsed item -->
-                  <input
-                    :id="'parsed-img-input-' + idx"
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    class="hidden"
-                    @change="handleParsedImageSelected(idx, $event)"
-                  />
-
-                  <div class="flex flex-wrap items-center justify-between gap-2">
-                    <div class="flex items-center gap-2 flex-wrap">
-                      <span v-if="q.has_image_tag" class="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10.5px] font-black">
-                        🖼️ Tag [gambar] terdeteksi
-                      </span>
-                      <button
-                        type="button"
-                        @click="triggerParsedImageUpload(idx)"
-                        class="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition-all min-h-[32px] flex items-center gap-1.5"
-                      >
-                        <span>🖼️</span>
-                        <span>{{ q.gambar_preview ? 'Ganti Gambar' : '+ Unggah / Paste (Ctrl+V) Gambar' }}</span>
-                      </button>
-                    </div>
-
-                    <!-- Posisi Gambar Selector on Parsed Item -->
-                    <div v-if="q.gambar_preview" class="flex items-center gap-1 text-xs">
-                      <span class="text-[11px] text-gray-400 font-medium">Posisi:</span>
-                      <select
-                        v-model="q.posisi_media_soal"
-                        class="px-2 py-1 rounded-lg bg-slate-900 border border-white/20 text-white text-xs focus:outline-none focus:border-cyan-400"
-                      >
-                        <option value="bawah">⬇️ Di Bawah</option>
-                        <option value="atas">⬆️ Di Atas</option>
-                        <option value="samping">↔️ Di Samping</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <!-- Preview Attached Image on Parsed Question -->
-                  <div v-if="q.gambar_preview" class="flex items-center gap-3 pt-1 border-t border-white/5">
-                    <img
-                      :src="q.gambar_preview"
-                      alt="Gambar Soal Import"
-                      class="h-14 w-20 rounded-lg object-contain bg-black/40 border border-white/10 cursor-zoom-in hover:opacity-85"
-                      @click="openImageLightbox(q.gambar_preview)"
-                    />
-                    <div class="flex items-center gap-2">
-                      <span class="text-[11px] text-emerald-300 font-bold">✓ Gambar siap diimpor</span>
-                      <button
-                        type="button"
-                        @click="removeParsedImage(idx)"
-                        class="px-2 py-0.5 rounded-md bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-xs font-bold transition-colors"
-                      >
-                        ✕ Hapus
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Pilihan Opsi & Selector Kunci Cepat -->
-                <div class="space-y-1.5 pt-2 border-t border-white/5">
-                  <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
-                    Pilihan Jawaban (Klik huruf untuk menetapkan kunci):
-                  </div>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div
-                      v-for="opt in [
-                        { k: 'A', text: q.opsi_a },
-                        { k: 'B', text: q.opsi_b },
-                        { k: 'C', text: q.opsi_c },
-                        { k: 'D', text: q.opsi_d },
-                        { k: 'E', text: q.opsi_e },
-                      ]"
-                      :key="opt.k"
-                      @click="setParsedKey(idx, opt.k)"
-                      :class="[
-                        'px-2.5 py-1.5 rounded-xl border text-xs cursor-pointer transition-all flex items-center gap-2',
-                        q.kunci_jawaban === opt.k
-                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-200 font-bold ring-1 ring-emerald-500/30'
-                          : 'bg-white/[0.02] border-white/5 text-gray-300 hover:border-white/20'
-                      ]"
-                    >
-                      <span
-                        :class="[
-                          'w-5 h-5 rounded-lg text-[11px] font-black flex items-center justify-center shrink-0',
-                          q.kunci_jawaban === opt.k ? 'bg-emerald-500 text-slate-950' : 'bg-white/10 text-gray-400'
-                        ]"
-                      >
-                        {{ opt.k }}
-                      </span>
-                      <span class="truncate">{{ opt.text || '-' }}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        <!-- Modal Footer Actions -->
-        <div class="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
-          <button
-            type="button"
-            @click="showImportModal = false"
-            class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-xs sm:text-sm min-h-[42px]"
-          >
-            Tutup
-          </button>
-
-          <button
-            type="button"
-            @click="submitBulkImport"
-            :disabled="isSubmittingImport || parsedQuestions.length === 0"
-            class="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-emerald-500/20 active:scale-95 transition-all min-h-[42px] flex items-center justify-center gap-2"
-          >
-            <span v-if="isSubmittingImport" class="animate-spin">⏳</span>
-            <span>{{ isSubmittingImport ? 'Menyimpan Soal...' : `💾 Simpan Semua Soal ke Bank Soal (${parsedQuestions.length} Soal)` }}</span>
-          </button>
-        </div>
-
       </div>
     </div>
 
