@@ -8,9 +8,11 @@ const props = defineProps({
   materiList: { type: Array, default: () => [] },
   siswaList: { type: Array, default: () => [] },
   siswaObj: { type: Object, default: () => ({}) },
+  activeSiswa: { type: Object, default: () => null },
+  targetMateriId: { type: [Number, String], default: null },
 });
 
-const emit = defineEmits(['change-view']);
+const emit = defineEmits(['change-view', 'switch-siswa', 'start-cbt-with-token']);
 
 // 1. Shared Class Account Student Identity Management
 const activeSiswaId = ref(null);
@@ -33,6 +35,7 @@ onMounted(() => {
 });
 
 const activeSiswa = computed(() => {
+  if (props.activeSiswa) return props.activeSiswa;
   if (!activeSiswaId.value) return null;
   return props.siswaList.find(s => String(s.id) === String(activeSiswaId.value)) || null;
 });
@@ -47,6 +50,7 @@ function selectStudent(student) {
 }
 
 function switchStudent() {
+  emit('switch-siswa');
   studentSearchQuery.value = '';
   showIdentityModal.value = true;
 }
@@ -421,10 +425,43 @@ async function markCompleted() {
   }
 }
 
-function jumpToCbt() {
-  closeReader();
-  emit('change-view', 'cbt');
+const isCopiedToken = ref(false);
+
+function copyToken(token) {
+  if (!token) return;
+  if (navigator?.clipboard?.writeText) {
+    navigator.clipboard.writeText(token);
+    isCopiedToken.value = true;
+    showToast('Token CBT berhasil disalin: ' + token, 'success');
+    setTimeout(() => { isCopiedToken.value = false; }, 2500);
+  }
 }
+
+function jumpToCbtWithToken(cbtJadwal) {
+  closeReader();
+  emit('start-cbt-with-token', {
+    jadwalId: cbtJadwal.id,
+    token: cbtJadwal.token,
+  });
+}
+
+function jumpToCbt() {
+  if (activeMateri.value?.cbtJadwal) {
+    jumpToCbtWithToken(activeMateri.value.cbtJadwal);
+  } else {
+    closeReader();
+    emit('change-view', 'cbt');
+  }
+}
+
+watch(() => props.targetMateriId, (newId) => {
+  if (newId) {
+    const target = (props.materiList || []).find(m => String(m.id) === String(newId));
+    if (target) {
+      openMateri(target);
+    }
+  }
+}, { immediate: true });
 
 // Keyboard navigation (ArrowLeft, ArrowRight, Space, Escape)
 function handleKeyDown(e) {
@@ -972,22 +1009,58 @@ onUnmounted(() => {
               <div class="text-3xl">🎉</div>
               <h4 class="text-base sm:text-lg font-black text-white">Luar Biasa! Anda Telah Membaca Semua Slide</h4>
               <p class="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
-                Tuntaskan sesi belajar Anda dengan konfirmasi penyelesaian materi atau langsung kerjakan ujian CBT.
+                Tuntaskan sesi belajar Anda dengan konfirmasi penyelesaian materi untuk membuka Token Ujian CBT.
               </p>
 
-              <div class="flex items-center justify-center gap-3 pt-1 flex-wrap">
+              <!-- CBT TOKEN BOX (HANYA MUNCUL DI MATERI) -->
+              <div v-if="activeMateri.cbtJadwal" class="mt-4 p-4 rounded-2xl bg-slate-950/80 border border-cyan-500/30 max-w-md mx-auto space-y-3">
+                <div class="flex items-center justify-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span class="text-xs font-black uppercase text-cyan-300">Ujian CBT Terkait: {{ activeMateri.cbtJadwal.judul }}</span>
+                </div>
+
+                <div v-if="isCompletedForActiveSiswa && activeMateri.cbtJadwal.token" class="space-y-2">
+                  <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">KUNCI AKSES TOKEN UJIAN:</span>
+                  <div class="flex items-center justify-center gap-2">
+                    <span class="px-4 py-2 rounded-xl bg-cyan-500/20 text-cyan-300 font-mono font-black text-xl border border-cyan-400/40 tracking-widest shadow-inner">
+                      {{ activeMateri.cbtJadwal.token }}
+                    </span>
+                    <button
+                      @click="copyToken(activeMateri.cbtJadwal.token)"
+                      type="button"
+                      class="px-3 py-2 rounded-xl bg-cyan-500 text-slate-950 font-black text-xs hover:bg-cyan-400 transition"
+                      title="Salin Token"
+                    >
+                      {{ isCopiedToken ? 'Tersalin ✓' : 'Salin Token 📋' }}
+                    </button>
+                  </div>
+                  <p class="text-[11px] text-emerald-300 font-medium">
+                    ✓ Selamat! Anda telah menyelesaikan materi dan Token Ujian resmi terbuka.
+                  </p>
+                </div>
+
+                <div v-else class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center justify-center gap-2">
+                  <span>🔒</span>
+                  <span>Token Ujian terkunci. Tekan tombol <strong>"Konfirmasi Selesai Membaca"</strong> untuk membuka Token.</span>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-center gap-3 pt-2 flex-wrap">
                 <button
                   v-if="!isCompletedForActiveSiswa"
                   @click="markCompleted"
                   :disabled="isMarkingComplete"
-                  class="px-6 py-2.5 rounded-2xl bg-emerald-500 text-slate-950 font-black text-xs hover:bg-emerald-400 active:scale-95 transition shadow-lg shadow-emerald-500/25"
+                  type="button"
+                  class="px-6 py-2.5 rounded-2xl bg-emerald-500 text-slate-950 font-black text-xs hover:bg-emerald-400 active:scale-95 transition shadow-lg shadow-emerald-500/25 flex items-center gap-2"
                 >
-                  ✓ Konfirmasi Selesai Membaca
+                  <span>✓</span>
+                  <span>Konfirmasi Selesai Membaca (Buka Token CBT)</span>
                 </button>
 
                 <button
-                  v-if="activeMateri.cbtJadwal"
-                  @click="jumpToCbt"
+                  v-if="activeMateri.cbtJadwal && isCompletedForActiveSiswa"
+                  @click="jumpToCbtWithToken(activeMateri.cbtJadwal)"
+                  type="button"
                   class="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-black text-xs hover:scale-105 active:scale-95 transition shadow-lg shadow-indigo-500/30 flex items-center gap-2"
                 >
                   <span>🎯 Lanjut Kerjakan Ujian CBT Sekarang</span>
@@ -1034,6 +1107,76 @@ onUnmounted(() => {
             <h3 class="text-lg font-black text-white">Deskripsi Video Pembelajaran</h3>
             <p class="text-sm text-gray-300 leading-relaxed">{{ activeMateri.deskripsi || 'Simak video hingga selesai untuk memahami materi.' }}</p>
           </div>
+
+          <!-- Video Completion & CBT Token Section -->
+          <div class="bg-slate-900/90 rounded-3xl p-6 border border-white/10 space-y-4">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h4 class="text-sm font-bold text-white flex items-center gap-2">
+                  <span>{{ isCompletedForActiveSiswa ? '✓ Status: Selesai Disimak' : '⏳ Status: Sedang Dipelajari' }}</span>
+                </h4>
+                <p class="text-xs text-gray-400 mt-0.5">
+                  {{ isCompletedForActiveSiswa ? 'Kehadiran dan catatan baca Anda telah tercatat otomatis di sistem absensi guru.' : 'Tekan tombol konfirmasi setelah Anda selesai menyimak video.' }}
+                </p>
+              </div>
+
+              <button
+                v-if="!isCompletedForActiveSiswa"
+                @click="markCompleted"
+                :disabled="isMarkingComplete"
+                type="button"
+                class="px-5 py-2.5 rounded-2xl bg-emerald-500 text-slate-950 font-black text-xs hover:bg-emerald-400 active:scale-95 transition shadow-lg shadow-emerald-500/25 flex items-center gap-2"
+              >
+                <span>✓</span>
+                <span>Konfirmasi Selesai Menyimak</span>
+              </button>
+            </div>
+
+            <!-- CBT Token Box if linked to CBT -->
+            <div v-if="activeMateri.cbtJadwal" class="pt-4 border-t border-white/10 space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-cyan-300 flex items-center gap-2">
+                  <span>🎯</span>
+                  <span>Ujian CBT Terkait: {{ activeMateri.cbtJadwal.judul }}</span>
+                </span>
+                <span class="text-[11px] px-2 py-0.5 rounded-lg font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                  {{ activeMateri.cbtJadwal.durasi_menit }} Menit
+                </span>
+              </div>
+
+              <div v-if="isCompletedForActiveSiswa" class="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 space-y-3">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div class="text-[10px] uppercase font-bold tracking-wider text-emerald-400">Token Akses Ujian CBT</div>
+                    <div class="text-xl font-mono font-black tracking-widest text-white mt-0.5">{{ activeMateri.cbtJadwal.token || 'TIDAK BUTUH TOKEN' }}</div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button
+                      v-if="activeMateri.cbtJadwal.token"
+                      @click="copyToken(activeMateri.cbtJadwal.token)"
+                      type="button"
+                      class="px-3 py-2 rounded-xl bg-cyan-500 text-slate-950 font-black text-xs hover:bg-cyan-400 transition"
+                    >
+                      {{ isCopiedToken ? 'Tersalin ✓' : 'Salin Token 📋' }}
+                    </button>
+                    <button
+                      @click="jumpToCbtWithToken(activeMateri.cbtJadwal)"
+                      type="button"
+                      class="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-black text-xs hover:scale-105 active:scale-95 transition shadow-lg shadow-indigo-500/30 flex items-center gap-1.5"
+                    >
+                      <span>Lanjut ke CBT</span>
+                      <span>➔</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center justify-center gap-2">
+                <span>🔒</span>
+                <span>Token Ujian terkunci. Konfirmasi selesai menyimak video di atas untuk membuka Token CBT.</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- ============================================== -->
@@ -1062,6 +1205,76 @@ onUnmounted(() => {
               >
                 <span>📥 Unduh Berkas PDF / PPT</span>
               </a>
+            </div>
+          </div>
+
+          <!-- Document Completion & CBT Token Section -->
+          <div class="bg-slate-900/90 rounded-3xl p-6 border border-white/10 space-y-4">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h4 class="text-sm font-bold text-white flex items-center gap-2">
+                  <span>{{ isCompletedForActiveSiswa ? '✓ Status: Selesai Membaca Dokumen' : '⏳ Status: Sedang Membaca' }}</span>
+                </h4>
+                <p class="text-xs text-gray-400 mt-0.5">
+                  {{ isCompletedForActiveSiswa ? 'Kehadiran dan catatan baca Anda telah tercatat otomatis di sistem absensi guru.' : 'Tekan tombol konfirmasi setelah Anda selesai membaca dokumen.' }}
+                </p>
+              </div>
+
+              <button
+                v-if="!isCompletedForActiveSiswa"
+                @click="markCompleted"
+                :disabled="isMarkingComplete"
+                type="button"
+                class="px-5 py-2.5 rounded-2xl bg-emerald-500 text-slate-950 font-black text-xs hover:bg-emerald-400 active:scale-95 transition shadow-lg shadow-emerald-500/25 flex items-center gap-2"
+              >
+                <span>✓</span>
+                <span>Konfirmasi Selesai Membaca</span>
+              </button>
+            </div>
+
+            <!-- CBT Token Box if linked to CBT -->
+            <div v-if="activeMateri.cbtJadwal" class="pt-4 border-t border-white/10 space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-cyan-300 flex items-center gap-2">
+                  <span>🎯</span>
+                  <span>Ujian CBT Terkait: {{ activeMateri.cbtJadwal.judul }}</span>
+                </span>
+                <span class="text-[11px] px-2 py-0.5 rounded-lg font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                  {{ activeMateri.cbtJadwal.durasi_menit }} Menit
+                </span>
+              </div>
+
+              <div v-if="isCompletedForActiveSiswa" class="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 space-y-3">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div class="text-[10px] uppercase font-bold tracking-wider text-emerald-400">Token Akses Ujian CBT</div>
+                    <div class="text-xl font-mono font-black tracking-widest text-white mt-0.5">{{ activeMateri.cbtJadwal.token || 'TIDAK BUTUH TOKEN' }}</div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button
+                      v-if="activeMateri.cbtJadwal.token"
+                      @click="copyToken(activeMateri.cbtJadwal.token)"
+                      type="button"
+                      class="px-3 py-2 rounded-xl bg-cyan-500 text-slate-950 font-black text-xs hover:bg-cyan-400 transition"
+                    >
+                      {{ isCopiedToken ? 'Tersalin ✓' : 'Salin Token 📋' }}
+                    </button>
+                    <button
+                      @click="jumpToCbtWithToken(activeMateri.cbtJadwal)"
+                      type="button"
+                      class="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-black text-xs hover:scale-105 active:scale-95 transition shadow-lg shadow-indigo-500/30 flex items-center gap-1.5"
+                    >
+                      <span>Lanjut ke CBT</span>
+                      <span>➔</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center justify-center gap-2">
+                <span>🔒</span>
+                <span>Token Ujian terkunci. Konfirmasi selesai membaca dokumen di atas untuk membuka Token CBT.</span>
+              </div>
             </div>
           </div>
         </div>

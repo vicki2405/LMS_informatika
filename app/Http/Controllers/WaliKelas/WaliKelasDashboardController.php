@@ -16,6 +16,7 @@ use App\Models\TahunAjaran;
 use App\Models\Tugas;
 use App\Models\TujuanPembelajaran;
 use App\Models\User;
+use App\Services\Security\TeacherAccessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -78,6 +79,21 @@ class WaliKelasDashboardController extends Controller
         }
 
         return null;
+    }
+
+    private function ensureAssignedKelas(Request $request, ?int $kelasId): void
+    {
+        if (TeacherAccessService::isAdmin($request->user())) {
+            return;
+        }
+
+        $assignedClass = $this->resolveKelasBinaan($request);
+
+        abort_unless(
+            $assignedClass && (int) $assignedClass->id === (int) $kelasId,
+            403,
+            'Akses ditolak: data ini bukan milik kelas binaan Anda.'
+        );
     }
 
     private function getSiswaList(?int $kelasId)
@@ -252,19 +268,27 @@ class WaliKelasDashboardController extends Controller
             : collect();
 
         return $siswasInClass->map(function ($s) use ($allNilaiTps) {
-            // Build scores map: { 'TP-01' => nilai, 'TP-02' => nilai, ... }
+            // Build segmented scores maps to prevent collision across subjects
             $scores = [];
+            $scoresByTpId = [];
+            $scoresByMapel = [];
+
             if (isset($allNilaiTps[$s->id])) {
                 foreach ($allNilaiTps[$s->id] as $nilaiRecord) {
-                    $kode = $nilaiRecord->tp?->kode;
-                    if ($kode) {
-                        $scores[$kode] = floatval($nilaiRecord->nilai);
+                    $tp = $nilaiRecord->tp;
+                    if ($tp) {
+                        $val = floatval($nilaiRecord->nilai);
+                        $scoresByTpId[$tp->id] = $val;
+                        $mapel = $tp->mapel ?? 'Umum';
+                        $scoresByMapel[$mapel][$tp->kode] = $val;
+                        $scores[$mapel . '_' . $tp->kode] = $val;
+                        $scores[$tp->kode] = $val;
                     }
                 }
             }
 
-            // Calculate overall average from all recorded scores
-            $allScores = array_values($scores);
+            // Calculate overall average from all recorded unique TP scores
+            $allScores = array_values($scoresByTpId);
             $avg = count($allScores) > 0
                 ? round(array_sum($allScores) / count($allScores), 1)
                 : 0;
@@ -274,6 +298,8 @@ class WaliKelasDashboardController extends Controller
                 'nis' => '100'.$s->id,
                 'namaSiswa' => $s->nama,
                 'scores' => $scores,
+                'scoresByTpId' => $scoresByTpId,
+                'scoresByMapel' => $scoresByMapel,
                 'nilaiAkhir' => $avg,
                 'predikat' => $avg >= 90 ? 'A (Sangat Baik)' : ($avg >= 80 ? 'B (Baik)' : ($avg >= 75 ? 'C (Cukup)' : 'D (Perlu Bimbingan)')),
                 'status' => $avg >= 75 ? 'Tuntas' : 'Belum Tuntas',
@@ -370,7 +396,12 @@ class WaliKelasDashboardController extends Controller
         $tanggal_status = $status !== 'Aktif' ? ($validated['tanggal_status'] ?? null) : null;
         $telepon = !empty($validated['telepon']) ? $validated['telepon'] : ($validated['teleponSiswa'] ?? null);
         $nis = !empty($validated['nis']) ? trim($validated['nis']) : null;
-        $kelasToAssign = (! $user->hasRole('admin') && $assignedKelasId) ? $assignedKelasId : ($kelasObj?->id ?? $assignedKelasId);
+
+        if (! $user->hasRole('admin') && ! $assignedKelasId) {
+            abort(403, 'Akses ditolak: Anda belum memiliki kelas binaan.');
+        }
+
+        $kelasToAssign = ! $user->hasRole('admin') ? $assignedKelasId : ($kelasObj?->id ?? $assignedKelasId);
 
         $jkClean = strtolower(str_replace([' ', '-'], '', (string)$validated['jenisKelamin']));
         if (str_contains($jkClean, 'laki') || str_contains($jkClean, 'pria') || str_contains($jkClean, 'male') || $jkClean === 'l') {
@@ -382,12 +413,10 @@ class WaliKelasDashboardController extends Controller
         }
 
         if (! empty($validated['id'])) {
-            $targetSiswa = Siswa::find($validated['id']);
-            if ($targetSiswa && $assignedKelasId && ! $user->hasRole('admin') && $targetSiswa->kelas_id !== $assignedKelasId) {
-                return redirect()->back()->with('error', 'Akses ditolak: Siswa ini bukan anggota kelas binaan Anda.');
-            }
+            $targetSiswa = Siswa::findOrFail($validated['id']);
+            $this->ensureAssignedKelas($request, $targetSiswa->kelas_id);
 
-            $targetSiswa?->update([
+            $targetSiswa->update([
                 'nis' => $nis,
                 'nama' => $validated['nama'],
                 'jenis_kelamin' => $jenisKelamin,
@@ -420,11 +449,9 @@ class WaliKelasDashboardController extends Controller
         $assignedKelas = $this->resolveKelasBinaan(request());
         $kelasId = $assignedKelas?->id;
 
-        $query = Siswa::query()->where('id', '=', $id);
-        if ($kelasId && ! $user->hasRole('admin')) {
-            $query->where('kelas_id', '=', $kelasId);
-        }
-        $query->delete();
+        $siswa = Siswa::findOrFail($id);
+        $this->ensureAssignedKelas(request(), $siswa->kelas_id);
+        $siswa->delete();
 
         return redirect()->back()->with('message', 'Siswa berhasil dihapus / mutasi keluar dari kelas binaan!');
     }
@@ -523,7 +550,19 @@ class WaliKelasDashboardController extends Controller
         $validated = $request->validate([
             'tanggal' => 'required|date',
             'rows' => 'required|array',
+            'rows.*.siswaId' => 'required|integer|exists:siswas,id',
+            'rows.*.status' => 'nullable|string|in:Hadir,Sakit,Izin,Alpa',
         ]);
+
+        $rowSiswaIds = collect($validated['rows'])->pluck('siswaId')->filter()->unique()->values();
+        $validSiswaIds = Siswa::query()
+            ->whereIn('id', $rowSiswaIds)
+            ->where('kelas_id', $kelasId)
+            ->pluck('id');
+
+        if ($rowSiswaIds->diff($validSiswaIds)->isNotEmpty()) {
+            throw ValidationException::withMessages(['rows' => 'Terdapat siswa yang bukan anggota kelas binaan Anda.']);
+        }
 
         $tglStr = date('Y-m-d', strtotime($validated['tanggal']));
 
@@ -565,6 +604,7 @@ class WaliKelasDashboardController extends Controller
         ]);
 
         $record = Absensi::query()->with('siswa')->findOrFail($id);
+        $this->ensureAssignedKelas($request, $record->kelas_id);
         if ($record->siswa && in_array($record->siswa->status, ['Keluar', 'Pindah'])) {
             return redirect()->back()->with('error', 'Presensi tidak dapat diubah karena siswa telah berstatus '.$record->siswa->status.'!');
         }
@@ -595,6 +635,8 @@ class WaliKelasDashboardController extends Controller
             return redirect()->back()->withErrors(['kelas_id' => 'Kelas tidak ditentukan atau Anda belum memiliki kelas binaan.']);
         }
 
+        $this->ensureAssignedKelas($request, (int) $resolvedKelasId);
+
         $deleted = Absensi::query()
             ->where('tanggal', '=', $validated['tanggal'])
             ->where('kelas_id', '=', $resolvedKelasId)
@@ -608,7 +650,9 @@ class WaliKelasDashboardController extends Controller
      */
     public function deleteAbsensi(int $id): RedirectResponse
     {
-        Absensi::query()->where('id', '=', $id)->delete();
+        $record = Absensi::query()->findOrFail($id);
+        $this->ensureAssignedKelas(request(), $record->kelas_id);
+        $record->delete();
 
         return redirect()->back()->with('message', 'Catatan absensi berhasil dihapus!');
     }
@@ -622,11 +666,9 @@ class WaliKelasDashboardController extends Controller
         $assignedKelas = $this->resolveKelasBinaan(request());
         $kelasId = $assignedKelas?->id;
 
-        $query = Jadwal::query()->where('id', '=', $id);
-        if ($kelasId && ! $user->hasRole('admin')) {
-            $query->where('kelas_id', '=', $kelasId);
-        }
-        $query->delete();
+        $jadwal = Jadwal::findOrFail($id);
+        $this->ensureAssignedKelas(request(), $jadwal->kelas_id);
+        $jadwal->delete();
 
         return redirect()->back()->with('message', 'Jadwal pelajaran berhasil dihapus!');
     }
@@ -667,8 +709,8 @@ class WaliKelasDashboardController extends Controller
     public function storeKasus(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'id' => 'nullable|integer',
-            'siswaId' => 'required|integer',
+            'id' => 'nullable|integer|exists:kasus_siswas,id',
+            'siswaId' => 'required|integer|exists:siswas,id',
             'tanggal' => 'required|date',
             'namaKasus' => 'required|string|max:255',
             'kategori' => 'required|string|in:Ringan,Sedang,Berat',
@@ -677,6 +719,15 @@ class WaliKelasDashboardController extends Controller
             'status' => 'required|string|in:Dalam Pemantauan,Selesai',
             'catatan' => 'nullable|string',
         ]);
+
+        $siswa = Siswa::findOrFail($validated['siswaId']);
+        $this->ensureAssignedKelas($request, $siswa->kelas_id);
+
+        if (! empty($validated['id'])) {
+            $existingKasus = KasusSiswa::findOrFail($validated['id']);
+            $existingKasus->load('siswa');
+            $this->ensureAssignedKelas($request, $existingKasus->siswa?->kelas_id);
+        }
 
         KasusSiswa::updateOrCreate(
             ['id' => $validated['id'] ?? null],
@@ -704,13 +755,9 @@ class WaliKelasDashboardController extends Controller
         $assignedKelas = $this->resolveKelasBinaan(request());
         $kelasId = $assignedKelas?->id;
 
-        $query = KasusSiswa::query()->where('id', '=', $id);
-        if ($kelasId && ! $user->hasRole('admin')) {
-            $query->whereHas('siswa', function ($q) use ($kelasId) {
-                $q->where('kelas_id', '=', $kelasId);
-            });
-        }
-        $query->delete();
+        $kasus = KasusSiswa::with('siswa')->findOrFail($id);
+        $this->ensureAssignedKelas(request(), $kasus->siswa?->kelas_id);
+        $kasus->delete();
 
         return redirect()->back()->with('message', 'Data kasus siswa berhasil dihapus!');
     }

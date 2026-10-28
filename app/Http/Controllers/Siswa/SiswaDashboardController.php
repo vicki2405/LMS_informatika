@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Siswa;
 
 use App\Http\Controllers\Controller;
+use App\Models\Absensi;
 use App\Models\CbtJadwal;
 use App\Models\CbtNilai;
 use App\Models\CbtSesi;
@@ -18,11 +19,14 @@ use App\Models\TahunAjaran;
 use App\Models\TujuanPembelajaran;
 use App\Models\Tugas;
 use App\Http\Controllers\Guru\GuruCbtController;
+use App\Services\Cbt\CbtExamService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -35,31 +39,14 @@ class SiswaDashboardController extends Controller
     {
         $user = $request->user();
 
-        // 1. Find Student Record in Database
-        $userName = trim($user->name);
-        $siswaObj = Siswa::query()->where('nama', '=', $userName)->first();
-
-        if (! $siswaObj) {
-            $siswaObj = Siswa::query()->whereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)])->first();
-        }
-
-        if (! $siswaObj && $user->kelas_id) {
-            $siswaObj = Siswa::query()
-                ->where('kelas_id', $user->kelas_id)
-                ->whereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)])
-                ->first();
-        }
+        // 1. Resolve Student Record bound to this account
+        $siswaObj = $this->resolveAuthorizedSiswa($request);
 
         $siswaId = $siswaObj?->id;
         $kelasId = $siswaObj?->kelas_id ?? $user->kelas_id;
         $kelasObj = $siswaObj?->kelas ?? ($kelasId ? Kelas::query()->with('jurusan')->where('id', '=', $kelasId)->first() : null);
         $jurusanId = $kelasObj?->jurusan_id;
         $namaKelas = $kelasObj?->nama_kelas ?? 'Belum Ada Kelas';
-
-        $cbtJadwals = $this->getCbtJadwals($kelasId, $jurusanId);
-        $cbtNilais = $this->getCbtNilais($kelasId);
-        $cbtJadwalIds = collect($cbtJadwals)->pluck('id')->toArray();
-        $cbtSesis = $this->getCbtSesis($cbtJadwalIds, $kelasId);
 
         // Ambil mata pelajaran aktif yang terjadwal resmi diajarkan pada kelas siswa ini
         $kelasMapels = [];
@@ -96,17 +83,21 @@ class SiswaDashboardController extends Controller
                 'telepon' => $siswaObj?->telepon ?? '-',
                 'isAkunKelas' => true,
             ],
-            'siswaListProp' => $this->getSiswaListByKelas($kelasId),
-            'cbtJadwalListProp' => $cbtJadwals,
-            'cbtNilaiListProp' => $cbtNilais,
-            'cbtSesiListProp' => $cbtSesis,
-            'jadwalListProp' => $this->getJadwalData($kelasId),
-            'materiListProp' => $this->getMateriData($kelasId),
-            'tugasListProp' => $this->getTugasData($kelasId, $siswaId),
-            'nilaiTpListProp' => $this->getNilaiTpData($siswaId),
-            'tpListProp' => $this->getTpData($kelasId, $kelasMapels),
-            'mapelListProp' => $kelasMapels,
-            'nilaiListProp' => $this->getNilaiDataByKelas($kelasId),
+            'siswaListProp' => fn () => $this->getSiswaListByKelas($kelasId),
+            'cbtJadwalListProp' => fn () => $this->getCbtJadwals($kelasId, $jurusanId),
+            'cbtNilaiListProp' => fn () => $this->getCbtNilais($kelasId),
+            'cbtSesiListProp' => function () use ($kelasId, $jurusanId) {
+                $jadwals = $this->getCbtJadwals($kelasId, $jurusanId);
+                $jadwalIds = collect($jadwals)->pluck('id')->toArray();
+                return $this->getCbtSesis($jadwalIds, $kelasId);
+            },
+            'jadwalListProp' => fn () => $this->getJadwalData($kelasId),
+            'materiListProp' => fn () => $this->getMateriData($kelasId),
+            'tugasListProp' => fn () => $this->getTugasData($kelasId, $siswaId),
+            'nilaiTpListProp' => fn () => $this->getNilaiTpData($siswaId),
+            'tpListProp' => fn () => $this->getTpData($kelasId, $kelasMapels),
+            'mapelListProp' => fn () => $kelasMapels,
+            'nilaiListProp' => fn () => $this->getNilaiDataByKelas($kelasId),
             'tahunAjaranAktifProp' => fn () => TahunAjaran::getActive(),
         ]);
     }
@@ -171,7 +162,17 @@ class SiswaDashboardController extends Controller
             ->toArray();
 
         return Materi::query()
-            ->with(['tp', 'mapel', 'kegiatans', 'cbtJadwal', 'reads'])
+            ->with([
+                'tp',
+                'mapel',
+                'kegiatans',
+                'cbtJadwal',
+                'reads' => function ($rq) use ($kelasId) {
+                    if ($kelasId) {
+                        $rq->whereHas('siswa', fn ($sq) => $sq->where('kelas_id', $kelasId));
+                    }
+                },
+            ])
             ->where('is_published', '=', true)
             ->where(function ($q) use ($kelasId, $kelasMapelNames) {
                 // 1. Ditujukan spesifik untuk kelas siswa ini
@@ -222,6 +223,7 @@ class SiswaDashboardController extends Controller
                         'judul' => $m->cbtJadwal->judul_ujian,
                         'tipe' => $m->cbtJadwal->mode_ujian ?? 'CBT',
                         'durasiMenit' => $m->cbtJadwal->durasi_menit,
+                        'token' => $m->cbtJadwal->token,
                     ] : null,
                     'fileUrl' => $m->file_path ? asset('storage/'.$m->file_path) : ($m->file_url ?? ''),
                     'filePath' => $m->file_path,
@@ -302,6 +304,11 @@ class SiswaDashboardController extends Controller
                 'guru:id,nama',
                 'jurusan:id,nama,kode',
                 'kelas:id,nama_kelas',
+                'materi.reads' => function ($rq) use ($kelasId) {
+                    if ($kelasId) {
+                        $rq->whereHas('siswa', fn ($sq) => $sq->where('kelas_id', $kelasId));
+                    }
+                },
             ])
             ->where('status', 'aktif')
             ->where(function ($q) use ($kelasId) {
@@ -324,13 +331,22 @@ class SiswaDashboardController extends Controller
                 return [
                     'id' => $j->id,
                     'judulUjian' => $j->judul_ujian,
+                    'linkedMateri' => $j->materi ? [
+                        'id' => $j->materi->id,
+                        'judul' => $j->materi->judul,
+                        'tipe' => $j->materi->tipe,
+                        'reads' => $j->materi->reads->map(fn ($r) => [
+                            'siswaId' => $r->siswa_id,
+                            'status' => $r->status,
+                            'progressPersen' => $r->progress_persen,
+                        ])->values()->toArray(),
+                    ] : null,
                     'bankSoalJudul' => $j->bankSoal?->judul ?? 'Paket Ujian CBT',
                     'mapelNama' => $j->bankSoal?->mataPelajaran?->nama ?? 'Mata Pelajaran',
                     'guruNama' => $j->guru?->nama ?? 'Guru Pengajar',
                     'durasiMenit' => $j->durasi_menit ?? 60,
                     'waktuMulai' => $j->waktu_mulai ? $j->waktu_mulai->format('d M Y H:i') : 'Fleksibel',
                     'waktuSelesai' => $j->waktu_selesai ? $j->waktu_selesai->format('d M Y H:i') : 'Selesai',
-                    'token' => $j->token,
                     'acakSoal' => (bool) ($j->acak_soal ?? true),
                     'acakOpsi' => (bool) ($j->acak_opsi ?? true),
                     'modeUjian' => $j->mode_ujian ?? 'formal',
@@ -341,108 +357,6 @@ class SiswaDashboardController extends Controller
                         'nilai' => floatval($r->nilai),
                         'status' => $r->status,
                     ])->values()->toArray(),
-                    // Send question items safely without revealing correct keys in formal mode
-                    'soals' => $j->bankSoal?->soals->map(function ($s) use ($j) {
-                        $isGameMode = ($j->mode_ujian ?? 'formal') === 'game';
-                        $rawInteractive = is_array($s->data_interaktif) ? $s->data_interaktif : json_decode($s->data_interaktif ?? '[]', true);
-                        $safeInteractiveData = null;
-
-                        if ($s->tipe_soal === 'match' && is_array($rawInteractive)) {
-                            $pasanganKiri = [];
-                            $pilihanKanan = [];
-                            $kunciMatch = [];
-                            foreach ($rawInteractive as $idx => $pair) {
-                                $leftId = (string) ($pair['id'] ?? ($idx + 1));
-                                $pasanganKiri[] = [
-                                    'id' => $leftId,
-                                    'teks' => $pair['kiri'] ?? '',
-                                ];
-                                if (! empty($pair['kanan'])) {
-                                    $pilihanKanan[] = [
-                                        'id' => 'k_' . ($idx + 1),
-                                        'teks' => $pair['kanan'],
-                                    ];
-                                    $kunciMatch[$leftId] = $pair['kanan'];
-                                }
-                            }
-                            shuffle($pilihanKanan);
-                            $safeInteractiveData = [
-                                'pasanganKiri' => $pasanganKiri,
-                                'pilihanKanan' => $pilihanKanan,
-                            ];
-                            if ($isGameMode) {
-                                $safeInteractiveData['kunciJawaban'] = $kunciMatch;
-                            }
-                        } elseif ($s->tipe_soal === 'reorder' && is_array($rawInteractive)) {
-                            $items = [];
-                            $kunciReorder = [];
-                            foreach ($rawInteractive as $idx => $item) {
-                                $itemId = (string) ($item['id'] ?? ($idx + 1));
-                                $items[] = [
-                                    'id' => $itemId,
-                                    'teks' => $item['teks'] ?? '',
-                                ];
-                                $kunciReorder[] = $itemId;
-                            }
-                            shuffle($items);
-                            $safeInteractiveData = [
-                                'items' => $items,
-                            ];
-                            if ($isGameMode) {
-                                $safeInteractiveData['kunciJawaban'] = $kunciReorder;
-                            }
-                        } elseif ($s->tipe_soal === 'categorize' && is_array($rawInteractive)) {
-                            $categories = $rawInteractive['kategori'] ?? [];
-                            $rawItems = $rawInteractive['items'] ?? [];
-                            $items = [];
-                            $kunciCategorize = [];
-                            foreach ($rawItems as $idx => $item) {
-                                $itemId = (string) ($item['id'] ?? ($idx + 1));
-                                $items[] = [
-                                    'id' => $itemId,
-                                    'teks' => $item['teks'] ?? '',
-                                ];
-                                $kunciCategorize[$itemId] = trim($item['kategori'] ?? '');
-                            }
-                            shuffle($items);
-                            $safeInteractiveData = [
-                                'kategori' => $categories,
-                                'items' => $items,
-                            ];
-                            if ($isGameMode) {
-                                $safeInteractiveData['kunciJawaban'] = $kunciCategorize;
-                            }
-                        }
-
-                        $soalPayload = [
-                            'id' => $s->id,
-                            'nomorUrut' => $s->nomor_urut,
-                            'tipeSoal' => $s->tipe_soal ?? 'pilihan_ganda',
-                            'pertanyaan' => $s->pertanyaan,
-                            'stimulusTeks' => $s->stimulus_teks,
-                            'dataInteraktif' => $safeInteractiveData,
-                            'opsiA' => $s->opsi_a,
-                            'opsiB' => $s->opsi_b,
-                            'opsiC' => $s->opsi_c,
-                            'opsiD' => $s->opsi_d,
-                            'opsiE' => $s->opsi_e,
-                            'bobot' => $s->bobot ?? 1,
-                            'mediaSoal' => $s->media_soal ? asset('storage/' . $s->media_soal) : null,
-                            'tipeMediaSoal' => $s->tipe_media_soal,
-                            'posisiMediaSoal' => $s->posisi_media_soal ?? 'bawah',
-                            'gambarOpsiA' => $s->gambar_opsi_a ? asset('storage/' . $s->gambar_opsi_a) : null,
-                            'gambarOpsiB' => $s->gambar_opsi_b ? asset('storage/' . $s->gambar_opsi_b) : null,
-                            'gambarOpsiC' => $s->gambar_opsi_c ? asset('storage/' . $s->gambar_opsi_c) : null,
-                            'gambarOpsiD' => $s->gambar_opsi_d ? asset('storage/' . $s->gambar_opsi_d) : null,
-                            'gambarOpsiE' => $s->gambar_opsi_e ? asset('storage/' . $s->gambar_opsi_e) : null,
-                        ];
-
-                        if ($isGameMode && (! $s->tipe_soal || $s->tipe_soal === 'pilihan_ganda')) {
-                            $soalPayload['kunciJawaban'] = strtoupper($s->kunci_jawaban);
-                        }
-
-                        return $soalPayload;
-                    })->values()->toArray() ?? [],
                 ];
             })
             ->toArray();
@@ -591,39 +505,36 @@ class SiswaDashboardController extends Controller
             return null;
         }
 
+        if ($user->siswa) {
+            return $user->siswa;
+        }
+
+        if (! $user->kelas_id) {
+            return null;
+        }
+
         $userName = trim($user->name);
 
-        // 1. Check if user is an individual student (user's name matches a Siswa record)
         $personalSiswa = Siswa::query()
+            ->where('kelas_id', $user->kelas_id)
             ->where(function ($q) use ($userName) {
                 $q->where('nama', '=', $userName)
                   ->orWhereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)]);
             })
-            ->when($user->kelas_id, fn ($q) => $q->where('kelas_id', $user->kelas_id))
             ->first();
 
         if ($personalSiswa) {
-            // Individual student account: always strictly bound to themselves
             return $personalSiswa;
         }
 
-        // 2. If user is a shared classroom account (user has kelas_id)
-        if ($user->kelas_id) {
-            if ($requestedSiswaId) {
-                return Siswa::query()
-                    ->where('id', $requestedSiswaId)
-                    ->where('kelas_id', $user->kelas_id)
-                    ->first();
-            }
-            return Siswa::query()->where('kelas_id', $user->kelas_id)->first();
-        }
-
-        // 3. Fallback for admin or unassigned accounts
         if ($requestedSiswaId) {
-            return Siswa::query()->find($requestedSiswaId);
+            return Siswa::query()
+                ->where('id', $requestedSiswaId)
+                ->where('kelas_id', $user->kelas_id)
+                ->first();
         }
 
-        return null;
+        return Siswa::query()->where('kelas_id', $user->kelas_id)->first();
     }
 
     /**
@@ -682,6 +593,13 @@ class SiswaDashboardController extends Controller
         $siswaId = $siswaObj->id;
 
         $jadwal = CbtJadwal::with(['bankSoal.soals'])->findOrFail($validated['jadwal_id']);
+
+        try {
+            $sesi = app(CbtExamService::class)->assertCanSubmit($jadwal, $siswaObj);
+        } catch (ValidationException $e) {
+            return redirect()->back()->with('error', collect($e->errors())->flatten()->first());
+        }
+
         $soals = $jadwal->bankSoal?->soals ?? collect();
 
         $totalSoal = $soals->count();
@@ -794,51 +712,52 @@ class SiswaDashboardController extends Controller
             }
         }
 
-        $finalScore = $totalBobot > 0 ? round(($bobotBenar / $totalBobot) * 100, 1) : 0;
-        $status = $finalScore >= 75 ? 'Tuntas' : 'Belum Tuntas';
+        return DB::transaction(function () use ($jadwal, $siswaId, $siswaObj, $sesi, $totalSoal, $benar, $salah, $totalBobot, $bobotBenar, $answers) {
+            $finalScore = $totalBobot > 0 ? round(($bobotBenar / $totalBobot) * 100, 1) : 0;
+            $status = $finalScore >= 75 ? 'Tuntas' : 'Belum Tuntas';
 
-        $cbtNilai = CbtNilai::updateOrCreate(
-            [
-                'jadwal_id' => $jadwal->id,
-                'siswa_id' => $siswaId,
-            ],
-            [
-                'bank_soal_id' => $jadwal->bank_soal_id,
-                'jumlah_soal' => $totalSoal,
-                'jumlah_benar' => $benar,
-                'jumlah_salah' => $salah,
-                'nilai' => $finalScore,
-                'status' => $status,
-                'waktu_mulai' => ! empty($validated['waktu_mulai']) ? Carbon::parse($validated['waktu_mulai']) : now(),
-                'waktu_selesai' => now(),
-            ]
-        );
+            $cbtNilai = CbtNilai::updateOrCreate(
+                [
+                    'jadwal_id' => $jadwal->id,
+                    'siswa_id' => $siswaId,
+                ],
+                [
+                    'bank_soal_id' => $jadwal->bank_soal_id,
+                    'jumlah_soal' => $totalSoal,
+                    'jumlah_benar' => $benar,
+                    'jumlah_salah' => $salah,
+                    'nilai' => $finalScore,
+                    'status' => $status,
+                    'waktu_mulai' => $sesi->waktu_mulai ?? now(),
+                    'waktu_selesai' => now(),
+                ]
+            );
 
-        // Otomatis sinkronkan nilai ke Lembar Nilai Siswa (NilaiTp)
-        GuruCbtController::syncCbtNilaiToTp($cbtNilai, $jadwal);
+            // Otomatis sinkronkan nilai ke Lembar Nilai Siswa (NilaiTp)
+            GuruCbtController::syncCbtNilaiToTp($cbtNilai, $jadwal);
 
-        // Count actual non-empty answered questions
-        $actualAnsweredCount = collect($answers)->filter(function ($val) {
-            if (is_array($val)) {
-                return count(array_filter($val)) > 0;
-            }
-            return $val !== null && trim((string) $val) !== '';
-        })->count();
+            // Count actual non-empty answered questions
+            $actualAnsweredCount = collect($answers)->filter(function ($val) {
+                if (is_array($val)) {
+                    return count(array_filter($val)) > 0;
+                }
+                return $val !== null && trim((string) $val) !== '';
+            })->count();
 
-        // Update CBT session status to selesai
-        CbtSesi::where('jadwal_id', $jadwal->id)
-            ->where('siswa_id', $siswaId)
-            ->update([
-                'status' => 'selesai',
-                'soal_terjawab' => min($totalSoal, $actualAnsweredCount),
-                'waktu_selesai' => now(),
-                'last_heartbeat' => now(),
-            ]);
+            // Update CBT session status to selesai atomically
+            CbtSesi::where('jadwal_id', $jadwal->id)
+                ->where('siswa_id', $siswaId)
+                ->update([
+                    'status' => 'selesai',
+                    'soal_terjawab' => min($totalSoal, $actualAnsweredCount),
+                    'waktu_selesai' => now(),
+                    'last_heartbeat' => now(),
+                ]);
 
-        $siswaRecord = Siswa::find($siswaId);
-        $namaSiswa = $siswaRecord ? $siswaRecord->nama : 'Siswa';
+            $namaSiswa = $siswaObj->nama ?? 'Siswa';
 
-        return redirect()->back()->with('message', "Ujian CBT berhasil diselesaikan untuk {$namaSiswa}! Nilai: {$finalScore} ({$status})");
+            return redirect()->back()->with('message', "Ujian CBT berhasil diselesaikan untuk {$namaSiswa}! Nilai: {$finalScore} ({$status})");
+        });
     }
 
     /**
@@ -876,6 +795,47 @@ class SiswaDashboardController extends Controller
     }
 
     /**
+     * Verify the exam token and start the exam session.
+     */
+    public function startCbtExam(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'jadwal_id' => 'required|integer|exists:cbt_jadwals,id',
+            'siswa_id' => 'nullable|integer|exists:siswas,id',
+            'token' => 'required|string|max:64',
+        ]);
+
+        $siswa = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
+        if (! $siswa) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak: identitas siswa tidak valid.'], 403);
+        }
+
+        $jadwal = CbtJadwal::with(['bankSoal.soals'])->findOrFail($validated['jadwal_id']);
+        $service = app(CbtExamService::class);
+
+        try {
+            $sesi = $service->start($jadwal, $siswa, $validated['token'], $request);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => collect($e->errors())->flatten()->first(),
+            ], 403);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Token valid. Ujian dimulai.',
+            'soals' => $service->serializeQuestions($jadwal),
+            'durasiMenit' => $jadwal->durasi_menit ?? 60,
+            'sesi' => [
+                'id' => $sesi->id,
+                'status' => $sesi->status,
+                'sisaWaktuDetik' => $sesi->sisa_waktu_detik,
+            ],
+        ]);
+    }
+
+    /**
      * Join CBT Exam Terminal / Waiting Room before starting exam.
      */
     public function gabungRuangTunggu(Request $request): JsonResponse
@@ -888,6 +848,30 @@ class SiswaDashboardController extends Controller
         $siswa = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
         if (! $siswa) {
             return response()->json(['success' => false, 'message' => 'Akses ditolak: siswa tidak valid atau bukan anggota kelas ini.'], 403);
+        }
+
+        $jadwal = CbtJadwal::with('materi')->findOrFail($validated['jadwal_id']);
+
+        try {
+            app(CbtExamService::class)->assertJadwalEligible($jadwal, $siswa);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => collect($e->errors())->flatten()->first(),
+            ], 403);
+        }
+
+        if ($jadwal->materi) {
+            $isReadCompleted = MateriRead::where('materi_id', $jadwal->materi->id)
+                ->where('siswa_id', $siswa->id)
+                ->where('status', 'selesai')
+                ->exists();
+            if (! $isReadCompleted) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak: Anda wajib menyelesaikan materi pembelajaran "' . $jadwal->materi->judul . '" terlebih dahulu untuk mendapatkan token ujian!',
+                ], 403);
+            }
         }
 
         $sesi = CbtSesi::firstOrCreate(
@@ -906,6 +890,14 @@ class SiswaDashboardController extends Controller
                 'last_heartbeat' => now(),
             ]
         );
+
+        if ($sesi->status === 'selesai') {
+            return response()->json(['success' => false, 'message' => 'Ujian ini sudah Anda kumpulkan.'], 403);
+        }
+
+        if ($sesi->status === 'terkunci') {
+            return response()->json(['success' => false, 'message' => 'Sesi ujian Anda terkunci. Hubungi guru pengawas.'], 403);
+        }
 
         if ($sesi->status === 'menunggu') {
             $sesi->update([
@@ -977,20 +969,22 @@ class SiswaDashboardController extends Controller
             ->first();
 
         if ($sesi) {
-            $sesi->increment('jumlah_pelanggaran');
+            $newCount = (int) $sesi->jumlah_pelanggaran + 1;
 
             // Bilamana keluar dari sistem lebih dari 3 kali (> 3 kali), langsung diblokir / dikunci
-            $shouldLock = $sesi->jumlah_pelanggaran > 3 || $sesi->status === 'terkunci';
+            $shouldLock = $newCount > 3 || $sesi->status === 'terkunci';
             $newStatus = $shouldLock ? 'terkunci' : $sesi->status;
 
+            // Update atomik dalam 1 kueri
             $sesi->update([
+                'jumlah_pelanggaran' => $newCount,
                 'status' => $newStatus,
                 'last_heartbeat' => now(),
             ]);
 
             return response()->json([
                 'success' => true,
-                'jumlah_pelanggaran' => $sesi->jumlah_pelanggaran,
+                'jumlah_pelanggaran' => $newCount,
                 'is_locked' => $shouldLock,
                 'status' => $newStatus,
             ]);
@@ -1024,28 +1018,23 @@ class SiswaDashboardController extends Controller
         if ($sesi) {
             $updateData = ['last_heartbeat' => now()];
             if (isset($validated['soal_terjawab'])) {
-                $updateData['soal_terjawab'] = $validated['soal_terjawab'];
+                $updateData['soal_terjawab'] = max(0, (int) $validated['soal_terjawab']);
             }
-            if (isset($validated['sisa_waktu_detik'])) {
-                $updateData['sisa_waktu_detik'] = $validated['sisa_waktu_detik'];
-            }
-            if (! empty($validated['status'])) {
-                // Tetap kunci jika sesi sedang diblokir oleh guru atau sistem (>3 pelanggaran)
-                if ($sesi->status === 'terkunci') {
-                    $updateData['status'] = 'terkunci';
-                } else {
-                    $updateData['status'] = $validated['status'];
-                    if ($validated['status'] === 'mengerjakan' && ! $sesi->waktu_mulai) {
-                        $updateData['waktu_mulai'] = now();
-                    }
+            if ($sesi->waktu_mulai) {
+                $jadwal = CbtJadwal::find($sesi->jadwal_id);
+                if ($jadwal) {
+                    $updateData['sisa_waktu_detik'] = app(CbtExamService::class)
+                        ->remainingSeconds($jadwal, $sesi);
                 }
             }
             $sesi->update($updateData);
+            $sesi->refresh();
 
             return response()->json([
                 'success' => true,
                 'status' => $sesi->status,
                 'jumlah_pelanggaran' => $sesi->jumlah_pelanggaran,
+                'sisa_waktu_detik' => $sesi->sisa_waktu_detik,
                 'is_locked' => $sesi->status === 'terkunci',
             ]);
         }
@@ -1069,6 +1058,22 @@ class SiswaDashboardController extends Controller
         }
 
         $materi = Materi::findOrFail($id);
+
+        // Otomatis sinkronisasi absensi Hadir hari ini ke kelas saat siswa membuka materi pembelajaran
+        $today = now()->format('Y-m-d');
+        if ($siswa->kelas_id) {
+            Absensi::firstOrCreate(
+                [
+                    'tanggal' => $today,
+                    'siswa_id' => $siswa->id,
+                ],
+                [
+                    'kelas_id' => $siswa->kelas_id,
+                    'status' => 'Hadir',
+                    'keterangan' => 'Hadir (Akses Materi: ' . Str::limit($materi->judul, 40) . ')',
+                ]
+            );
+        }
 
         $read = MateriRead::firstOrNew([
             'materi_id' => $materi->id,
@@ -1118,6 +1123,22 @@ class SiswaDashboardController extends Controller
         }
 
         $materi = Materi::findOrFail($id);
+
+        // Otomatis sinkronisasi absensi Hadir hari ini ke kelas saat siswa membuka materi pembelajaran
+        $today = now()->format('Y-m-d');
+        if ($siswa->kelas_id) {
+            Absensi::firstOrCreate(
+                [
+                    'tanggal' => $today,
+                    'siswa_id' => $siswa->id,
+                ],
+                [
+                    'kelas_id' => $siswa->kelas_id,
+                    'status' => 'Hadir',
+                    'keterangan' => 'Hadir (Akses Materi: ' . Str::limit($materi->judul, 40) . ')',
+                ]
+            );
+        }
 
         $read = MateriRead::firstOrNew([
             'materi_id' => $materi->id,

@@ -1,32 +1,72 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
-import { confirmDelete, showSuccessAlert, showToast } from '@/Utils/sweetalert';
+import { showToast, showSuccessAlert, confirmDelete } from '@/Utils/sweetalert';
 
 const props = defineProps({
-  nilaiList: { type: Array, default: () => [] },
-  jadwalList: { type: Array, default: () => [] },
-  masterKelasList: { type: Array, default: () => [] },
-  jurusanList: { type: Array, default: () => [] },
-  mapelList: { type: Array, default: () => [] },
-  siswaList: { type: Array, default: () => [] },
-  tpList: { type: Array, default: () => [] },
-  kelasList: { type: Array, default: () => [] },
-  tahunAjaranList: { type: Array, default: () => [] },
-  teacherSubject: { type: String, default: 'Informatika' },
+  nilaiList: {
+    type: Array,
+    default: () => [],
+  },
+  jadwalList: {
+    type: Array,
+    default: () => [],
+  },
+  masterKelasList: {
+    type: Array,
+    default: () => [],
+  },
+  jurusanList: {
+    type: Array,
+    default: () => [],
+  },
+  mapelList: {
+    type: Array,
+    default: () => [],
+  },
+  siswaList: {
+    type: Array,
+    default: () => [],
+  },
+  tpList: {
+    type: Array,
+    default: () => [],
+  },
+  kelasList: {
+    type: Array,
+    default: () => [],
+  },
+  jadwalGuruList: {
+    type: Array,
+    default: () => [],
+  },
+  tahunAjaranList: {
+    type: Array,
+    default: () => [],
+  },
+  teacherSubject: {
+    type: String,
+    default: '',
+  },
 });
 
 // -----------------------------------------------------------------------------
-// HIERARCHICAL NAVIGATION & FILTERS
+// FILTER STATES
 // -----------------------------------------------------------------------------
 const selectedMapel = ref('Semua');
 const selectedTingkat = ref('Semua');
-const selectedJadwalId = ref('');
+const selectedOverviewKelas = ref('');
+const selectedJadwalId = ref(null);
+const selectedKelasFilter = ref('');
 const searchQuery = ref('');
 const filterStatus = ref('');
 const activeEvaluationTab = ref('nilai'); // 'nilai' | 'belum' | 'pelanggaran'
 
-// Helper to extract grade level (X, XI, XII)
+// Modal State
+const showDetailModal = ref(false);
+const activeNilai = ref(null);
+
+// Helper Tingkat
 function extractTingkat(kelasName, tingkatProp) {
   if (tingkatProp) return tingkatProp;
   if (!kelasName) return 'X';
@@ -36,11 +76,12 @@ function extractTingkat(kelasName, tingkatProp) {
   return 'X';
 }
 
-// Full effective list of exam sessions: combines props.jadwalList + any historical/completed sessions from props.nilaiList
+// -----------------------------------------------------------------------------
+// JADWAL LIST DATA
+// -----------------------------------------------------------------------------
 const effectiveJadwalList = computed(() => {
   const map = new Map();
 
-  // 1. Add all schedules provided in props.jadwalList
   (props.jadwalList || []).forEach((j) => {
     map.set(String(j.id), {
       ...j,
@@ -48,7 +89,6 @@ const effectiveJadwalList = computed(() => {
     });
   });
 
-  // 2. Synthesize any missing schedules from props.nilaiList (e.g. if the schedule was soft-deleted from cbt-jadwal)
   (props.nilaiList || []).forEach((n) => {
     const jId = String(n.jadwalId || '');
     if (jId && !map.has(jId)) {
@@ -79,7 +119,7 @@ const effectiveJadwalList = computed(() => {
   return Array.from(map.values());
 });
 
-// Unique Subject List strictly restricted to THIS teacher's subjects (split comma-separated subjects)
+// Available Subjects from Teacher's Schedule & Profile
 const availableMapels = computed(() => {
   const set = new Set();
   if (props.teacherSubject) {
@@ -89,25 +129,13 @@ const availableMapels = computed(() => {
       .filter(Boolean)
       .forEach((s) => set.add(s));
   }
+  (props.jadwalGuruList || []).forEach((jg) => {
+    if (jg.mataPelajaran) set.add(jg.mataPelajaran.trim());
+  });
   effectiveJadwalList.value.forEach((j) => {
-    if (j.mapelNama) {
-      String(j.mapelNama)
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .forEach((s) => set.add(s));
-    }
+    if (j.mapelNama) set.add(j.mapelNama.trim());
   });
-  props.nilaiList.forEach((n) => {
-    if (n.mapelNama) {
-      String(n.mapelNama)
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .forEach((s) => set.add(s));
-    }
-  });
-  return Array.from(set).filter(Boolean);
+  return Array.from(set).sort();
 });
 
 function getJadwalCountByMapel(mapel) {
@@ -118,9 +146,32 @@ function getJadwalCountByMapel(mapel) {
   }).length;
 }
 
-// -----------------------------------------------------------------------------
-// FILTERED SCHEDULE OVERVIEW CARDS (When no specific exam is selected)
-// -----------------------------------------------------------------------------
+// Daftar Kelas Ampuan Guru untuk Filter Overview Depan
+const overviewKelasList = computed(() => {
+  const set = new Set();
+  const mapelFilter = selectedMapel.value === 'Semua' ? null : selectedMapel.value.toLowerCase().trim();
+
+  (props.jadwalGuruList || []).forEach((jg) => {
+    const jgMapel = (jg.mataPelajaran || '').toLowerCase().trim();
+    if (!mapelFilter || jgMapel.includes(mapelFilter) || mapelFilter.includes(jgMapel)) {
+      const kName = jg.kelas || jg.namaKelas;
+      if (kName && kName !== '-') set.add(kName);
+    }
+  });
+
+  if (set.size === 0) {
+    (props.kelasList || []).forEach((k) => {
+      const kName = k.namaKelas || k.nama;
+      if (kName && kName !== '-') set.add(kName);
+    });
+  }
+
+  return Array.from(set).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+  );
+});
+
+// Filtered Schedule Cards (Overview)
 const filteredJadwalCards = computed(() => {
   return effectiveJadwalList.value.filter((j) => {
     const matchMapel = selectedMapel.value === 'Semua' || (
@@ -129,25 +180,40 @@ const filteredJadwalCards = computed(() => {
     );
     const itemTingkat = extractTingkat(j.kelasNama, j.tingkat);
     const matchTingkat = selectedTingkat.value === 'Semua' || itemTingkat === selectedTingkat.value;
-    const matchSearch = !searchQuery.value ||
-      (j.judulUjian && j.judulUjian.toLowerCase().includes(searchQuery.value.toLowerCase())) ||
-      (j.kelasNama && j.kelasNama.toLowerCase().includes(searchQuery.value.toLowerCase())) ||
-      (j.mapelNama && j.mapelNama.toLowerCase().includes(searchQuery.value.toLowerCase()));
+    const matchKelas = !selectedOverviewKelas.value ||
+      j.kelasNama === 'Semua Kelas' ||
+      j.kelasNama === selectedOverviewKelas.value;
+    const q = searchQuery.value.toLowerCase().trim();
+    const matchSearch = !q ||
+      (j.judulUjian && j.judulUjian.toLowerCase().includes(q)) ||
+      (j.kelasNama && j.kelasNama.toLowerCase().includes(q)) ||
+      (j.mapelNama && j.mapelNama.toLowerCase().includes(q));
 
-    return matchMapel && matchTingkat && matchSearch;
+    return matchMapel && matchTingkat && matchKelas && matchSearch;
   }).map((j) => {
-    // Total students in this class
-    const totalSiswaKelas = props.siswaList.filter((s) => {
-      return s.kelas === j.kelasNama || String(s.kelasId) === String(j.kelasId);
-    }).length;
-
-    // Students with grades in this exam
-    const nilaisInJadwal = props.nilaiList.filter((n) => String(n.jadwalId) === String(j.id));
+    // Total students targeted
+    const nilaisInJadwal = (props.nilaiList || []).filter((n) => String(n.jadwalId) === String(j.id));
     const sudahUjianCount = nilaisInJadwal.length;
+
+    let totalSiswaKelas = 0;
+    if (j.kelasNama && j.kelasNama !== 'Semua Kelas') {
+      totalSiswaKelas = props.siswaList.filter((s) => s.kelas === j.kelasNama || String(s.kelasId) === String(j.kelasId)).length;
+    } else {
+      // All classes taught by teacher for this mapel
+      const targetMapel = (j.mapelNama || '').toLowerCase().trim();
+      const teacherClassNames = new Set();
+      (props.jadwalGuruList || []).forEach((jg) => {
+        const jgMapel = (jg.mataPelajaran || '').toLowerCase().trim();
+        if (!targetMapel || jgMapel.includes(targetMapel) || targetMapel.includes(jgMapel)) {
+          if (jg.kelas || jg.namaKelas) teacherClassNames.add(jg.kelas || jg.namaKelas);
+        }
+      });
+      totalSiswaKelas = props.siswaList.filter((s) => teacherClassNames.has(s.kelas)).length;
+    }
+
     const totalTarget = totalSiswaKelas > 0 ? totalSiswaKelas : (sudahUjianCount > 0 ? sudahUjianCount : 1);
     const partisipasiPersen = Math.min(100, Math.round((sudahUjianCount / totalTarget) * 100));
 
-    // Stats
     const scores = nilaisInJadwal.map((n) => parseFloat(n.nilai) || 0);
     const avgScore = scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : 0;
     const tuntasCount = nilaisInJadwal.filter((n) => (parseFloat(n.nilai) || 0) >= 75).length;
@@ -166,68 +232,105 @@ const filteredJadwalCards = computed(() => {
   });
 });
 
-// Dual View Mode for Overview: 'cards' | 'table'
-const overviewDisplayMode = ref('cards');
-
-// Grouped by Tingkat for structured overview (Scalable to 15+ classes across levels)
-const groupedJadwalCards = computed(() => {
-  const map = {
-    'X': [],
-    'XI': [],
-    'XII': [],
-  };
-  filteredJadwalCards.value.forEach((j) => {
-    const t = extractTingkat(j.kelasNama, j.tingkat);
-    if (!map[t]) map[t] = [];
-    map[t].push(j);
-  });
-  return map;
-});
-
-// Active Tingkats that have exam sessions
-const activeTingkats = computed(() => {
-  const list = ['X', 'XI', 'XII'];
-  if (selectedTingkat.value !== 'Semua') {
-    return [selectedTingkat.value].filter((t) => (groupedJadwalCards.value[t] || []).length > 0);
-  }
-  return list.filter((t) => (groupedJadwalCards.value[t] || []).length > 0);
-});
-
-// Currently Selected CBT Schedule Object
+// Currently Selected CBT Schedule
 const selectedJadwal = computed(() => {
   if (!selectedJadwalId.value) return null;
   return effectiveJadwalList.value.find((j) => String(j.id) === String(selectedJadwalId.value)) || null;
 });
 
-// All students belonging to the selected schedule's class
+// -----------------------------------------------------------------------------
+// RELEVANT CLASSES (KUNCI DARI JADWAL MENGAJAR GURU UNTUK MAPEL UJIAN INI)
+// -----------------------------------------------------------------------------
+const relevantKelasList = computed(() => {
+  if (!selectedJadwal.value) return [];
+
+  // Jika jadwal diset khusus untuk 1 kelas tertentu
+  if (selectedJadwal.value.kelasId && selectedJadwal.value.kelasNama && selectedJadwal.value.kelasNama !== 'Semua Kelas') {
+    return [selectedJadwal.value.kelasNama];
+  }
+
+  // Jika jadwal Semua Kelas: Kunci selalu diambil dari data jadwal guru untuk mapel ini
+  const set = new Set();
+  const mapelTarget = (selectedJadwal.value.mapelNama || '').toLowerCase().trim();
+
+  (props.jadwalGuruList || []).forEach((jg) => {
+    const jgMapel = (jg.mataPelajaran || '').toLowerCase().trim();
+    if (!mapelTarget || jgMapel.includes(mapelTarget) || mapelTarget.includes(jgMapel)) {
+      const kName = jg.kelas || jg.namaKelas;
+      if (kName && kName !== '-') set.add(kName);
+    }
+  });
+
+  // Gabungkan kelas peserta dari nilai yang sudah masuk (jika ada)
+  (props.nilaiList || []).forEach((n) => {
+    if (String(n.jadwalId) === String(selectedJadwal.value.id) && n.kelasNama && n.kelasNama !== '-') {
+      set.add(n.kelasNama);
+    }
+  });
+
+  // Fallback ke kelasList ampuan guru
+  if (set.size === 0) {
+    (props.kelasList || []).forEach((k) => {
+      const kName = k.namaKelas || k.nama;
+      if (kName && kName !== '-') set.add(kName);
+    });
+  }
+
+  return Array.from(set).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+  );
+});
+
+// All students expected to take this exam (filtered by selected rombel or all relevant classes)
 const classStudents = computed(() => {
   if (!selectedJadwal.value) return [];
-  const targetKelas = selectedJadwal.value.kelasNama;
-  return props.siswaList.filter((s) => {
-    return s.kelas === targetKelas || String(s.kelasId) === String(selectedJadwal.value.kelasId);
+  const targetClasses = selectedKelasFilter.value
+    ? [selectedKelasFilter.value]
+    : relevantKelasList.value;
+
+  if (targetClasses.length === 0) {
+    if (selectedJadwal.value.kelasNama && selectedJadwal.value.kelasNama !== 'Semua Kelas') {
+      return props.siswaList.filter((s) => s.kelas === selectedJadwal.value.kelasNama);
+    }
+    return props.siswaList;
+  }
+
+  return props.siswaList.filter((s) => targetClasses.includes(s.kelas));
+});
+
+// Completed Nilai for the selected schedule (optionally filtered by rombel class)
+const completedNilais = computed(() => {
+  if (!selectedJadwal.value) return [];
+  return (props.nilaiList || []).filter((n) => {
+    if (String(n.jadwalId) !== String(selectedJadwal.value.id)) return false;
+    if (selectedKelasFilter.value) {
+      return n.kelasNama === selectedKelasFilter.value;
+    }
+    if (relevantKelasList.value.length > 0) {
+      return relevantKelasList.value.includes(n.kelasNama);
+    }
+    return true;
   });
 });
 
-// Students who have completed the exam for the selected schedule
-const completedNilais = computed(() => {
-  if (!selectedJadwal.value) return [];
-  return props.nilaiList.filter((n) => String(n.jadwalId) === String(selectedJadwal.value.id));
-});
-
-// Students who have NOT taken the exam yet (Belum Mengerjakan / Absen)
+// Uncompleted Students (Belum Ujian)
 const uncompletedStudents = computed(() => {
   if (!selectedJadwal.value) return [];
-  const completedIds = new Set(completedNilais.value.map((n) => n.siswaId));
+  const completedIds = new Set(
+    (props.nilaiList || [])
+      .filter((n) => String(n.jadwalId) === String(selectedJadwal.value.id))
+      .map((n) => n.siswaId)
+  );
   return classStudents.value.filter((s) => !completedIds.has(s.id));
 });
 
-// Students who committed anti-cheat violations
+// Violating Students
 const violatingStudents = computed(() => {
   return completedNilais.value.filter((n) => (n.jumlahPelanggaran || 0) > 0);
 });
 
 // -----------------------------------------------------------------------------
-// RANKING COMPUTATION FOR THE SELECTED SCHEDULE
+// RANKING COMPUTATION
 // -----------------------------------------------------------------------------
 const rankMap = computed(() => {
   const map = {};
@@ -256,9 +359,12 @@ function getRank(nilaiId) {
 // Sorted Grades for the Table
 const sortedScheduleGrades = computed(() => {
   return [...completedNilais.value].filter((n) => {
-    const matchSearch = !searchQuery.value ||
-      n.namaSiswa.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      n.nis.toLowerCase().includes(searchQuery.value.toLowerCase());
+    const q = searchQuery.value.toLowerCase().trim();
+    const matchSearch = !q ||
+      (n.namaSiswa && n.namaSiswa.toLowerCase().includes(q)) ||
+      (n.nis && n.nis.toLowerCase().includes(q)) ||
+      (n.kelasNama && n.kelasNama.toLowerCase().includes(q));
+
     const matchStatus = !filterStatus.value || n.status === filterStatus.value;
     return matchSearch && matchStatus;
   }).sort((a, b) => {
@@ -268,7 +374,7 @@ const sortedScheduleGrades = computed(() => {
   });
 });
 
-// Top 3 Podium for Selected Schedule
+// Top 3 Podium
 const topThreePodium = computed(() => {
   const sorted = [...completedNilais.value].sort((a, b) => {
     return (rankMap.value[a.id]?.rank ?? 999) - (rankMap.value[b.id]?.rank ?? 999);
@@ -287,37 +393,41 @@ const totalTargetKelas = computed(() => {
 
 const totalSudahUjian = computed(() => completedNilais.value.length);
 const totalBelumUjian = computed(() => Math.max(0, totalTargetKelas.value - totalSudahUjian.value));
+
 const rataRataSkor = computed(() => {
   if (completedNilais.value.length === 0) return 0;
   const total = completedNilais.value.reduce((acc, curr) => acc + (parseFloat(curr.nilai) || 0), 0);
   return Math.round((total / completedNilais.value.length) * 10) / 10;
 });
+
 const skorTertinggi = computed(() => {
   if (completedNilais.value.length === 0) return 0;
   return Math.max(...completedNilais.value.map((n) => parseFloat(n.nilai) || 0));
 });
+
 const skorTerendah = computed(() => {
   if (completedNilais.value.length === 0) return 0;
   return Math.min(...completedNilais.value.map((n) => parseFloat(n.nilai) || 0));
 });
+
 const totalTuntas = computed(() => completedNilais.value.filter((n) => (parseFloat(n.nilai) || 0) >= 75).length);
 const totalBelumTuntas = computed(() => completedNilais.value.filter((n) => (parseFloat(n.nilai) || 0) < 75).length);
-const totalPelanggaranSesi = computed(() => {
-  return completedNilais.value.reduce((acc, curr) => acc + (curr.jumlahPelanggaran || 0), 0);
-});
+const totalPelanggaranSesi = computed(() => completedNilais.value.reduce((acc, curr) => acc + (curr.jumlahPelanggaran || 0), 0));
 
 // -----------------------------------------------------------------------------
-// ACTIONS & NAVIGATION
+// NAVIGATION & ACTIONS
 // -----------------------------------------------------------------------------
-function selectSchedule(jadwalId) {
-  selectedJadwalId.value = String(jadwalId);
-  activeEvaluationTab.value = 'nilai';
+function selectSchedule(id) {
+  selectedJadwalId.value = String(id);
+  selectedKelasFilter.value = '';
   searchQuery.value = '';
   filterStatus.value = '';
+  activeEvaluationTab.value = 'nilai';
 }
 
 function backToOverview() {
-  selectedJadwalId.value = '';
+  selectedJadwalId.value = null;
+  selectedKelasFilter.value = '';
   searchQuery.value = '';
   filterStatus.value = '';
 }
@@ -325,24 +435,29 @@ function backToOverview() {
 function resetAllFilters() {
   selectedMapel.value = 'Semua';
   selectedTingkat.value = 'Semua';
+  selectedOverviewKelas.value = '';
   searchQuery.value = '';
-  filterStatus.value = '';
 }
 
-// Reset Student Session for Retake / Remedial
+function openDetail(n) {
+  activeNilai.value = n;
+  showDetailModal.value = true;
+}
+
 function resetStudentSession(n) {
-  if (!n) return;
   confirmDelete({
-    title: `Izinkan Ujian Ulang untuk ${n.namaSiswa}?`,
-    text: `Lembar jawaban dan nilai saat ini (${n.nilai}) akan direset sehingga siswa dapat masuk kembali ke ruang CBT untuk perbaikan/remedial.`,
-    confirmButtonText: 'Ya, Reset & Izinkan Ulang!',
+    title: 'Izinkan Ujian Ulang / Remedial?',
+    text: `Siswa "${n.namaSiswa}" akan diizinkan mengikuti ujian CBT ini kembali. Sesi sebelumnya akan direset.`,
+    confirmButtonText: 'Ya, Izinkan Ujian Ulang',
+    cancelButtonText: 'Batal',
   }).then((res) => {
     if (res.isConfirmed) {
       if (n.sesiId) {
         router.post(route('guru.cbt.sesi.reset', n.sesiId), {}, {
           preserveScroll: true,
           onSuccess: () => {
-            showSuccessAlert('Sesi Berhasil Direset 🎉', `Siswa ${n.namaSiswa} kini dapat masuk kembali untuk mengulang ujian CBT.`);
+            showSuccessAlert('Sesi Berhasil Direset', `Siswa ${n.namaSiswa} kini dapat masuk kembali untuk mengulang ujian CBT.`);
+            showDetailModal.value = false;
           },
           onError: () => {
             showToast('Gagal mereset sesi siswa.', 'error');
@@ -352,7 +467,8 @@ function resetStudentSession(n) {
         router.delete(route('guru.cbt.nilai.delete', n.id), {
           preserveScroll: true,
           onSuccess: () => {
-            showSuccessAlert('Nilai Direset', `Nilai ${n.namaSiswa} telah dihapus. Siswa dapat mengulang pengerjaan CBT.`);
+            showSuccessAlert('Nilai Direset', `Nilai ${n.namaSiswa} telah dihapus. Siswa dapat mengulang ujian CBT.`);
+            showDetailModal.value = false;
           },
         });
       }
@@ -360,335 +476,263 @@ function resetStudentSession(n) {
   });
 }
 
-function deleteNilai(id) {
-  confirmDelete({
-    title: 'Hapus Rekap Nilai Siswa?',
-    text: 'Hasil pengerjaan dan skor siswa ini akan dihapus permanen!',
-    confirmButtonText: 'Ya, Hapus!',
-  }).then((res) => {
-    if (res.isConfirmed) {
-      router.delete(route('guru.cbt.nilai.delete', id), {
-        preserveScroll: true,
-        onSuccess: () => showSuccessAlert('Berhasil Dihapus', 'Data nilai ujian berhasil dihapus.'),
-      });
-    }
+// -----------------------------------------------------------------------------
+// TRANSFER CBT NILAI KE TP STATE & METHODS
+// -----------------------------------------------------------------------------
+const showTransferModal = ref(false);
+const isTransferring = ref(false);
+const transferForm = ref({
+  mode: 'existing_tp',
+  tp_id: '',
+  kode: '',
+  judul: '',
+  mapel: '',
+  jenis: 'Sumatif',
+  kktp: 75,
+  semester: 'Ganjil',
+  tahun_ajaran_id: '',
+  overwrite: true,
+});
+
+const availableTpsForSelectedJadwal = computed(() => {
+  if (!selectedJadwal.value) return props.tpList || [];
+  const mapel = (selectedJadwal.value.mapelNama || '').trim().toLowerCase();
+  return (props.tpList || []).filter((t) => {
+    if (!t.mapel) return true;
+    return t.mapel.trim().toLowerCase() === mapel;
+  });
+});
+
+function openTransferModal() {
+  if (!selectedJadwal.value) return;
+  const currentMapel = selectedJadwal.value.mapelNama || props.teacherSubject || 'Informatika';
+  const defaultTa = (props.tahunAjaranList || []).find((t) => t.is_aktif || t.isAktif)?.id || (props.tahunAjaranList || [])[0]?.id || '';
+
+  const tps = availableTpsForSelectedJadwal.value;
+  const initialTpId = tps.length > 0 ? tps[0].id : '';
+
+  transferForm.value = {
+    mode: tps.length > 0 ? 'existing_tp' : 'new_tp',
+    tp_id: initialTpId,
+    kode: `TP-CBT-${Math.floor(10 + Math.random() * 90)}`,
+    judul: `Ujian CBT: ${selectedJadwal.value.judulUjian}`,
+    mapel: currentMapel,
+    jenis: 'Sumatif',
+    kktp: 75,
+    semester: selectedJadwal.value.semester || 'Ganjil',
+    tahun_ajaran_id: defaultTa,
+    overwrite: true,
+  };
+
+  showTransferModal.value = true;
+}
+
+function submitTransfer() {
+  if (!selectedJadwal.value) return;
+
+  if (transferForm.value.mode === 'existing_tp' && !transferForm.value.tp_id) {
+    showToast('Pilih Tujuan Pembelajaran (TP) tujuan transfer!', 'warning');
+    return;
+  }
+
+  if (transferForm.value.mode === 'new_tp' && !transferForm.value.judul.trim()) {
+    showToast('Judul Tujuan Pembelajaran baru wajib diisi!', 'warning');
+    return;
+  }
+
+  isTransferring.value = true;
+
+  const payload = {
+    jadwal_id: selectedJadwal.value.id,
+    mode: transferForm.value.mode,
+    tp_id: transferForm.value.mode === 'existing_tp' ? transferForm.value.tp_id : null,
+    kode: transferForm.value.kode,
+    judul: transferForm.value.judul,
+    mapel: transferForm.value.mapel,
+    jenis: transferForm.value.jenis,
+    kktp: Number(transferForm.value.kktp) || 75,
+    semester: transferForm.value.semester,
+    tahun_ajaran_id: transferForm.value.tahun_ajaran_id || null,
+    overwrite: transferForm.value.overwrite,
+  };
+
+  router.post(route('guru.cbt.transfer-nilai-tp'), payload, {
+    preserveScroll: true,
+    onSuccess: () => {
+      showTransferModal.value = false;
+      showSuccessAlert(
+        'Nilai Berhasil Ditransfer!',
+        'Nilai hasil ujian CBT telah berhasil disinkronkan ke ledger Tujuan Pembelajaran (TP).'
+      );
+    },
+    onError: (errors) => {
+      const msg = Object.values(errors)[0] || 'Gagal mentransfer nilai ke TP.';
+      showToast(msg, 'error');
+    },
+    onFinish: () => {
+      isTransferring.value = false;
+    },
   });
 }
-
-// -----------------------------------------------------------------------------
-// MODALS STATE: DETAIL SISWA & TRANSFER TO NILAI TP
-// -----------------------------------------------------------------------------
-const showDetailModal = ref(false);
-const activeNilai = ref(null);
-
-function openDetail(n) {
-  activeNilai.value = n;
-  showDetailModal.value = true;
-}
-
-
 </script>
 
 <template>
   <div class="space-y-6">
 
     <!-- ======================================================================= -->
-    <!-- HEADER HERO BANNER                                                      -->
+    <!-- HEADER RINGKAS (TANPA ELEMEN DEKORATIF BERLEBIH)                        -->
     <!-- ======================================================================= -->
-    <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-emerald-950/70 via-slate-900 to-teal-950/70 border border-emerald-500/20 p-6 sm:p-8 shadow-2xl backdrop-blur-xl">
-      <div class="absolute -top-24 -right-24 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
-      <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative z-10">
-        <div>
-          <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-black tracking-wider uppercase mb-2">
-            <span>📊 Evaluasi &amp; Berita Acara CBT</span>
-          </div>
-          <h1 class="text-2xl sm:text-3xl font-black text-white tracking-tight">
-            Hasil &amp; Rekapitulasi Ujian CBT
-          </h1>
-          <p class="text-xs sm:text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
-            Rangkuman lengkap pasca-ujian: pantau waktu pelaksanaan, kehadiran peserta, siswa yang belum ujian, catatan pelanggaran integritas, dan peringkat nilai terstruktur per mata pelajaran dan rombel kelas.
-          </p>
+    <div class="p-5 sm:p-6 rounded-2xl bg-slate-900 border border-white/10 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div>
+        <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-teal-500/10 border border-teal-500/30 text-teal-300 text-[11px] font-bold uppercase tracking-wider mb-2 font-mono">
+          <span>📊 Hasil Ujian CBT</span>
+        </div>
+        <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight">
+          Rekapitulasi &amp; Nilai CBT
+        </h1>
+        <p class="text-xs text-gray-400 mt-1 max-w-xl">
+          Pantau hasil evaluasi, kehadiran siswa per rombel kelas, catatan integritas anti-cheat, dan peringkat nilai siswa.
+        </p>
+      </div>
+
+      <!-- Quick Status Counter -->
+      <div class="flex items-center gap-3 text-xs font-mono shrink-0">
+        <div class="px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 text-center">
+          <span class="text-gray-400 text-[10px] block">Total Sesi CBT</span>
+          <span class="text-base font-black text-teal-300">{{ effectiveJadwalList.length }}</span>
+        </div>
+        <div class="px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 text-center">
+          <span class="text-gray-400 text-[10px] block">Total Nilai Masuk</span>
+          <span class="text-base font-black text-emerald-300">{{ (props.nilaiList || []).length }}</span>
         </div>
       </div>
     </div>
 
     <!-- ======================================================================= -->
-    <!-- TOP HIERARCHICAL NAVIGATION (MAPEL & JENJANG FILTER)                    -->
+    <!-- VIEW A: OVERVIEW DAFTAR SESI UJIAN (Saat Belum Memilih Sesi)            -->
     <!-- ======================================================================= -->
-    <div class="p-4 sm:p-5 rounded-2xl bg-slate-900/80 border border-white/10 backdrop-blur-xl space-y-4 shadow-lg">
+    <div v-if="!selectedJadwalId" class="space-y-4">
       
-      <!-- Baris 1: Mata Pelajaran Guru (Hanya Mapel Akun Guru yang Login) -->
-      <div class="flex items-center gap-3 flex-wrap">
-        <span class="text-[11px] font-black uppercase tracking-wider text-teal-400 font-mono">
-          1️⃣ Mata Pelajaran Guru:
-        </span>
-
-        <!-- Jika hanya 1 mapel (misal: Informatika) -->
-        <div v-if="availableMapels.length <= 1" class="flex items-center gap-2">
-          <span class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-teal-500/15 text-teal-300 border border-teal-500/30 text-xs font-black font-mono shadow-sm">
-            <span>📖</span>
-            <span>{{ availableMapels[0] || 'Informatika' }}</span>
+      <!-- Filter Bar: Mapel Guru, Jenjang Tingkat & Pencarian -->
+      <div class="p-4 rounded-2xl bg-slate-900/90 border border-white/10 space-y-3 shadow-md">
+        <!-- Filter Baris 1: Mata Pelajaran Guru -->
+        <div class="flex items-center gap-2.5 flex-wrap text-xs">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-teal-400 font-mono">
+            Mapel:
           </span>
-          <span class="text-xs text-gray-400 font-mono">({{ effectiveJadwalList.length }} Sesi Ujian)</span>
-        </div>
-
-        <!-- Jika guru mengampu lebih dari 1 mapel -->
-        <div v-else class="flex items-center gap-2 flex-wrap text-xs">
           <button
             type="button"
             @click="selectedMapel = 'Semua'"
             :class="[
-              'px-3.5 py-1.5 rounded-xl font-bold transition-all min-h-[36px] flex items-center gap-1.5',
+              'px-3 py-1.5 rounded-xl font-bold transition-all min-h-[34px] flex items-center gap-1.5',
               selectedMapel === 'Semua'
-                ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20 font-black'
+                ? 'bg-teal-500 text-slate-950 font-black shadow-sm'
                 : 'bg-white/5 hover:bg-white/10 text-gray-300'
             ]"
           >
-            <span>Semua Mapel Guru</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20 font-mono">{{ effectiveJadwalList.length }}</span>
+            <span>Semua Mapel</span>
+            <span class="px-1.5 py-0.5 rounded-full text-[10px] bg-black/20 font-mono">{{ effectiveJadwalList.length }}</span>
           </button>
-
           <button
             v-for="mapel in availableMapels"
             :key="mapel"
             type="button"
             @click="selectedMapel = mapel"
             :class="[
-              'px-3.5 py-1.5 rounded-xl font-bold transition-all min-h-[36px] flex items-center gap-1.5',
+              'px-3 py-1.5 rounded-xl font-bold transition-all min-h-[34px] flex items-center gap-1.5',
               selectedMapel === mapel
-                ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20 font-black'
+                ? 'bg-teal-500 text-slate-950 font-black shadow-sm'
                 : 'bg-white/5 hover:bg-white/10 text-gray-300'
             ]"
           >
             <span>📖 {{ mapel }}</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20 font-mono">{{ getJadwalCountByMapel(mapel) }}</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Baris 2: Pilihan Jenjang/Tingkat & Quick Search -->
-      <div class="pt-2 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-          <span class="text-[11px] font-black uppercase tracking-wider text-gray-400 mr-1 shrink-0 font-mono">
-            2️⃣ Jenjang:
-          </span>
-          <button
-            type="button"
-            v-for="tingkat in ['Semua', 'X', 'XI', 'XII']"
-            :key="tingkat"
-            @click="selectedTingkat = tingkat"
-            :class="[
-              'px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 text-xs min-h-[34px]',
-              selectedTingkat === tingkat
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-black'
-                : 'bg-white/5 text-gray-400 hover:text-white border border-transparent'
-            ]"
-          >
-            {{ tingkat === 'Semua' ? 'Semua Jenjang' : 'Kelas ' + tingkat }}
+            <span class="px-1.5 py-0.5 rounded-full text-[10px] bg-black/20 font-mono">{{ getJadwalCountByMapel(mapel) }}</span>
           </button>
         </div>
 
-        <!-- Search Bar -->
-        <div class="relative min-w-[240px]">
-          <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Cari ujian, kelas, atau siswa..."
-            class="w-full pl-9 pr-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-teal-400 min-h-[36px]"
-          />
-        </div>
-      </div>
-    </div>
+        <!-- Filter Baris 2: Jenjang, Kelas Ampuan & Pencarian -->
+        <div class="pt-2 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-3 overflow-x-auto text-xs flex-wrap">
+            <div class="flex items-center gap-1.5 shrink-0">
+              <span class="text-[11px] font-bold uppercase tracking-wider text-gray-400 mr-1 font-mono">
+                Jenjang:
+              </span>
+              <button
+                type="button"
+                v-for="tingkat in ['Semua', 'X', 'XI', 'XII']"
+                :key="tingkat"
+                @click="selectedTingkat = tingkat"
+                :class="[
+                  'px-3 py-1 rounded-xl font-bold transition-all shrink-0 text-xs min-h-[32px]',
+                  selectedTingkat === tingkat
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-black'
+                    : 'bg-white/5 text-gray-400 hover:text-white border border-transparent'
+                ]"
+              >
+                {{ tingkat === 'Semua' ? 'Semua Jenjang' : 'Kelas ' + tingkat }}
+              </button>
+            </div>
 
-    <!-- ======================================================================= -->
-    <!-- VIEW A: OVERVIEW CARDS PER SESI KELAS (Saat Belum Memilih Sesi Ujian)   -->
-    <!-- ======================================================================= -->
-    <div v-if="!selectedJadwalId" class="space-y-4">
-      
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h3 class="text-sm font-black text-gray-200 uppercase tracking-wider font-mono flex items-center gap-2">
-          <span>📁 Daftar Sesi Ujian per Kelas</span>
-          <span class="text-xs text-teal-400">({{ filteredJadwalCards.length }} Sesi)</span>
-        </h3>
-
-        <div class="flex items-center gap-3 flex-wrap">
-          <!-- Dual-View Toggle: Kartu Grid vs Matriks Tabel (Skalabel untuk 15+ Kelas) -->
-          <div class="inline-flex items-center p-1 rounded-xl bg-slate-800/90 border border-white/10 text-xs font-mono">
-            <button
-              type="button"
-              @click="overviewDisplayMode = 'cards'"
-              :class="[
-                'px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 min-h-[32px] cursor-pointer',
-                overviewDisplayMode === 'cards'
-                  ? 'bg-teal-500 text-slate-950 shadow-sm font-black'
-                  : 'text-gray-400 hover:text-white'
-              ]"
-            >
-              <span>🗂️</span>
-              <span>Kartu Grid</span>
-            </button>
-            <button
-              type="button"
-              @click="overviewDisplayMode = 'table'"
-              :class="[
-                'px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 min-h-[32px] cursor-pointer',
-                overviewDisplayMode === 'table'
-                  ? 'bg-teal-500 text-slate-950 shadow-sm font-black'
-                  : 'text-gray-400 hover:text-white'
-              ]"
-            >
-              <span>📊</span>
-              <span>Matriks Tabel</span>
-            </button>
+            <!-- Dropdown Filter Kelas Ampuan Guru di Overview -->
+            <div v-if="overviewKelasList.length > 0" class="flex items-center gap-1.5 shrink-0">
+              <span class="text-[11px] font-bold uppercase tracking-wider text-teal-400 font-mono">
+                Kelas:
+              </span>
+              <select
+                v-model="selectedOverviewKelas"
+                class="py-1 px-2.5 rounded-xl bg-slate-800 border border-cyan-500/30 text-cyan-300 font-bold text-xs focus:outline-none focus:border-cyan-400 min-h-[32px]"
+                title="Saring jadwal ujian berdasarkan kelas yang diajar guru"
+              >
+                <option value="">Semua Kelas Ampuan ({{ overviewKelasList.length }})</option>
+                <option v-for="k in overviewKelasList" :key="k" :value="k">
+                  Kelas {{ k }}
+                </option>
+              </select>
+            </div>
           </div>
 
-          <button
-            v-if="selectedMapel !== 'Semua' || selectedTingkat !== 'Semua' || searchQuery"
-            type="button"
-            @click="resetAllFilters"
-            class="text-xs text-amber-400 hover:underline font-semibold"
-          >
-            ✕ Reset Filter
-          </button>
+          <!-- Live Search -->
+          <div class="relative min-w-[240px]">
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Cari judul ujian atau kelas..."
+              class="w-full pl-3 pr-8 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-teal-400 min-h-[34px]"
+            />
+            <button
+              v-if="searchQuery"
+              type="button"
+              @click="searchQuery = ''"
+              class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-xs"
+            >✕</button>
+          </div>
         </div>
       </div>
 
       <!-- Empty State -->
-      <div v-if="filteredJadwalCards.length === 0" class="text-center py-16 px-4 rounded-3xl bg-slate-900/60 border border-white/10">
-        <div class="w-16 h-16 mx-auto rounded-2xl bg-teal-500/10 text-teal-400 flex items-center justify-center text-3xl mb-3">
-          📚
-        </div>
-        <h3 class="text-base font-bold text-white">Tidak Ditemukan Sesi Ujian</h3>
-        <p class="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
-          Belum ada jadwal CBT untuk mata pelajaran atau jenjang kelas yang Anda pilih. Silakan sesuaikan filter di atas.
+      <div v-if="filteredJadwalCards.length === 0" class="text-center py-16 rounded-2xl bg-slate-900 border border-white/10 space-y-3">
+        <span class="text-4xl block">📋</span>
+        <h3 class="text-sm font-bold text-white">Tidak Ditemukan Sesi Ujian CBT</h3>
+        <p class="text-xs text-gray-400 max-w-md mx-auto">
+          Belum ada jadwal ujian CBT yang sesuai dengan filter mata pelajaran atau pencarian saat ini.
         </p>
+        <button
+          v-if="selectedMapel !== 'Semua' || selectedTingkat !== 'Semua' || searchQuery"
+          type="button"
+          @click="resetAllFilters"
+          class="px-4 py-1.5 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold"
+        >
+          Reset Filter
+        </button>
       </div>
 
-      <!-- MODE 1: KARTU GRID TERSTRUKTUR (DIKELOMPOKKAN PER JENJANG KELAS) -->
-      <div v-else-if="overviewDisplayMode === 'cards'" class="space-y-6">
-        <div v-for="tingkat in activeTingkats" :key="tingkat" class="space-y-3">
-          <!-- Section Header per Jenjang -->
-          <div class="flex items-center justify-between border-b border-white/10 pb-2">
-            <div class="flex items-center gap-2">
-              <span class="px-3 py-1 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-300 font-mono text-xs font-black">
-                📁 Jenjang Kelas {{ tingkat }}
-              </span>
-              <span class="text-xs text-gray-400 font-mono">
-                ({{ (groupedJadwalCards[tingkat] || []).length }} Rombel Sesi Ujian)
-              </span>
-            </div>
-            <span class="text-[11px] text-gray-400 font-mono hidden sm:inline-block">
-              Partisipasi: {{ (groupedJadwalCards[tingkat] || []).reduce((acc, c) => acc + c.sudahUjianCount, 0) }} Siswa Selesai
-            </span>
-          </div>
-
-          <!-- Cards Grid for this Tingkat -->
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div
-              v-for="j in groupedJadwalCards[tingkat]"
-              :key="j.id"
-              class="p-5 rounded-3xl bg-slate-900/85 border border-white/10 hover:border-teal-500/40 transition-all flex flex-col justify-between shadow-xl backdrop-blur-xl group relative overflow-hidden"
-            >
-              <!-- Top Badges -->
-              <div class="space-y-3">
-                <div class="flex items-start justify-between gap-2">
-                  <div class="flex items-center gap-1.5 flex-wrap">
-                    <span class="px-2.5 py-1 rounded-xl bg-teal-500/15 text-teal-300 border border-teal-500/30 text-[11px] font-black font-mono">
-                      📖 {{ j.mapelNama }}
-                    </span>
-                    <span v-if="j.isDeleted" class="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
-                      📁 Arsip Selesai
-                    </span>
-                  </div>
-                  <span class="px-2.5 py-1 rounded-xl bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[11px] font-black font-mono">
-                    👥 {{ j.kelasNama }}
-                  </span>
-                </div>
-
-                <div>
-                  <h4 class="text-base font-black text-white group-hover:text-teal-300 transition-colors line-clamp-1">
-                    {{ j.judulUjian }}
-                  </h4>
-                  <p class="text-xs text-gray-400 mt-0.5">
-                    {{ j.jurusanNama }} ({{ j.jurusanKode }})
-                  </p>
-                </div>
-
-                <!-- Schedule & Duration -->
-                <div class="p-3 rounded-2xl bg-white/5 border border-white/5 text-xs text-gray-300 space-y-1.5 font-mono">
-                  <div class="flex items-center justify-between">
-                    <span class="text-gray-400">⏰ Pelaksanaan:</span>
-                    <span class="font-bold text-white text-[11px]">{{ j.waktuMulai ? j.waktuMulai : 'Fleksibel' }}</span>
-                  </div>
-                  <div class="flex items-center justify-between">
-                    <span class="text-gray-400">⏱️ Durasi:</span>
-                    <span class="font-bold text-white">{{ j.durasiMenit }} Menit</span>
-                  </div>
-                </div>
-
-                <!-- Participation Progress Bar -->
-                <div class="space-y-1.5 pt-1">
-                  <div class="flex items-center justify-between text-xs font-mono">
-                    <span class="text-gray-400 font-bold">Partisipasi Siswa:</span>
-                    <span class="text-emerald-400 font-black">
-                      {{ j.sudahUjianCount }} / {{ j.totalSiswaKelas }} Siswa ({{ j.partisipasiPersen }}%)
-                    </span>
-                  </div>
-                  <div class="w-full h-2 rounded-full bg-white/10 overflow-hidden">
-                    <div
-                      class="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-400 transition-all duration-500"
-                      :style="{ width: j.partisipasiPersen + '%' }"
-                    ></div>
-                  </div>
-                </div>
-
-                <!-- Stats Pill Summary -->
-                <div class="grid grid-cols-3 gap-2 text-center pt-2 font-mono">
-                  <div class="p-2 rounded-xl bg-white/5">
-                    <span class="text-[9px] text-gray-400 block uppercase font-bold">Rata-Rata</span>
-                    <span class="text-sm font-black text-cyan-300">{{ j.avgScore }}</span>
-                  </div>
-                  <div class="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                    <span class="text-[9px] text-emerald-400 block uppercase font-bold">Tuntas</span>
-                    <span class="text-sm font-black text-emerald-300">{{ j.tuntasCount }}</span>
-                  </div>
-                  <div class="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                    <span class="text-[9px] text-amber-400 block uppercase font-bold">Belum Ujian</span>
-                    <span class="text-sm font-black text-amber-300">{{ j.belumUjianCount }}</span>
-                  </div>
-                </div>
-
-                <!-- Violations Alert Badge if any -->
-                <div v-if="j.pelanggaranCount > 0" class="px-3 py-1 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[10.5px] font-bold flex items-center gap-1.5">
-                  <span>⚠️</span>
-                  <span>{{ j.pelanggaranCount }} Pelanggaran Integritas Terdeteksi</span>
-                </div>
-              </div>
-
-              <!-- Card Actions (Strictly 1 Action Button to View Details) -->
-              <div class="pt-4 mt-4 border-t border-white/10 flex items-center">
-                <button
-                  type="button"
-                  @click="selectSchedule(j.id)"
-                  class="w-full py-2.5 px-3 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 text-xs font-black transition-all flex items-center justify-center gap-1.5 min-h-[40px] cursor-pointer"
-                >
-                  <span>Buka Evaluasi Kelas</span>
-                  <span>➔</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- MODE 2: TABEL MATRIKS RINGKAS (UNTUK BANYAK KELAS / 15+ ROMBEL) -->
-      <div v-else-if="overviewDisplayMode === 'table'" class="space-y-4">
-        <!-- Desktop Table (hidden md:block) -->
-        <div class="hidden md:block overflow-hidden rounded-2xl bg-slate-900/80 border border-white/10 shadow-xl backdrop-blur-xl">
-          <table class="w-full text-left border-collapse text-xs">
+      <!-- MODE TABEL: TABEL MATRIKS RINGKAS (UNTUK BANYAK KELAS / ROMBEL) -->
+      <div v-else class="space-y-4">
+        <!-- Pure Responsive Table (Selalu Tampil Sebagai Tabel di Semua Layar) -->
+        <div class="overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
+          <table class="w-full text-left border-collapse text-xs min-w-[700px]">
             <thead>
-              <tr class="border-b border-white/10 bg-white/5 text-[11px] font-black text-gray-400 uppercase tracking-wider font-mono">
+              <tr class="border-b border-white/10 bg-white/5 text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">
                 <th class="py-3.5 px-4">Kelas &amp; Jurusan</th>
                 <th class="py-3.5 px-5">Mata Pelajaran &amp; Sesi Ujian</th>
                 <th class="py-3.5 px-5 text-center min-w-[180px]">Partisipasi Siswa</th>
@@ -700,7 +744,7 @@ function openDetail(n) {
               <tr v-for="j in filteredJadwalCards" :key="j.id" class="hover:bg-white/[0.03] transition-colors group">
                 <td class="py-3.5 px-4">
                   <span class="font-bold text-white block">{{ j.kelasNama }}</span>
-                  <span class="text-[11px] text-gray-400 font-mono">{{ j.jurusanNama }}</span>
+                  <span class="text-[11px] text-gray-400 font-mono">{{ j.jurusanNama || '-' }}</span>
                 </td>
                 <td class="py-3.5 px-5">
                   <div class="flex items-center gap-2 flex-wrap">
@@ -710,6 +754,14 @@ function openDetail(n) {
                     <p class="font-bold text-white group-hover:text-teal-300 transition-colors">{{ j.judulUjian }}</p>
                     <span v-if="j.isDeleted" class="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
                       📁 Arsip Selesai
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-3 text-[11px] text-gray-400 font-mono mt-1">
+                    <span>Token: <strong class="text-amber-300">{{ j.token }}</strong></span>
+                    <span>&bull;</span>
+                    <span>Durasi: {{ j.durasiMenit }} Menit</span>
+                    <span v-if="j.pelanggaranCount > 0" class="text-rose-400 font-bold">
+                      &bull; ⚠️ {{ j.pelanggaranCount }} Pelanggaran
                     </span>
                   </div>
                 </td>
@@ -729,6 +781,7 @@ function openDetail(n) {
                 </td>
                 <td class="py-3.5 px-4 text-center font-mono">
                   <span class="font-black text-cyan-300 text-sm">{{ j.avgScore }}</span>
+                  <span class="text-[10px] text-gray-400 block font-normal">Tuntas: {{ j.tuntasCount }}</span>
                 </td>
                 <td class="py-3.5 px-5 text-right">
                   <button
@@ -745,98 +798,55 @@ function openDetail(n) {
           </table>
         </div>
 
-        <!-- Mobile Card List for Table Mode (md:hidden) -->
-        <div class="md:hidden space-y-3">
-          <div
-            v-for="j in filteredJadwalCards"
-            :key="j.id"
-            class="p-4 rounded-2xl bg-slate-900/90 border border-white/10 space-y-3 shadow-lg"
-          >
-            <div class="flex items-start justify-between gap-2">
-              <div>
-                <div class="flex items-center gap-1.5 flex-wrap">
-                  <span class="px-2 py-0.5 rounded-md bg-teal-500/15 text-teal-300 text-[10.5px] font-bold font-mono">
-                    {{ j.mapelNama }}
-                  </span>
-                  <span class="px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 text-[10.5px] font-bold font-mono">
-                    {{ j.kelasNama }}
-                  </span>
-                </div>
-                <h4 class="font-black text-white text-sm mt-1">{{ j.judulUjian }}</h4>
-              </div>
-              <span class="px-2.5 py-1 rounded-xl bg-white/5 font-black text-xs font-mono text-cyan-300">
-                ⭐ {{ j.avgScore }}
-              </span>
-            </div>
-
-            <div class="space-y-1 pt-1 font-mono text-xs">
-              <div class="flex items-center justify-between text-gray-400 text-[11px]">
-                <span>Partisipasi ({{ j.sudahUjianCount }}/{{ j.totalSiswaKelas }} Siswa):</span>
-                <span class="text-emerald-400 font-bold">{{ j.partisipasiPersen }}%</span>
-              </div>
-              <div class="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
-                <div class="h-full rounded-full bg-teal-500" :style="{ width: j.partisipasiPersen + '%' }"></div>
-              </div>
-            </div>
-
-            <div class="pt-2 border-t border-white/5 flex items-center justify-between">
-              <div class="text-[11px] font-mono text-gray-400">
-                <span v-if="j.pelanggaranCount > 0" class="text-rose-400 font-bold">⚠️ {{ j.pelanggaranCount }} Pelanggaran</span>
-                <span v-else class="text-emerald-400">✓ Integritas Aman</span>
-              </div>
-              <button
-                type="button"
-                @click="selectSchedule(j.id)"
-                class="px-3 py-1.5 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold min-h-[36px] flex items-center gap-1 cursor-pointer"
-              >
-                <span>Buka Evaluasi ➔</span>
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
     <!-- ======================================================================= -->
-    <!-- VIEW B: BERITA ACARA & EVALUASI KELAS (Saat Sesi Ujian Dipilih)          -->
+    <!-- VIEW B:<!-- VIEW B: DETAIL BERITA ACARA & NILAI (Saat Sesi Ujian Dipilih)            -->
     <!-- ======================================================================= -->
     <div v-else-if="selectedJadwal" class="space-y-6">
 
-      <!-- Breadcrumb Nav & Action -->
+      <!-- Top Nav Bar Kembali & Aksi Transfer -->
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <button
           type="button"
           @click="backToOverview"
-          class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-xs font-bold transition-all min-h-[38px]"
+          class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-xs font-bold transition-all min-h-[38px] border border-white/10"
         >
           <span>«</span>
-          <span>Kembali ke Daftar Semua Kelas</span>
+          <span>Kembali ke Daftar Ujian</span>
         </button>
 
-        <div class="flex items-center gap-2">
-          <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-semibold">
-            <span>✓</span>
-            <span>Otomatis Tersimpan di Nilai Siswa</span>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            @click="openTransferModal"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 transition-all min-h-[38px] active:scale-95 cursor-pointer"
+            title="Transfer hasil ujian CBT ini ke ledger Tujuan Pembelajaran (TP)"
+          >
+            <span>📥</span>
+            <span>Transfer Nilai ke TP</span>
+          </button>
+
+          <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-bold font-mono">
+            <span>✓ Data Tersinkronisasi Otomatis</span>
           </div>
         </div>
       </div>
 
-      <!-- Detail Sesi Ujian Banner (Berita Acara) -->
-      <div class="p-5 sm:p-6 rounded-3xl bg-slate-900/90 border border-teal-500/30 shadow-2xl backdrop-blur-xl space-y-4">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4">
+      <!-- Schedule Meta Card -->
+      <div class="p-5 sm:p-6 rounded-2xl bg-slate-900 border border-teal-500/30 shadow-xl space-y-4">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-4">
           <div>
             <div class="flex items-center gap-2 flex-wrap mb-1.5">
-              <span class="px-2.5 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/40 text-xs font-black font-mono">
+              <span class="px-2.5 py-0.5 rounded-lg bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold font-mono">
                 📖 {{ selectedJadwal.mapelNama }}
               </span>
-              <span class="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-xs font-black font-mono">
-                👥 {{ selectedJadwal.kelasNama }}
+              <span class="px-2.5 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold font-mono">
+                👥 Target: {{ selectedJadwal.kelasNama }}
               </span>
-              <span class="px-2.5 py-0.5 rounded-full bg-white/10 text-gray-300 text-xs font-mono">
+              <span v-if="selectedJadwal.jurusanNama" class="px-2.5 py-0.5 rounded-lg bg-white/10 text-gray-300 text-xs font-mono">
                 🏢 {{ selectedJadwal.jurusanNama }}
-              </span>
-              <span v-if="selectedJadwal.isDeleted" class="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black font-mono">
-                📁 Arsip Selesai
               </span>
             </div>
             <h2 class="text-xl sm:text-2xl font-black text-white">
@@ -844,27 +854,22 @@ function openDetail(n) {
             </h2>
           </div>
 
-          <!-- Schedule Meta Pills -->
           <div class="flex items-center gap-2 flex-wrap text-xs font-mono">
-            <div class="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10">
-              <span class="text-gray-400 text-[10px] block">Waktu Mulai</span>
-              <span class="font-bold text-teal-300">{{ selectedJadwal.waktuMulai || 'Fleksibel' }}</span>
-            </div>
             <div class="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10">
               <span class="text-gray-400 text-[10px] block">Durasi</span>
               <span class="font-bold text-white">{{ selectedJadwal.durasiMenit }} Menit</span>
             </div>
-            <div class="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <div class="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30">
               <span class="text-amber-400 text-[10px] block">Token CBT</span>
               <span class="font-black text-amber-300">{{ selectedJadwal.token }}</span>
             </div>
           </div>
         </div>
 
-        <!-- 4 KPI Summary Grid Sesi Ini -->
+        <!-- 4 KPI Metrics -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div class="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-0.5">
-            <span class="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider block">Partisipasi Ujian</span>
+          <div class="p-3.5 rounded-xl bg-white/5 border border-white/10 space-y-0.5">
+            <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Partisipasi Siswa</span>
             <p class="text-xl font-black text-white font-mono">
               {{ totalSudahUjian }} <span class="text-xs text-gray-400 font-normal">/ {{ totalTargetKelas }} Siswa</span>
             </p>
@@ -873,28 +878,28 @@ function openDetail(n) {
             </span>
           </div>
 
-          <div class="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-0.5">
-            <span class="text-[10px] font-extrabold text-cyan-400 uppercase tracking-wider block">Rata-Rata Kelas</span>
+          <div class="p-3.5 rounded-xl bg-white/5 border border-white/10 space-y-0.5">
+            <span class="text-[10px] font-bold text-cyan-400 uppercase tracking-wider block">Rata-Rata Nilai</span>
             <p class="text-xl font-black text-cyan-300 font-mono">
               {{ rataRataSkor }} <span class="text-xs text-gray-400 font-normal">/ 100</span>
             </p>
             <span class="text-[10.5px] text-gray-400 font-mono block">
-              Tertinggi: {{ skorTertinggi }} • Terendah: {{ skorTerendah }}
+              Tinggi: {{ skorTertinggi }} • Rendah: {{ skorTerendah }}
             </span>
           </div>
 
-          <div class="p-3.5 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-0.5">
-            <span class="text-[10px] font-extrabold text-emerald-400 uppercase tracking-wider block">Ketuntasan (KKM 75)</span>
+          <div class="p-3.5 rounded-xl bg-slate-900 border border-emerald-500/30 space-y-0.5">
+            <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">Ketuntasan (KKM 75)</span>
             <p class="text-xl font-black text-emerald-300 font-mono">
               {{ totalTuntas }} <span class="text-xs text-emerald-400/70 font-normal">Tuntas</span>
             </p>
             <span class="text-[10.5px] text-rose-300 font-bold block">
-              {{ totalBelumTuntas }} Siswa Belum Tuntas
+              {{ totalBelumTuntas }} Belum Tuntas
             </span>
           </div>
 
-          <div class="p-3.5 rounded-2xl bg-slate-900 border border-rose-500/30 space-y-0.5">
-            <span class="text-[10px] font-extrabold text-rose-400 uppercase tracking-wider block">Integritas Ujian</span>
+          <div class="p-3.5 rounded-xl bg-slate-900 border border-rose-500/30 space-y-0.5">
+            <span class="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">Integritas Anti-Cheat</span>
             <p class="text-xl font-black text-rose-300 font-mono">
               {{ totalPelanggaranSesi }} <span class="text-xs text-rose-400/70 font-normal">Pelanggaran</span>
             </p>
@@ -905,21 +910,62 @@ function openDetail(n) {
         </div>
       </div>
 
-      <!-- ===================================================================== -->
-      <!-- 3 TAB NAVIGASI EVALUASI KEGIATAN UJIAN                                 -->
-      <!-- ===================================================================== -->
+      <!-- Podium Top 3 (Tampil jika sudah ada nilai) -->
+      <div v-if="completedNilais.length >= 2" class="p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-slate-900 to-teal-500/10 border border-amber-500/30 space-y-3">
+        <h3 class="text-xs font-bold text-amber-300 uppercase tracking-wider font-mono flex items-center gap-2">
+          <span>🏆 Peringkat Teratas (Podium)</span>
+          <span v-if="selectedKelasFilter" class="text-teal-300 font-normal">• Kelas {{ selectedKelasFilter }}</span>
+        </h3>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+          <!-- 2nd Place -->
+          <div v-if="topThreePodium[1]" class="order-2 sm:order-1 p-3.5 rounded-xl bg-slate-800/80 border border-slate-400/30 text-center space-y-1">
+            <span class="text-lg block">🥈</span>
+            <span class="text-[10px] font-black text-slate-300 uppercase font-mono">Juara 2</span>
+            <h4 class="font-bold text-white text-xs line-clamp-1">{{ topThreePodium[1].namaSiswa }}</h4>
+            <span class="text-xs font-mono text-gray-400 block">{{ topThreePodium[1].kelasNama }}</span>
+            <div class="pt-1.5 border-t border-white/10 font-mono text-xs font-black text-slate-200">
+              Skor: {{ topThreePodium[1].nilai }}
+            </div>
+          </div>
+
+          <!-- 1st Place -->
+          <div v-if="topThreePodium[0]" class="order-1 sm:order-2 p-4 rounded-xl bg-amber-500/20 border-2 border-amber-400 text-center space-y-1 shadow-lg shadow-amber-500/10">
+            <span class="text-2xl block">👑</span>
+            <span class="text-[11px] font-black text-amber-200 uppercase font-mono">🥇 Juara 1 (Champion)</span>
+            <h4 class="font-black text-white text-sm line-clamp-1">{{ topThreePodium[0].namaSiswa }}</h4>
+            <span class="text-xs font-mono text-amber-200/80 block">{{ topThreePodium[0].kelasNama }}</span>
+            <div class="pt-2 border-t border-amber-400/30 font-mono text-sm font-black text-amber-300">
+              Skor: {{ topThreePodium[0].nilai }} (✓ {{ topThreePodium[0].jumlahBenar }} Benar)
+            </div>
+          </div>
+
+          <!-- 3rd Place -->
+          <div v-if="topThreePodium[2]" class="order-3 p-3.5 rounded-xl bg-slate-800/80 border border-amber-700/40 text-center space-y-1">
+            <span class="text-lg block">🥉</span>
+            <span class="text-[10px] font-black text-amber-400 uppercase font-mono">Juara 3</span>
+            <h4 class="font-bold text-white text-xs line-clamp-1">{{ topThreePodium[2].namaSiswa }}</h4>
+            <span class="text-xs font-mono text-gray-400 block">{{ topThreePodium[2].kelasNama }}</span>
+            <div class="pt-1.5 border-t border-white/10 font-mono text-xs font-black text-amber-300">
+              Skor: {{ topThreePodium[2].nilai }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3 Tab Evaluasi -->
       <div class="flex items-center gap-2 border-b border-white/10 pb-2 text-xs font-mono overflow-x-auto">
         <button
           type="button"
           @click="activeEvaluationTab = 'nilai'"
           :class="[
-            'px-4 py-2 rounded-xl font-black transition-all flex items-center gap-2 shrink-0 min-h-[38px]',
+            'px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-2 shrink-0 min-h-[38px]',
             activeEvaluationTab === 'nilai'
-              ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20'
+              ? 'bg-teal-500 text-slate-950 font-black shadow-md shadow-teal-500/20'
               : 'bg-white/5 hover:bg-white/10 text-gray-300'
           ]"
         >
-          <span>🏆 Rangking &amp; Nilai</span>
+          <span>🏆 Rekap Nilai</span>
           <span class="px-2 py-0.5 rounded-full text-[10px] bg-black/20 font-mono">{{ completedNilais.length }}</span>
         </button>
 
@@ -927,9 +973,9 @@ function openDetail(n) {
           type="button"
           @click="activeEvaluationTab = 'belum'"
           :class="[
-            'px-4 py-2 rounded-xl font-black transition-all flex items-center gap-2 shrink-0 min-h-[38px]',
+            'px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-2 shrink-0 min-h-[38px]',
             activeEvaluationTab === 'belum'
-              ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+              ? 'bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
               : 'bg-white/5 hover:bg-white/10 text-gray-300'
           ]"
         >
@@ -941,9 +987,9 @@ function openDetail(n) {
           type="button"
           @click="activeEvaluationTab = 'pelanggaran'"
           :class="[
-            'px-4 py-2 rounded-xl font-black transition-all flex items-center gap-2 shrink-0 min-h-[38px]',
+            'px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-2 shrink-0 min-h-[38px]',
             activeEvaluationTab === 'pelanggaran'
-              ? 'bg-rose-500 text-white shadow-md shadow-rose-500/20'
+              ? 'bg-rose-500 text-white font-black shadow-md shadow-rose-500/20'
               : 'bg-white/5 hover:bg-white/10 text-gray-300'
           ]"
         >
@@ -952,140 +998,112 @@ function openDetail(n) {
         </button>
       </div>
 
-      <!-- ===================================================================== -->
-      <!-- TAB 1: RANGKING & HASIL NILAI SISWA (SUDAH MENGERJAKAN)               -->
-      <!-- ===================================================================== -->
-      <div v-if="activeEvaluationTab === 'nilai'" class="space-y-6">
-
-        <!-- Top 3 Podium Showcase Kelas Ini -->
-        <div v-if="topThreePodium.length > 0" class="p-5 sm:p-6 rounded-3xl bg-gradient-to-b from-amber-500/10 via-slate-900/90 to-slate-900 border border-amber-500/30 shadow-2xl backdrop-blur-xl space-y-4">
-          <div class="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
-            <div class="flex items-center gap-2.5">
-              <span class="text-2xl">🏆</span>
-              <div>
-                <h3 class="text-base sm:text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-200 to-amber-400">
-                  Podium 3 Besar Teratas Kelas {{ selectedJadwal.kelasNama }}
-                </h3>
-                <p class="text-xs text-gray-400 font-mono">Peringkat nilai tertinggi dari total {{ completedNilais.length }} peserta ujian</p>
-              </div>
-            </div>
-            <span class="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono text-xs font-black shrink-0">
-              ⭐ TOP 3 KELAS
-            </span>
+      <!-- TOOLBAR FILTER TERPADU (FILTER KELAS DARI JADWAL GURU, STATUS, SEARCH) -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-900 border border-white/10">
+        <div class="flex items-center gap-2.5 flex-wrap text-xs">
+          <!-- Dropdown Filter Rombel Kelas (Kunci Jadwal Guru) -->
+          <div v-if="relevantKelasList.length > 1" class="flex items-center gap-1.5">
+            <span class="text-gray-400 font-mono text-[11px]">Rombel:</span>
+            <select
+              v-model="selectedKelasFilter"
+              class="py-1.5 px-3 rounded-xl bg-slate-800 border border-cyan-500/30 text-cyan-300 font-bold text-xs focus:outline-none focus:border-cyan-400 min-h-[36px]"
+              title="Pilih kelas tertentu yang diajar untuk menyaring siswa"
+            >
+              <option value="">🏢 Semua Rombel Kelas ({{ relevantKelasList.length }})</option>
+              <option v-for="k in relevantKelasList" :key="k" :value="k">
+                Kelas {{ k }}
+              </option>
+            </select>
           </div>
 
-          <!-- Podium Cards Grid -->
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-            <!-- 2nd Place -->
-            <div v-if="topThreePodium[1]" class="order-2 sm:order-1 p-4 rounded-2xl bg-slate-800/80 border border-slate-400/40 text-center flex flex-col justify-between shadow-lg">
-              <div class="space-y-1">
-                <div class="w-12 h-12 mx-auto rounded-full bg-slate-400/20 border-2 border-slate-300 flex items-center justify-center text-xl shadow-inner">🥈</div>
-                <span class="inline-block px-2.5 py-0.5 rounded-full bg-slate-400/20 text-slate-200 font-mono text-[10px] font-black">JUARA 2</span>
-                <h4 class="font-black text-white text-sm line-clamp-1">{{ topThreePodium[1].namaSiswa }}</h4>
-                <p class="text-[11px] text-gray-400 font-mono">NIS: {{ topThreePodium[1].nis }}</p>
-              </div>
-              <div class="mt-3 pt-2 border-t border-white/10 flex items-center justify-around font-mono">
-                <span class="text-xl font-black text-slate-200">{{ topThreePodium[1].nilai }}</span>
-                <span class="text-[10px] text-emerald-400 font-bold">✓ {{ topThreePodium[1].jumlahBenar }} Benar</span>
-              </div>
-            </div>
-
-            <!-- 1st Place (Champion) -->
-            <div v-if="topThreePodium[0]" class="order-1 sm:order-2 p-5 rounded-2xl bg-gradient-to-b from-amber-500/20 to-slate-800/90 border-2 border-amber-400 text-center flex flex-col justify-between shadow-2xl shadow-amber-500/20 relative scale-100 sm:scale-105 z-10">
-              <div class="space-y-1">
-                <div class="w-14 h-14 mx-auto rounded-full bg-amber-400/25 border-2 border-amber-300 flex items-center justify-center text-2xl shadow-lg shadow-amber-400/30 animate-pulse">👑</div>
-                <span class="inline-block px-3 py-0.5 rounded-full bg-amber-400/30 text-amber-200 font-mono text-xs font-black border border-amber-400/50">🥇 JUARA 1 (CHAMPION)</span>
-                <h4 class="font-black text-white text-base line-clamp-1">{{ topThreePodium[0].namaSiswa }}</h4>
-                <p class="text-xs text-amber-200/70 font-mono">NIS: {{ topThreePodium[0].nis }}</p>
-              </div>
-              <div class="mt-3 pt-2.5 border-t border-amber-400/30 flex items-center justify-around font-mono">
-                <span class="text-2xl font-black text-amber-300">{{ topThreePodium[0].nilai }}</span>
-                <span class="text-xs text-emerald-300 font-black">✓ {{ topThreePodium[0].jumlahBenar }} Benar</span>
-              </div>
-            </div>
-
-            <!-- 3rd Place -->
-            <div v-if="topThreePodium[2]" class="order-3 p-4 rounded-2xl bg-slate-800/80 border border-amber-700/50 text-center flex flex-col justify-between shadow-lg">
-              <div class="space-y-1">
-                <div class="w-12 h-12 mx-auto rounded-full bg-amber-700/20 border-2 border-amber-600 flex items-center justify-center text-xl shadow-inner">🥉</div>
-                <span class="inline-block px-2.5 py-0.5 rounded-full bg-amber-700/25 text-amber-300 font-mono text-[10px] font-black">JUARA 3</span>
-                <h4 class="font-black text-white text-sm line-clamp-1">{{ topThreePodium[2].namaSiswa }}</h4>
-                <p class="text-[11px] text-gray-400 font-mono">NIS: {{ topThreePodium[2].nis }}</p>
-              </div>
-              <div class="mt-3 pt-2 border-t border-white/10 flex items-center justify-around font-mono">
-                <span class="text-xl font-black text-amber-300">{{ topThreePodium[2].nilai }}</span>
-                <span class="text-[10px] text-emerald-400 font-bold">✓ {{ topThreePodium[2].jumlahBenar }} Benar</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Filter Sub-Bar Nilai -->
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div class="flex items-center gap-2">
-            <span class="text-xs text-gray-400 font-mono">Filter Status:</span>
+          <!-- Filter Status Nilai (Hanya di Tab Nilai) -->
+          <div v-if="activeEvaluationTab === 'nilai'" class="flex items-center gap-1.5">
+            <span class="text-gray-400 font-mono text-[11px]">Status:</span>
             <select
               v-model="filterStatus"
               class="py-1.5 px-3 rounded-xl bg-slate-800 border border-white/10 text-gray-200 text-xs focus:outline-none focus:border-teal-400 min-h-[36px]"
             >
               <option value="">Semua Status</option>
-              <option value="Tuntas">Tuntas (&ge; 75)</option>
+              <option value="Tuntas">Tuntas (≥ 75)</option>
               <option value="Belum Tuntas">Belum Tuntas (&lt; 75)</option>
             </select>
           </div>
-          <span class="text-xs text-gray-400 font-mono">Menampilkan {{ sortedScheduleGrades.length }} siswa</span>
         </div>
 
-        <!-- Desktop View: Table (hidden md:block) -->
-        <div v-if="sortedScheduleGrades.length > 0" class="hidden md:block overflow-hidden rounded-2xl bg-slate-900/80 border border-white/10 shadow-xl backdrop-blur-xl">
-          <table class="w-full text-left border-collapse">
+        <!-- Search Input -->
+        <div class="relative min-w-[200px] sm:w-64">
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Cari siswa atau NIS..."
+            class="w-full pl-3 pr-8 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-teal-400 min-h-[36px]"
+          />
+          <button
+            v-if="searchQuery"
+            type="button"
+            @click="searchQuery = ''"
+            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-xs"
+          >✕</button>
+        </div>
+      </div>
+
+      <!-- ===================================================================== -->
+      <!-- TAB 1: DAFTAR NILAI & PERINGKAT                                       -->
+      <!-- ===================================================================== -->
+      <div v-if="activeEvaluationTab === 'nilai'" class="space-y-4">
+        <!-- Pure Responsive Table (Selalu Tampil Sebagai Tabel di Semua Layar) -->
+        <div v-if="sortedScheduleGrades.length > 0" class="overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
+          <table class="w-full text-left border-collapse text-xs min-w-[650px]">
             <thead>
-              <tr class="border-b border-white/10 bg-white/5 text-[11px] font-black text-gray-400 uppercase tracking-wider font-mono">
-                <th class="py-4 px-4 text-center">🏆 Rangking</th>
-                <th class="py-4 px-5">Nama Siswa (NIS)</th>
-                <th class="py-4 px-4 text-center">Nilai Akhir</th>
-                <th class="py-4 px-4 text-center">Status</th>
-                <th class="py-4 px-5 text-right">Aksi</th>
+              <tr class="border-b border-white/10 bg-white/5 text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">
+                <th class="py-3.5 px-4 text-center w-24">Peringkat</th>
+                <th class="py-3.5 px-5">Nama Siswa &amp; NIS</th>
+                <th class="py-3.5 px-4">Kelas Rombel</th>
+                <th class="py-3.5 px-4 text-center">Nilai Akhir</th>
+                <th class="py-3.5 px-4 text-center">Status</th>
+                <th class="py-3.5 px-5 text-right">Aksi</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-white/5 text-xs">
+            <tbody class="divide-y divide-white/5">
               <tr v-for="n in sortedScheduleGrades" :key="n.id" class="hover:bg-white/[0.03] transition-colors group">
                 <!-- Rangking Badge -->
-                <td class="py-4 px-4 text-center">
-                  <div class="inline-flex items-center justify-center">
-                    <span v-if="getRank(n.id) === 1" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-gradient-to-r from-amber-500/25 to-yellow-400/25 border border-amber-400/50 text-amber-300 font-black text-xs shadow-md shadow-amber-500/20">
-                      <span>🥇</span>
-                      <span>#1 Top</span>
-                    </span>
-                    <span v-else-if="getRank(n.id) === 2" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-400/20 border border-slate-300/40 text-slate-200 font-black text-xs">
-                      <span>🥈</span>
-                      <span>#2</span>
-                    </span>
-                    <span v-else-if="getRank(n.id) === 3" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-700/25 border border-amber-600/40 text-amber-300 font-black text-xs">
-                      <span>🥉</span>
-                      <span>#3</span>
-                    </span>
-                    <span v-else class="inline-flex items-center justify-center px-2 py-0.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 font-mono font-bold text-xs">
-                      #{{ getRank(n.id) }}
-                    </span>
-                  </div>
+                <td class="py-3.5 px-4 text-center">
+                  <span v-if="getRank(n.id) === 1" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/50 text-amber-300 font-bold text-xs">
+                    🥇 #1
+                  </span>
+                  <span v-else-if="getRank(n.id) === 2" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-slate-400/20 border border-slate-300/40 text-slate-200 font-bold text-xs">
+                    🥈 #2
+                  </span>
+                  <span v-else-if="getRank(n.id) === 3" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-700/25 border border-amber-600/40 text-amber-300 font-bold text-xs">
+                    🥉 #3
+                  </span>
+                  <span v-else class="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-white/5 text-gray-400 font-mono font-bold text-xs">
+                    #{{ getRank(n.id) }}
+                  </span>
                 </td>
 
-                <!-- Siswa -->
-                <td class="py-4 px-5">
+                <!-- Nama Siswa & NIS -->
+                <td class="py-3.5 px-5">
                   <p class="font-bold text-white text-sm group-hover:text-teal-300 transition-colors">
                     {{ n.namaSiswa }}
                   </p>
                   <span class="text-[11px] text-gray-400 font-mono">NIS: {{ n.nis }}</span>
                 </td>
 
+                <!-- Kelas Rombel -->
+                <td class="py-3.5 px-4">
+                  <span class="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-gray-300 font-mono font-bold text-[11px]">
+                    {{ n.kelasNama }}
+                  </span>
+                </td>
+
                 <!-- Nilai Akhir -->
-                <td class="py-4 px-4 text-center">
+                <td class="py-3.5 px-4 text-center">
                   <span
                     :class="[
                       'inline-flex items-center justify-center px-3 py-1 rounded-xl font-black text-sm border font-mono',
                       n.nilai >= 75
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 shadow-md shadow-emerald-500/10'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
                         : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
                     ]"
                   >
@@ -1094,10 +1112,10 @@ function openDetail(n) {
                 </td>
 
                 <!-- Status -->
-                <td class="py-4 px-4 text-center">
+                <td class="py-3.5 px-4 text-center">
                   <span
                     :class="[
-                      'px-2.5 py-1 rounded-full font-extrabold text-[11px] border',
+                      'px-2.5 py-0.5 rounded-full font-bold text-[10.5px] border',
                       n.status === 'Tuntas'
                         ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
                         : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
@@ -1107,33 +1125,24 @@ function openDetail(n) {
                   </span>
                 </td>
 
-                <!-- Aksi -->
-                <td class="py-4 px-5 text-right">
+                <!-- Aksi (Detail & Reset Sesi Ulang) -->
+                <td class="py-3.5 px-5 text-right">
                   <div class="inline-flex items-center gap-1.5">
                     <button
                       type="button"
                       @click="openDetail(n)"
-                      title="Lihat Rincian Siswa"
-                      class="px-2.5 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 transition-colors min-h-[36px] flex items-center gap-1 text-xs font-bold"
+                      class="px-2.5 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 text-xs font-bold transition-colors min-h-[36px] flex items-center gap-1"
+                      title="Lihat Rincian Jawaban & Lembar Ujian"
                     >
-                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                      <span>Detail</span>
+                      <span>📄 Detail</span>
                     </button>
                     <button
                       type="button"
                       @click="resetStudentSession(n)"
-                      title="Izinkan Ujian Ulang / Reset Remedial"
-                      class="p-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+                      class="p-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-bold transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+                      title="Izinkan Ujian Ulang / Remedial"
                     >
-                      <span class="text-xs">🔄</span>
-                    </button>
-                    <button
-                      type="button"
-                      @click="deleteNilai(n.id)"
-                      title="Hapus Nilai"
-                      class="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
-                    >
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                      <span>🔄</span>
                     </button>
                   </div>
                 </td>
@@ -1142,80 +1151,18 @@ function openDetail(n) {
           </table>
         </div>
 
-        <!-- Mobile View: Card List (md:hidden) -->
-        <div v-if="sortedScheduleGrades.length > 0" class="md:hidden space-y-3">
-          <div
-            v-for="n in sortedScheduleGrades"
-            :key="n.id"
-            class="p-4 rounded-2xl bg-slate-900/90 border border-white/10 space-y-3 shadow-lg"
-          >
-            <div class="flex items-start justify-between gap-2">
-              <div>
-                <div class="flex items-center gap-1.5 flex-wrap">
-                  <span v-if="getRank(n.id) === 1" class="px-2 py-0.5 rounded-md bg-amber-400/25 border border-amber-400/50 text-amber-300 text-[10px] font-black">
-                    🥇 #1 Top
-                  </span>
-                  <span v-else-if="getRank(n.id) === 2" class="px-2 py-0.5 rounded-md bg-slate-400/25 border border-slate-300/40 text-slate-200 text-[10px] font-black">
-                    🥈 #2
-                  </span>
-                  <span v-else-if="getRank(n.id) === 3" class="px-2 py-0.5 rounded-md bg-amber-700/30 border border-amber-600/40 text-amber-300 text-[10px] font-black">
-                    🥉 #3
-                  </span>
-                  <span v-else class="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-gray-400 font-mono text-[10px] font-bold">
-                    #{{ getRank(n.id) }}
-                  </span>
-                  <h4 class="font-black text-white text-sm">{{ n.namaSiswa }}</h4>
-                </div>
-                <span class="text-xs text-gray-400 font-mono">NIS: {{ n.nis }}</span>
-              </div>
-              <span
-                :class="[
-                  'px-2.5 py-1 rounded-xl font-black text-sm border font-mono',
-                  n.nilai >= 75
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
-                ]"
-              >
-                {{ n.nilai }}
-              </span>
-            </div>
-
-            <div class="flex items-center justify-between text-xs pt-2 border-t border-white/5 font-mono">
-              <div class="flex items-center gap-1.5">
-                <span class="text-emerald-400 font-bold">✓ {{ n.jumlahBenar }}</span>
-                <span>•</span>
-                <span class="text-rose-400 font-bold">✕ {{ n.jumlahSalah }}</span>
-                <span v-if="(n.jumlahPelanggaran || 0) > 0" class="text-rose-400 font-bold">
-                  • ⚠️ {{ n.jumlahPelanggaran }}x
-                </span>
-              </div>
-              <div class="flex items-center gap-2">
-                <button
-                  type="button"
-                  @click="openDetail(n)"
-                  class="px-2.5 py-1 rounded-lg bg-white/10 text-white font-bold text-xs min-h-[32px]"
-                >
-                  Detail
-                </button>
-                <button
-                  type="button"
-                  @click="resetStudentSession(n)"
-                  class="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-500/30 min-h-[32px]"
-                >
-                  🔄 Ulang
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div v-else class="text-center py-10 rounded-2xl bg-white/5 text-gray-400 text-xs">
-          Belum ada siswa yang memenuhi filter status pencarian.
+        <!-- Empty State in Table -->
+        <div v-else class="text-center py-12 rounded-2xl bg-slate-900 border border-white/10 space-y-2">
+          <span class="text-3xl block">🔍</span>
+          <h4 class="text-sm font-bold text-white">Tidak Ditemukan Siswa</h4>
+          <p class="text-xs text-gray-400">
+            Tidak ada siswa yang sesuai dengan filter kelas atau kata kunci pencarian.
+          </p>
         </div>
       </div>
 
       <!-- ===================================================================== -->
-      <!-- TAB 2: SISWA BELUM MENGERJAKAN (ABSEN / BUTUH SUSULAN)                 -->
+      <!-- TAB 2: SISWA BELUM UJIAN / SUSULAN (BUG FIXED)                        -->
       <!-- ===================================================================== -->
       <div v-else-if="activeEvaluationTab === 'belum'" class="space-y-4">
         <div class="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex items-start gap-3">
@@ -1223,31 +1170,32 @@ function openDetail(n) {
           <div>
             <h4 class="text-sm font-black text-amber-300">Daftar Siswa Belum Mengikuti Ujian CBT</h4>
             <p class="text-xs text-gray-300 mt-0.5">
-              Ditemukan <strong>{{ uncompletedStudents.length }} siswa</strong> di kelas {{ selectedJadwal.kelasNama }} yang belum menyelesaikan ujian CBT ini. Berikan token atau jadwalkan ujian susulan jika diperlukan.
+              Ditemukan <strong>{{ uncompletedStudents.length }} siswa</strong> yang belum menyelesaikan ujian CBT ini.
+              <span v-if="selectedKelasFilter"> (Khusus Kelas {{ selectedKelasFilter }})</span>
             </p>
           </div>
         </div>
 
-        <div v-if="uncompletedStudents.length > 0" class="overflow-hidden rounded-2xl bg-slate-900/80 border border-white/10 shadow-xl">
-          <table class="w-full text-left border-collapse text-xs">
+        <div v-if="uncompletedStudents.length > 0" class="overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
+          <table class="w-full text-left border-collapse text-xs min-w-[600px]">
             <thead>
-              <tr class="border-b border-white/10 bg-white/5 text-[11px] font-black text-gray-400 uppercase tracking-wider font-mono">
-                <th class="py-3 px-4">No</th>
+              <tr class="border-b border-white/10 bg-white/5 text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">
+                <th class="py-3 px-4 w-16 text-center">No</th>
                 <th class="py-3 px-4">NIS</th>
                 <th class="py-3 px-5">Nama Siswa</th>
-                <th class="py-3 px-4">Jenis Kelamin</th>
-                <th class="py-3 px-4 text-center">Status Kehadiran</th>
+                <th class="py-3 px-4">Kelas Rombel</th>
+                <th class="py-3 px-4 text-center">Status</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-white/5">
-              <tr v-for="(s, idx) in uncompletedStudents" :key="s.id" class="hover:bg-white/[0.02]">
-                <td class="py-3 px-4 font-mono text-gray-400">{{ idx + 1 }}</td>
-                <td class="py-3 px-4 font-mono text-teal-300">{{ s.nis }}</td>
+              <tr v-for="(s, idx) in uncompletedStudents" :key="s.id" class="hover:bg-white/[0.03] transition-colors">
+                <td class="py-3 px-4 text-center font-mono text-gray-400">{{ idx + 1 }}</td>
+                <td class="py-3 px-4 font-mono text-gray-300">{{ s.nis }}</td>
                 <td class="py-3 px-5 font-bold text-white">{{ s.nama }}</td>
-                <td class="py-3 px-4 text-gray-300">{{ s.jenisKelamin === 'L' ? 'Laki-laki' : 'Perempuan' }}</td>
+                <td class="py-3 px-4 font-mono text-gray-300">{{ s.kelas }}</td>
                 <td class="py-3 px-4 text-center">
-                  <span class="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold text-[10.5px]">
-                    Belum Mengerjakan / Absen
+                  <span class="px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10.5px] font-bold font-mono">
+                    Belum Mengikuti
                   </span>
                 </td>
               </tr>
@@ -1255,10 +1203,10 @@ function openDetail(n) {
           </table>
         </div>
 
-        <div v-else class="text-center py-12 rounded-2xl bg-slate-900/50 border border-white/10">
-          <span class="text-3xl block mb-2">🎉</span>
+        <div v-else class="text-center py-12 rounded-2xl bg-slate-900 border border-white/10 space-y-2">
+          <span class="text-3xl block">🎉</span>
           <h4 class="text-sm font-bold text-white">Semua Siswa Telah Mengerjakan!</h4>
-          <p class="text-xs text-gray-400 mt-1">100% siswa kelas {{ selectedJadwal.kelasNama }} telah menyelesaikan ujian CBT ini.</p>
+          <p class="text-xs text-gray-400">100% siswa di kelas target telah menyelesaikan ujian CBT ini.</p>
         </div>
       </div>
 
@@ -1269,47 +1217,48 @@ function openDetail(n) {
         <div class="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex items-start gap-3">
           <span class="text-2xl shrink-0">🛡️</span>
           <div>
-            <h4 class="text-sm font-black text-rose-300">Catatan Pelanggaran Integritas Sistem (*Anti-Cheat*)</h4>
+            <h4 class="text-sm font-black text-rose-300">Catatan Pelanggaran Integritas Sistem (Anti-Cheat)</h4>
             <p class="text-xs text-gray-300 mt-0.5">
-              Sistem mencatat setiap aktivitas mencurigakan saat ujian berlangsung, seperti berpindah tab peramban, meminimalkan layar, atau keluar dari jendela ujian penuh (*fullscreen*).
+              Log deteksi otomatis saat siswa berpindah tab browser, membuka aplikasi lain, atau keluar dari layar ujian CBT.
             </p>
           </div>
         </div>
 
-        <div v-if="violatingStudents.length > 0" class="overflow-hidden rounded-2xl bg-slate-900/80 border border-white/10 shadow-xl">
-          <table class="w-full text-left border-collapse text-xs">
+        <div v-if="violatingStudents.length > 0" class="overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
+          <table class="w-full text-left border-collapse text-xs min-w-[600px]">
             <thead>
-              <tr class="border-b border-white/10 bg-white/5 text-[11px] font-black text-gray-400 uppercase tracking-wider font-mono">
-                <th class="py-3 px-4">No</th>
-                <th class="py-3 px-4">Siswa (NIS)</th>
-                <th class="py-3 px-4 text-center">Jumlah Deteksi Pelanggaran</th>
-                <th class="py-3 px-4 text-center">Nilai Akhir</th>
-                <th class="py-3 px-4 text-right">Tindakan Guru</th>
+              <tr class="border-b border-white/10 bg-white/5 text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">
+                <th class="py-3 px-4">Nama Siswa</th>
+                <th class="py-3 px-4">Kelas</th>
+                <th class="py-3 px-4 text-center">Jumlah Pelanggaran</th>
+                <th class="py-3 px-4 text-center">Status Sesi</th>
+                <th class="py-3 px-4 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-white/5">
-              <tr v-for="(v, idx) in violatingStudents" :key="v.id" class="hover:bg-white/[0.02]">
-                <td class="py-3 px-4 font-mono text-gray-400">{{ idx + 1 }}</td>
+              <tr v-for="v in violatingStudents" :key="v.id" class="hover:bg-white/[0.03] transition-colors">
                 <td class="py-3 px-4">
                   <p class="font-bold text-white">{{ v.namaSiswa }}</p>
                   <span class="text-[11px] text-gray-400 font-mono">NIS: {{ v.nis }}</span>
                 </td>
-                <td class="py-3 px-4 text-center">
-                  <span class="px-3 py-1 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/40 font-mono font-black text-xs inline-flex items-center gap-1.5">
-                    <span>⚠️</span>
-                    <span>{{ v.jumlahPelanggaran }} Kali Terdeteksi</span>
+                <td class="py-3 px-4 font-mono text-gray-300">{{ v.kelasNama }}</td>
+                <td class="py-3 px-4 text-center font-mono">
+                  <span class="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">
+                    ⚠️ {{ v.jumlahPelanggaran }}x Terdeteksi
                   </span>
                 </td>
-                <td class="py-3 px-4 text-center font-mono font-bold text-white">
-                  {{ v.nilai }} ({{ v.status }})
+                <td class="py-3 px-4 text-center">
+                  <span class="px-2.5 py-0.5 rounded-full bg-slate-800 text-gray-300 font-mono text-[11px]">
+                    {{ v.sesiStatus || 'selesai' }}
+                  </span>
                 </td>
                 <td class="py-3 px-4 text-right">
                   <button
                     type="button"
-                    @click="resetStudentSession(v)"
-                    class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all inline-flex items-center gap-1.5"
+                    @click="openDetail(v)"
+                    class="px-3 py-1.5 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold min-h-[36px]"
                   >
-                    <span>🔄 Reset Sesi Ujian</span>
+                    Detail
                   </button>
                 </td>
               </tr>
@@ -1317,75 +1266,73 @@ function openDetail(n) {
           </table>
         </div>
 
-        <div v-else class="text-center py-12 rounded-2xl bg-slate-900/50 border border-white/10">
-          <span class="text-3xl block mb-2">🛡️</span>
+        <div v-else class="text-center py-12 rounded-2xl bg-slate-900 border border-white/10 space-y-2">
+          <span class="text-3xl block">🛡️</span>
           <h4 class="text-sm font-bold text-white">Tidak Ada Catatan Pelanggaran</h4>
-          <p class="text-xs text-gray-400 mt-1">Seluruh siswa di kelas ini mengerjakan ujian secara tertib dan jujur tanpa terdeteksi keluar dari layar ujian.</p>
+          <p class="text-xs text-gray-400">Seluruh siswa mengerjakan ujian secara tertib tanpa terdeteksi keluar layar.</p>
         </div>
       </div>
-
     </div>
 
     <!-- ======================================================================= -->
-    <!-- MODAL RINCIAN DETAIL SISWA                                              -->
+    <!-- MODAL DETAIL SISWA (RINGKAS & BERSIH)                                   -->
     <!-- ======================================================================= -->
     <div v-if="showDetailModal && activeNilai" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-      <div class="w-full max-w-md rounded-3xl bg-slate-900 border border-white/10 p-6 space-y-5 shadow-2xl">
+      <div class="w-full max-w-md rounded-2xl bg-slate-900 border border-white/10 p-5 sm:p-6 space-y-4 shadow-2xl">
         <div class="flex items-center justify-between border-b border-white/10 pb-3">
-          <h3 class="text-base font-black text-white flex items-center gap-2">
-            <span>📄 Rincian Lembar Hasil Ujian</span>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <span>📄 Rincian Lembar Hasil Siswa</span>
           </h3>
-          <button @click="showDetailModal = false" class="p-1.5 rounded-lg text-gray-400 hover:text-white">✕</button>
+          <button @click="showDetailModal = false" class="p-1.5 rounded-lg text-gray-400 hover:text-white text-sm">✕</button>
         </div>
 
-        <div class="space-y-3.5 text-xs">
-          <!-- Identity Box -->
-          <div class="bg-white/5 p-3.5 rounded-2xl space-y-1">
-            <p class="font-black text-white text-base">{{ activeNilai.namaSiswa }}</p>
+        <div class="space-y-3 text-xs">
+          <!-- Identitas Siswa -->
+          <div class="bg-white/5 p-3.5 rounded-xl space-y-0.5">
+            <p class="font-bold text-white text-sm">{{ activeNilai.namaSiswa }}</p>
             <p class="text-gray-400 font-mono">NIS: {{ activeNilai.nis }} &bull; Kelas: {{ activeNilai.kelasNama }}</p>
-            <p class="text-teal-400 font-semibold">{{ activeNilai.jurusanNama }}</p>
           </div>
 
-          <!-- Score & Rank Grid -->
+          <!-- Skor & Peringkat -->
           <div class="grid grid-cols-2 gap-2 text-center font-mono">
             <div class="p-3 rounded-xl bg-white/5 border border-white/5">
-              <span class="text-[10px] text-gray-400 uppercase font-bold block">Skor / Nilai Akhir</span>
+              <span class="text-[10px] text-gray-400 uppercase font-bold block">Nilai Akhir</span>
               <span class="text-2xl font-black text-emerald-400">{{ activeNilai.nilai }}</span>
             </div>
             <div class="p-3 rounded-xl bg-white/5 border border-white/5">
-              <span class="text-[10px] text-gray-400 uppercase font-bold block">Peringkat Kelas</span>
+              <span class="text-[10px] text-gray-400 uppercase font-bold block">Peringkat</span>
               <span class="text-xl font-black text-amber-300 mt-1 block">
                 #{{ getRank(activeNilai.id) }} / {{ completedNilais.length }}
               </span>
             </div>
           </div>
 
-          <!-- Performance Details -->
-          <div class="p-3.5 rounded-2xl bg-white/5 space-y-2 text-gray-300 font-mono">
+          <!-- Detail Pengerjaan -->
+          <div class="p-3.5 rounded-xl bg-white/5 space-y-2 text-gray-300 font-mono">
             <div class="flex items-center justify-between">
-              <span class="text-gray-400">📖 Mata Pelajaran:</span>
+              <span class="text-gray-400">Mapel:</span>
               <span class="font-bold text-white">{{ activeNilai.mapelNama }}</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-gray-400">⏱️ Durasi Pengerjaan:</span>
+              <span class="text-gray-400">Durasi:</span>
               <span class="font-bold text-white">{{ activeNilai.durasiMenitRiil ? activeNilai.durasiMenitRiil + ' Menit' : '-' }}</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-gray-400">✓ Jawaban Benar:</span>
-              <span class="font-bold text-emerald-400">{{ activeNilai.jumlahBenar }} dari {{ activeNilai.jumlahSoal }} Soal</span>
+              <span class="text-gray-400">Jawaban Benar:</span>
+              <span class="font-bold text-emerald-400">{{ activeNilai.jumlahBenar }} / {{ activeNilai.jumlahSoal }} Soal</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-gray-400">✕ Jawaban Salah:</span>
+              <span class="text-gray-400">Jawaban Salah:</span>
               <span class="font-bold text-rose-400">{{ activeNilai.jumlahSalah }} Soal</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-gray-400">⚠️ Catatan Pelanggaran:</span>
+              <span class="text-gray-400">Catatan Pelanggaran:</span>
               <span :class="(activeNilai.jumlahPelanggaran || 0) > 0 ? 'text-rose-400 font-bold' : 'text-emerald-400'">
-                {{ (activeNilai.jumlahPelanggaran || 0) > 0 ? activeNilai.jumlahPelanggaran + ' Kali Terdeteksi' : '0 (Bersih)' }}
+                {{ (activeNilai.jumlahPelanggaran || 0) > 0 ? activeNilai.jumlahPelanggaran + 'x Terdeteksi' : '0 (Bersih)' }}
               </span>
             </div>
             <div class="flex items-center justify-between pt-1 border-t border-white/5">
-              <span class="text-gray-400">Status Ketuntasan:</span>
+              <span class="text-gray-400">Status:</span>
               <span :class="activeNilai.status === 'Tuntas' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'">
                 {{ activeNilai.status }}
               </span>
@@ -1397,14 +1344,14 @@ function openDetail(n) {
           <button
             type="button"
             @click="resetStudentSession(activeNilai)"
-            class="px-4 py-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold"
+            class="px-3.5 py-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold hover:bg-amber-500/30 transition-colors"
           >
             🔄 Izinkan Ujian Ulang
           </button>
           <button
             type="button"
             @click="showDetailModal = false"
-            class="px-5 py-2 rounded-xl bg-white/10 text-white font-bold text-xs min-h-[38px]"
+            class="px-4 py-2 rounded-xl bg-white/10 text-white font-bold text-xs min-h-[38px] hover:bg-white/15 transition-colors"
           >
             Tutup
           </button>
@@ -1412,7 +1359,204 @@ function openDetail(n) {
       </div>
     </div>
 
+    <!-- ======================================================================= -->
+    <!-- MODAL DIALOG: TRANSFER NILAI CBT KE TUJUAN PEMBELAJARAN (TP)            -->
+    <!-- ======================================================================= -->
+    <div
+      v-if="showTransferModal && selectedJadwal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto"
+      @click.self="showTransferModal = false"
+    >
+      <div class="w-full max-w-lg rounded-3xl bg-slate-900 border border-teal-500/30 shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in duration-200">
+        
+        <!-- Header Modal -->
+        <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+          <div>
+            <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold uppercase tracking-wider mb-1 font-mono">
+              <span>📥 Sinkronisasi Nilai</span>
+            </div>
+            <h3 class="text-lg font-black text-white">Transfer Nilai CBT ke TP</h3>
+            <p class="text-xs text-gray-400 mt-0.5">
+              Masukkan nilai ujian ini langsung ke ledger capaian Tujuan Pembelajaran siswa.
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="showTransferModal = false"
+            class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all text-xs"
+          >
+            ✕
+          </button>
+        </div>
 
+        <!-- Info Sesi CBT Ringkas -->
+        <div class="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 text-xs font-mono">
+          <div class="flex items-center justify-between text-gray-300">
+            <span class="text-gray-400">Judul Ujian:</span>
+            <span class="font-bold text-white text-right">{{ selectedJadwal.judulUjian }}</span>
+          </div>
+          <div class="flex items-center justify-between text-gray-300">
+            <span class="text-gray-400">Mata Pelajaran:</span>
+            <span class="font-bold text-teal-300">{{ selectedJadwal.mapelNama }}</span>
+          </div>
+          <div class="flex items-center justify-between text-gray-300">
+            <span class="text-gray-400">Target Rombel:</span>
+            <span class="font-bold text-cyan-300">{{ selectedJadwal.kelasNama }}</span>
+          </div>
+          <div class="flex items-center justify-between text-gray-300">
+            <span class="text-gray-400">Siswa yang Sudah Ujian:</span>
+            <span class="font-bold text-emerald-300">{{ completedNilais.length }} Siswa</span>
+          </div>
+        </div>
+
+        <!-- Pilihan Mode Transfer -->
+        <div class="space-y-1.5">
+          <label class="block text-xs font-bold text-gray-300">Mode Tujuan Transfer:</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              @click="transferForm.mode = 'existing_tp'"
+              :class="[
+                'p-2.5 rounded-xl border text-xs font-bold transition-all text-center',
+                transferForm.mode === 'existing_tp'
+                  ? 'bg-teal-500/20 border-teal-500 text-teal-300 shadow-sm'
+                  : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'
+              ]"
+            >
+              📋 TP yang Sudah Ada
+            </button>
+            <button
+              type="button"
+              @click="transferForm.mode = 'new_tp'"
+              :class="[
+                'p-2.5 rounded-xl border text-xs font-bold transition-all text-center',
+                transferForm.mode === 'new_tp'
+                  ? 'bg-teal-500/20 border-teal-500 text-teal-300 shadow-sm'
+                  : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'
+              ]"
+            >
+              ✨ Buat TP Baru Otomatis
+            </button>
+          </div>
+        </div>
+
+        <!-- Form Mode: TP yang Sudah Ada -->
+        <div v-if="transferForm.mode === 'existing_tp'" class="space-y-2">
+          <label class="block text-xs font-bold text-gray-300">Pilih Tujuan Pembelajaran (TP): *</label>
+          <select
+            v-if="availableTpsForSelectedJadwal.length > 0"
+            v-model="transferForm.tp_id"
+            class="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:border-teal-400 outline-none"
+          >
+            <option value="" disabled>-- Pilih Salah Satu TP --</option>
+            <option
+              v-for="tp in availableTpsForSelectedJadwal"
+              :key="tp.id"
+              :value="tp.id"
+            >
+              [{{ tp.kode }}] {{ tp.judul }} ({{ tp.jenis || 'Sumatif' }})
+            </option>
+          </select>
+          <div v-else class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+            Belum ada TP untuk mapel {{ selectedJadwal.mapelNama }}. Silakan beralih ke mode <strong>"Buat TP Baru Otomatis"</strong>.
+          </div>
+        </div>
+
+        <!-- Form Mode: Buat TP Baru Otomatis -->
+        <div v-else class="space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] font-bold text-gray-400 mb-1">Kode TP *</label>
+              <input
+                v-model="transferForm.kode"
+                type="text"
+                placeholder="Contoh: TP-CBT-01"
+                class="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-teal-400 outline-none font-mono"
+              />
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-gray-400 mb-1">KKTP (Target Nilai Minimum) *</label>
+              <input
+                v-model.number="transferForm.kktp"
+                type="number"
+                min="0"
+                max="100"
+                class="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-teal-400 outline-none font-mono"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-bold text-gray-400 mb-1">Judul / Capaian Pembelajaran *</label>
+            <input
+              v-model="transferForm.judul"
+              type="text"
+              placeholder="Contoh: Evaluasi Akhir Materi..."
+              class="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-teal-400 outline-none"
+            />
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] font-bold text-gray-400 mb-1">Kategori Penilaian</label>
+              <select
+                v-model="transferForm.jenis"
+                class="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-teal-400 outline-none"
+              >
+                <option value="Sumatif">Sumatif</option>
+                <option value="Formatif">Formatif</option>
+                <option value="CBT Online">CBT Online</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-gray-400 mb-1">Semester</label>
+              <select
+                v-model="transferForm.semester"
+                class="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-teal-400 outline-none"
+              >
+                <option value="Ganjil">Semester Ganjil</option>
+                <option value="Genap">Semester Genap</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Opsi Overwrite Nilai -->
+        <label class="flex items-center gap-2 cursor-pointer pt-2 border-t border-white/10">
+          <input
+            v-model="transferForm.overwrite"
+            type="checkbox"
+            class="rounded border-white/20 bg-slate-800 text-teal-500 focus:ring-teal-400"
+          />
+          <span class="text-xs text-gray-300 font-medium">
+            Perbarui / timpa nilai siswa jika sebelumnya sudah ada nilai pada TP ini.
+          </span>
+        </label>
+
+        <!-- Footer Action Buttons -->
+        <div class="pt-3 border-t border-white/10 flex items-center justify-end gap-2.5">
+          <button
+            type="button"
+            @click="showTransferModal = false"
+            :disabled="isTransferring"
+            class="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-xs font-bold transition-all min-h-[38px]"
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            @click="submitTransfer"
+            :disabled="isTransferring"
+            class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 transition-all min-h-[38px] flex items-center gap-2 disabled:opacity-50 active:scale-95 cursor-pointer"
+          >
+            <span v-if="isTransferring" class="animate-spin text-sm">⏳</span>
+            <span v-else>🚀</span>
+            <span>{{ isTransferring ? 'Mentransfer...' : 'Transfer Sekarang' }}</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
 
   </div>
 </template>

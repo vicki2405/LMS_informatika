@@ -11,7 +11,46 @@ const props = defineProps({
   cbtNilaiList: { type: Array, default: () => [] },
   cbtSesiList: { type: Array, default: () => [] },
   siswaObj: { type: Object, default: () => ({}) },
+  activeSiswa: { type: Object, default: () => null },
+  autoStartExam: { type: Object, default: () => null },
 });
+
+const emit = defineEmits(['open-materi', 'select-active-siswa']);
+
+// Helper check whether an exam is locked by a linked learning material
+function getMateriLockStatus(jadwal) {
+  if (!jadwal || !jadwal.linkedMateri) {
+    return { isLocked: false, linkedMateri: null, isCompleted: false };
+  }
+  const currentSiswaId = props.activeSiswa?.id || selectedSiswaId.value;
+  if (!currentSiswaId) {
+    // If no active student is selected yet, the linked material is considered not completed
+    return { isLocked: true, linkedMateri: jadwal.linkedMateri, isCompleted: false };
+  }
+  const hasCompleted = (jadwal.linkedMateri.reads || []).some(
+    (r) => Number(r.siswaId ?? r.siswa_id) === Number(currentSiswaId) && r.status === 'selesai'
+  );
+  return {
+    isLocked: !hasCompleted,
+    linkedMateri: jadwal.linkedMateri,
+    isCompleted: hasCompleted,
+  };
+}
+
+// Watch for auto-start payload when redirected from completed MateriSiswa
+watch(() => props.autoStartExam, (payload) => {
+  if (!payload || !payload.jadwalId) return;
+  const targetJadwal = props.cbtJadwalList.find(j => Number(j.id) === Number(payload.jadwalId));
+  if (targetJadwal) {
+    const lock = getMateriLockStatus(targetJadwal);
+    if (!lock.isLocked) {
+      promptSelectIdentity(targetJadwal);
+      if (payload.token) {
+        inputToken.value = payload.token;
+      }
+    }
+  }
+}, { immediate: true });
 
 // View mode:
 // 'list'         -> Daftar Jadwal Ujian Aktif & Riwayat Nilai
@@ -29,7 +68,13 @@ const filterSiswaHistory = ref('');
 // Waiting Room & Identity Selection State (Single Unified Combobox)
 const showIdentityModal = ref(false);
 const selectedJadwal = ref(null);
-const selectedSiswaId = ref('');
+const selectedSiswaId = ref(props.activeSiswa?.id || '');
+
+watch(() => props.activeSiswa, (newSiswa) => {
+  if (newSiswa?.id) {
+    selectedSiswaId.value = newSiswa.id;
+  }
+});
 const studentSearchText = ref('');
 const isDropdownOpen = ref(false);
 
@@ -916,8 +961,29 @@ function getItemAssignedCategory(itemId) {
 
 // Step 1: Click "Masuk Ruang Tunggu CBT"
 function promptSelectIdentity(jadwal) {
-  if (!jadwal.soals || jadwal.soals.length === 0) {
+  if (!jadwal.jumlahSoal || jadwal.jumlahSoal === 0) {
     showToast('Belum ada butir soal pada ujian ini.', 'warning');
+    return;
+  }
+
+  const lock = getMateriLockStatus(jadwal);
+  if (lock.isLocked) {
+    Swal.fire({
+      title: 'Prasyarat Ujian CBT',
+      html: `<div class="text-left text-sm space-y-2">
+        <p>Ujian <strong>${jadwal.judulUjian}</strong> terhubung langsung dengan materi: <strong>${lock.linkedMateri.judul}</strong>.</p>
+        <p class="text-amber-400 font-semibold">Anda wajib menyelesaikan membaca materi terlebih dahulu untuk mendapatkan Token ujian resmi.</p>
+      </div>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '📖 Buka Materi & Ambil Token',
+      cancelButtonText: 'Tutup',
+      confirmButtonColor: '#f59e0b',
+    }).then((res) => {
+      if (res.isConfirmed) {
+        emit('open-materi', lock.linkedMateri.id);
+      }
+    });
     return;
   }
 
@@ -977,6 +1043,17 @@ async function confirmEnterWaitingRoom() {
       siswa_id: student.id,
     });
   } catch (err) {
+    if (err.response?.status === 403) {
+      currentMode.value = 'list';
+      activeStudent.value = null;
+      Swal.fire({
+        title: 'Prasyarat Materi Belum Selesai',
+        text: err.response?.data?.message || 'Anda belum menyelesaikan materi prasyarat untuk ujian ini.',
+        icon: 'warning',
+        confirmButtonColor: '#f59e0b',
+      });
+      return;
+    }
     console.error('Peringatan gabung ruang tunggu:', err);
   }
 }
@@ -1007,15 +1084,20 @@ async function startExamFromWaitingRoom() {
     return;
   }
 
-  const expectedToken = (selectedJadwal.value.token || '').trim().toUpperCase();
-  const enteredToken = inputToken.value.trim().toUpperCase();
+  tokenError.value = '';
 
-  if (expectedToken && enteredToken !== expectedToken) {
-    tokenError.value = 'Token tidak cocok! Periksa kembali huruf besar/kecil token dari Guru Anda.';
+  let started;
+  try {
+    const res = await axios.post(route('siswa.cbt.start'), {
+      jadwal_id: selectedJadwal.value.id,
+      siswa_id: activeStudent.value?.id,
+      token: inputToken.value.trim(),
+    });
+    started = res.data;
+  } catch (err) {
+    tokenError.value = err.response?.data?.message || 'Token tidak valid. Periksa kembali token dari Guru Anda.';
     return;
   }
-
-  tokenError.value = '';
 
   // Request browser Fullscreen mode to prevent distraction / cheating
   try {
@@ -1029,7 +1111,11 @@ async function startExamFromWaitingRoom() {
   }
 
   // Setup Exam State
-  activeExam.value = selectedJadwal.value;
+  activeExam.value = {
+    ...selectedJadwal.value,
+    soals: started?.soals || [],
+    durasiMenit: started?.durasiMenit ?? selectedJadwal.value.durasiMenit,
+  };
   currentQuestionIndex.value = 0;
   answers.value = {};
   raguRagu.value = {};
@@ -1040,7 +1126,7 @@ async function startExamFromWaitingRoom() {
   examStartTime.value = new Date().toISOString();
 
   // Prepare & randomize questions (Soal Acak & Opsi Acak)
-  let rawQuestions = (selectedJadwal.value.soals || []).map((q) => ({ ...q }));
+  let rawQuestions = (started?.soals || []).map((q) => ({ ...q }));
 
   // 1. Soal Acak: If acakSoal is true (or default true), shuffle questions
   if (selectedJadwal.value.acakSoal !== false) {
@@ -1585,14 +1671,38 @@ function submitExam(force = false) {
           <div
             v-for="j in filteredJadwals"
             :key="j.id"
-            class="rounded-3xl bg-slate-900/85 border border-white/10 hover:border-cyan-500/40 p-5 sm:p-6 space-y-4 shadow-xl backdrop-blur-xl transition-all hover:-translate-y-1 flex flex-col justify-between group"
+            :class="[
+              'rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl backdrop-blur-xl transition-all hover:-translate-y-1 flex flex-col justify-between group',
+              getMateriLockStatus(j).isLocked
+                ? 'bg-slate-900/90 border border-amber-500/30 hover:border-amber-500/50'
+                : 'bg-slate-900/85 border border-white/10 hover:border-cyan-500/40'
+            ]"
           >
             <div class="space-y-3">
               <div class="flex items-center justify-between gap-2">
                 <span class="px-3 py-1 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-300 font-black text-[11px] truncate max-w-[170px]">
                   📖 {{ j.mapelNama }}
                 </span>
-                <span class="px-2.5 py-1 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-extrabold text-[11px] flex items-center gap-1.5 shrink-0">
+
+                <!-- Badge Linked Materi Status -->
+                <span
+                  v-if="j.linkedMateri && getMateriLockStatus(j).isLocked"
+                  class="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-black text-[11px] flex items-center gap-1.5 shrink-0"
+                  title="Wajib membaca materi prasyarat dahulu"
+                >
+                  <span>🔒 Prasyarat Materi</span>
+                </span>
+                <span
+                  v-else-if="j.linkedMateri && !getMateriLockStatus(j).isLocked"
+                  class="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-black text-[11px] flex items-center gap-1.5 shrink-0"
+                  title="Materi prasyarat telah selesai dibaca"
+                >
+                  <span>✓ Materi Selesai</span>
+                </span>
+                <span
+                  v-else
+                  class="px-2.5 py-1 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-extrabold text-[11px] flex items-center gap-1.5 shrink-0"
+                >
                   <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
                   <span>{{ j.totalSelesai || 0 }} Selesai</span>
                 </span>
@@ -1630,17 +1740,53 @@ function submitExam(force = false) {
                   <span class="font-bold text-cyan-300">📝 {{ j.jumlahSoal }} Butir</span>
                 </div>
               </div>
+
+              <!-- Prerequisite Warning for Locked Linked Exam -->
+              <div
+                v-if="j.linkedMateri && getMateriLockStatus(j).isLocked"
+                class="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200/90 space-y-1.5"
+              >
+                <div class="font-bold text-amber-300 flex items-center gap-1.5">
+                  <span>🔒</span>
+                  <span>Prasyarat Materi Terkait</span>
+                </div>
+                <p class="text-[11px] text-gray-300 leading-snug">
+                  Ujian ini terhubung dengan materi <strong>{{ j.linkedMateri.judul }}</strong>. Token ujian ada di bagian akhir materi setelah Anda selesai membaca.
+                </p>
+              </div>
             </div>
 
-            <!-- Action Button: Open Waiting Room Entry -->
-            <div class="pt-2">
-              <button
-                @click="promptSelectIdentity(j)"
-                class="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-cyan-500/25 active:scale-95 transition-all min-h-[44px]"
-              >
-                <span>🔑 Masuk Ruang Tunggu CBT</span>
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-              </button>
+            <!-- Action Area -->
+            <div class="pt-2 space-y-2">
+              <!-- When Exam is Locked by Prerequisite Materi -->
+              <template v-if="j.linkedMateri && getMateriLockStatus(j).isLocked">
+                <button
+                  @click="emit('open-materi', j.linkedMateri.id)"
+                  type="button"
+                  class="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-amber-500/25 active:scale-95 transition-all min-h-[44px]"
+                >
+                  <span>📖 Pelajari Materi &amp; Buka Token</span>
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                </button>
+                <button
+                  disabled
+                  type="button"
+                  class="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-bold text-[11px] cursor-not-allowed opacity-60"
+                >
+                  <span>🔒 Ruang Tunggu Terkunci</span>
+                </button>
+              </template>
+
+              <!-- When Exam is Unlocked (Either Unlinked or Already Completed Materi) -->
+              <template v-else>
+                <button
+                  @click="promptSelectIdentity(j)"
+                  class="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-cyan-500/25 active:scale-95 transition-all min-h-[44px]"
+                >
+                  <span>🔑 Masuk Ruang Tunggu CBT</span>
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                </button>
+              </template>
             </div>
           </div>
         </div>

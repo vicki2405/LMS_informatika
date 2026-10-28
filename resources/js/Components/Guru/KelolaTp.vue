@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue';
-import { usePage } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { confirmDelete, showToast } from '@/Utils/sweetalert';
 
 const page = usePage();
@@ -162,7 +162,7 @@ async function handleDelete(tp) {
 }
 
 function navigateToMateri(tp) {
-  window.location.href = `/guru/materi/create?tp_id=${tp.id}`;
+  router.visit(route('guru.materi.create', { tp_id: tp.id }));
 }
 </script>
 

@@ -10,10 +10,14 @@ const props = defineProps({
   kelasSiswa: {
     type: String,
     default: 'X RPL 1'
+  },
+  activeSiswa: {
+    type: Object,
+    default: () => null
   }
 });
 
-const emit = defineEmits(['toggle-sidebar', 'logout', 'change-view', 'mark-read']);
+const emit = defineEmits(['toggle-sidebar', 'logout', 'change-view', 'mark-read', 'switch-siswa']);
 
 const searchQuery = ref('');
 const userMenuOpen = ref(false);
@@ -85,8 +89,28 @@ function navigateTo(view) {
 
           <span class="hidden md:inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500/15 to-blue-500/15 text-cyan-300 text-xs font-bold px-3.5 py-1 rounded-full border border-cyan-500/30 shadow-inner ml-1">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-            SISWA KELAS {{ kelasSiswa }}
+            KELAS {{ kelasSiswa }}
           </span>
+
+          <!-- Active Student Badge -->
+          <div
+            v-if="activeSiswa"
+            class="flex items-center gap-2 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-400/40 px-2.5 sm:px-3 py-1 rounded-xl shadow-inner ml-1"
+          >
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+            <div class="flex flex-col text-left">
+              <span class="text-xs font-black text-white truncate max-w-[120px] sm:max-w-[180px]">{{ activeSiswa.nama }}</span>
+              <span class="text-[9px] font-mono text-cyan-300">NIS: {{ activeSiswa.nis || ('100' + activeSiswa.id) }}</span>
+            </div>
+            <button
+              @click="$emit('switch-siswa')"
+              class="ml-1 px-2 py-0.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/40 text-cyan-200 border border-cyan-400/40 text-[10px] font-bold transition flex items-center gap-1 shrink-0"
+              title="Ganti Siswa"
+            >
+              <span>Ganti</span>
+              <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+            </button>
+          </div>
         </div>
 
         <!-- Center: Search Input Bar -->
@@ -187,6 +211,17 @@ function navigateTo(view) {
                     Aktif Terhubung
                   </span>
                 </div>
+              </div>
+
+              <!-- Switch Student Identity Button -->
+              <div v-if="activeSiswa" class="pb-2">
+                <button
+                  @click="userMenuOpen = false; $emit('switch-siswa')"
+                  class="w-full text-center px-4 py-2 min-h-[40px] rounded-xl text-xs font-bold text-cyan-300 hover:text-white bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                  Ganti Identitas Siswa
+                </button>
               </div>
 
               <!-- Tombol Keluar Sesi -->

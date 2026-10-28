@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Materi extends Model
 {
     protected $fillable = [
+        'guru_id',
         'tp_id',
         'kelas_id',
         'mapel_id',

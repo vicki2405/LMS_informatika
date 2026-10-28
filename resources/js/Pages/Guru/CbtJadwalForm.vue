@@ -8,6 +8,7 @@ const props = defineProps({
   bankSoalList: { type: Array, default: () => [] },
   masterKelasList: { type: Array, default: () => [] },
   jurusanList: { type: Array, default: () => [] },
+  materiList: { type: Array, default: () => [] },
 });
 
 const isEditing = computed(() => !!props.jadwalProp?.id);
@@ -18,6 +19,7 @@ const form = ref({
   bank_soal_id: props.jadwalProp?.bank_soal_id || '',
   jurusan_id: props.jadwalProp?.jurusan_id || '',
   kelas_id: props.jadwalProp?.kelas_id || '',
+  materi_id: props.jadwalProp?.materi_id || '',
   judul_ujian: props.jadwalProp?.judul_ujian || '',
   waktu_mulai: props.jadwalProp?.waktu_mulai || '',
   waktu_selesai: props.jadwalProp?.waktu_selesai || '',
@@ -57,7 +59,9 @@ const selectedBankSoalMapel = computed(() => {
 // Watch when bank soal changes: automatically sync judul_ujian & kelas_id if defined
 watch(() => form.value.bank_soal_id, (newVal) => {
   if (newVal && selectedBankSoal.value) {
-    form.value.judul_ujian = selectedBankSoal.value.judul || selectedBankSoal.value.nama || '';
+    if (!form.value.judul_ujian || !isEditing.value) {
+      form.value.judul_ujian = selectedBankSoal.value.judul || selectedBankSoal.value.nama || '';
+    }
     if (selectedBankSoal.value.kelasId) {
       form.value.kelas_id = selectedBankSoal.value.kelasId;
     }
@@ -86,6 +90,20 @@ const targetKelasList = computed(() => {
   return list;
 });
 
+// Filter materi list relevant to mapel if bank soal selected
+const filteredMateriList = computed(() => {
+  const list = props.materiList || [];
+  if (!selectedBankSoal.value) return list;
+  const targetMapelId = selectedBankSoal.value.mataPelajaranId || selectedBankSoal.value.mata_pelajaran_id;
+  if (!targetMapelId) return list;
+  const matched = list.filter(m => !m.mapelId || String(m.mapelId) === String(targetMapelId));
+  return matched.length > 0 ? matched : list;
+});
+
+const selectedMateri = computed(() => {
+  return (props.materiList || []).find(m => String(m.id) === String(form.value.materi_id));
+});
+
 function onKelasChange() {
   if (form.value.kelas_id) {
     const k = props.masterKelasList.find((x) => String(x.id) === String(form.value.kelas_id));
@@ -97,7 +115,7 @@ function onKelasChange() {
   }
 }
 
-// Waktu Mulai & Selesai Helper Functions
+// Waktu Mulai & Automatic Selesai Calculation
 function setNowAsStartTime() {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -120,6 +138,24 @@ function setDurasi(minutes) {
   calcWaktuSelesai();
 }
 
+function formatPreviewDate(datetimeStr) {
+  if (!datetimeStr) return '-';
+  try {
+    const d = new Date(datetimeStr);
+    if (isNaN(d.getTime())) return datetimeStr;
+    return d.toLocaleString('id-ID', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (e) {
+    return datetimeStr;
+  }
+}
+
 function goBack() {
   router.visit('/guru/dashboard?tab=cbt-jadwal');
 }
@@ -129,10 +165,12 @@ function handleSubmit() {
     showToast('Silakan pilih Bank Soal yang akan diujikan!', 'error');
     return;
   }
-  // Judul ujian otomatis mewarisi judul Bank Soal
   if (!form.value.judul_ujian.trim()) {
     form.value.judul_ujian = selectedBankSoal.value?.judul || selectedBankSoal.value?.nama || 'Ujian CBT';
   }
+
+  // Ensure waktu_selesai is calculated before submission
+  calcWaktuSelesai();
 
   isSubmitting.value = true;
   router.post(route('guru.cbt.jadwal.store'), form.value, {
@@ -160,7 +198,7 @@ function handleSubmit() {
   <Head :title="isEditing ? 'Edit Jadwal CBT — SMKS Muhammadiyah 2 Genteng' : 'Tambah Jadwal CBT — SMKS Muhammadiyah 2 Genteng'" />
 
   <div class="min-h-screen bg-slate-950 text-slate-100 font-sans pb-16">
-    <!-- TOP NAVBAR -->
+    <!-- TOP NAVBAR (Clean, No Duplicate Submit Buttons) -->
     <header class="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-white/10">
       <div class="w-full max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
         <!-- Back & Title -->
@@ -168,7 +206,7 @@ function handleSubmit() {
           <button
             @click="goBack"
             type="button"
-            class="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border border-white/10 text-xs font-semibold transition-all flex items-center gap-1.5 min-h-[38px] shrink-0"
+            class="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border border-white/10 text-xs font-semibold transition-all flex items-center gap-1.5 min-h-[38px] shrink-0 active:scale-95"
             title="Kembali ke Jadwal CBT"
           >
             <span>←</span>
@@ -189,24 +227,15 @@ function handleSubmit() {
           </div>
         </div>
 
-        <!-- Header Action CTA -->
+        <!-- Status Tag (Clean Informational Display) -->
         <div class="flex items-center gap-2">
-          <button
-            @click="goBack"
-            type="button"
-            class="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 text-xs font-medium transition-all min-h-[38px]"
+          <span
+            class="px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5"
+            :class="form.status === 'aktif' ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300' : 'bg-gray-500/15 border border-gray-500/30 text-gray-400'"
           >
-            Batal
-          </button>
-          <button
-            @click="handleSubmit"
-            :disabled="isSubmitting"
-            type="button"
-            class="px-4 sm:px-5 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs sm:text-sm shadow-md shadow-teal-500/20 active:scale-95 transition-all flex items-center gap-1.5 min-h-[38px] disabled:opacity-50"
-          >
-            <span v-if="isSubmitting">Menyimpan...</span>
-            <span v-else>{{ isEditing ? 'Simpan Perubahan' : 'Terbitkan Jadwal' }}</span>
-          </button>
+            <span class="w-2 h-2 rounded-full" :class="form.status === 'aktif' ? 'bg-emerald-400 animate-pulse' : 'bg-gray-400'"></span>
+            <span>{{ form.status === 'aktif' ? 'Sesi Aktif' : 'Status Draf' }}</span>
+          </span>
         </div>
       </div>
     </header>
@@ -218,7 +247,7 @@ function handleSubmit() {
         <!-- KOLOM KIRI (8 COLS): FORM UTAMA -->
         <div class="lg:col-span-8 space-y-5">
 
-          <!-- SECTION 1: PAKET BANK SOAL UJIAN -->
+          <!-- SECTION 1: PAKET BANK SOAL & JUDUL UJIAN -->
           <div class="p-5 sm:p-6 rounded-2xl bg-slate-900 border border-white/10 shadow-sm space-y-4">
             <div class="flex items-center justify-between pb-3 border-b border-white/10">
               <div class="flex items-center gap-2.5">
@@ -244,12 +273,28 @@ function handleSubmit() {
               </select>
             </div>
 
+            <!-- Judul Sesi Ujian (Fleksibel, Tidak Duplikat Mentah) -->
+            <div>
+              <label class="block text-xs font-semibold text-gray-300 mb-1.5">
+                Judul Sesi Ujian <span class="text-rose-400">*</span>
+              </label>
+              <input
+                v-model="form.judul_ujian"
+                type="text"
+                placeholder="Contoh: Penilaian Harian CBT: Konsep Pemrograman Web"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white text-xs sm:text-sm font-medium outline-none min-h-[42px]"
+              />
+              <p class="text-[11px] text-gray-400 mt-1">
+                Judul ini yang akan dibaca oleh siswa di portal ujian CBT.
+              </p>
+            </div>
+
             <!-- Info Detail Paket Terpilih -->
             <div v-if="selectedBankSoal" class="p-4 rounded-xl bg-slate-800/80 border border-teal-500/20 space-y-2">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                  <span class="text-xs text-teal-400 font-semibold uppercase tracking-wider">Nama Ujian:</span>
-                  <strong class="text-sm font-bold text-white">{{ selectedBankSoal.judul || selectedBankSoal.nama }}</strong>
+                  <span class="text-lg">📁</span>
+                  <span class="text-xs font-bold text-white">{{ selectedBankSoal.judul || selectedBankSoal.nama }}</span>
                 </div>
                 <span class="px-2 py-0.5 rounded-md bg-teal-500/20 text-teal-300 font-mono text-[11px] font-bold">
                   {{ selectedBankSoal.kode || 'PAKET CBT' }}
@@ -271,7 +316,7 @@ function handleSubmit() {
             </div>
           </div>
 
-          <!-- SECTION 2: KELAS SASARAN & WAKTU PELAKSANAAN -->
+          <!-- SECTION 2: KELAS SASARAN, WAKTU & MATERI PRASYARAT -->
           <div class="p-5 sm:p-6 rounded-2xl bg-slate-900 border border-white/10 shadow-sm space-y-4">
             <div class="flex items-center justify-between pb-3 border-b border-white/10">
               <div class="flex items-center gap-2.5">
@@ -283,7 +328,7 @@ function handleSubmit() {
               </span>
             </div>
 
-            <!-- Kelas Sasaran (Disesuaikan langsung dengan mapel Bank Soal yang diajar guru) -->
+            <!-- Kelas Sasaran -->
             <div>
               <label class="block text-xs font-semibold text-gray-300 mb-1.5">
                 Kelas Sasaran Ujian
@@ -303,12 +348,12 @@ function handleSubmit() {
               </p>
             </div>
 
-            <!-- Waktu Mulai & Waktu Selesai -->
+            <!-- Waktu Mulai & Durasi Pengerjaan (Tanpa Dobel Input Waktu Selesai Manual) -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               <div>
                 <div class="flex items-center justify-between mb-1.5">
                   <label class="text-xs font-semibold text-gray-300">
-                    Waktu Mulai Akses
+                    Waktu Mulai Akses <span class="text-rose-400">*</span>
                   </label>
                   <button
                     type="button"
@@ -330,57 +375,75 @@ function handleSubmit() {
               <div>
                 <div class="flex items-center justify-between mb-1.5">
                   <label class="text-xs font-semibold text-gray-300">
-                    Waktu Selesai Akses
+                    Durasi Pengerjaan (Menit) <span class="text-rose-400">*</span>
                   </label>
-                  <button
-                    type="button"
-                    @click="calcWaktuSelesai"
-                    v-if="form.waktu_mulai"
-                    class="text-[10px] text-teal-400 hover:text-teal-300 underline font-medium"
-                    title="Hitung otomatis berdasarkan waktu mulai + durasi menit"
-                  >
-                    ⚡ Hitung Otomatis
-                  </button>
+                  <span class="text-xs font-bold text-teal-400 font-mono">{{ form.durasi_menit }} Menit</span>
                 </div>
-                <input
-                  v-model="form.waktu_selesai"
-                  type="datetime-local"
-                  style="color-scheme: dark;"
-                  class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white text-xs outline-none min-h-[42px]"
-                />
+                <div class="flex items-center gap-2">
+                  <input
+                    v-model.number="form.durasi_menit"
+                    @input="calcWaktuSelesai"
+                    type="number"
+                    min="5"
+                    max="300"
+                    class="w-24 px-3 py-2.5 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white font-mono font-bold text-xs outline-none min-h-[42px]"
+                  />
+                  <div class="flex items-center gap-1 flex-wrap">
+                    <button
+                      v-for="d in [30, 45, 60, 90, 120]"
+                      :key="d"
+                      type="button"
+                      @click="setDurasi(d)"
+                      class="px-2.5 py-2 rounded-lg text-xs font-medium transition-all min-h-[38px]"
+                      :class="form.durasi_menit === d ? 'bg-teal-500 text-slate-950 font-bold' : 'bg-white/5 hover:bg-white/10 text-gray-300'"
+                    >
+                      {{ d }}m
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <!-- Durasi Pengerjaan & Presets -->
-            <div>
-              <div class="flex items-center justify-between mb-1.5">
-                <label class="text-xs font-semibold text-gray-300">
-                  Durasi Pengerjaan (Menit)
+            <!-- Auto-Calculated Completion Time Preview -->
+            <div v-if="form.waktu_mulai" class="p-3 rounded-xl bg-slate-800/60 border border-white/5 flex items-center justify-between text-xs text-gray-300">
+              <span class="flex items-center gap-2 text-gray-400">
+                <span>⏱️ Selesai Otomatis Pada:</span>
+              </span>
+              <span class="font-mono font-bold text-teal-300">
+                {{ formatPreviewDate(form.waktu_selesai) }}
+              </span>
+            </div>
+
+            <!-- TAUTKAN MATERI PEMBELAJARAN (Menyelesaikan dobel alur antar menu) -->
+            <div class="pt-3 border-t border-white/10 space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+                  <span>📖 Tautkan Materi Prasyarat</span>
+                  <span class="text-[10px] text-gray-400 font-normal">(Opsional)</span>
                 </label>
-                <span class="text-xs font-bold text-teal-400 font-mono">{{ form.durasi_menit }} Menit</span>
               </div>
-              <div class="flex items-center gap-2.5 flex-wrap">
-                <input
-                  v-model.number="form.durasi_menit"
-                  @change="calcWaktuSelesai"
-                  type="number"
-                  min="5"
-                  max="300"
-                  class="w-24 px-3 py-2 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white font-mono font-bold text-xs outline-none min-h-[40px]"
-                />
-                <div class="flex items-center gap-1.5 flex-wrap">
-                  <button
-                    v-for="d in [30, 45, 60, 90, 120]"
-                    :key="d"
-                    type="button"
-                    @click="setDurasi(d)"
-                    class="px-2.5 py-2 rounded-lg text-xs font-medium transition-all min-h-[38px]"
-                    :class="form.durasi_menit === d ? 'bg-teal-500 text-slate-950 font-bold' : 'bg-white/5 hover:bg-white/10 text-gray-300'"
-                  >
-                    {{ d }}m
-                  </button>
+              <select
+                v-model="form.materi_id"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white text-xs sm:text-sm font-medium outline-none min-h-[42px]"
+              >
+                <option value="">-- Tanpa Materi Prasyarat (Ujian Bebas Akses Langsung) --</option>
+                <option v-for="m in filteredMateriList" :key="m.id" :value="m.id">
+                  {{ m.judul }} ({{ m.tipe }} • {{ m.mapelNama }})
+                </option>
+              </select>
+
+              <div v-if="form.materi_id" class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300 space-y-1">
+                <div class="font-bold flex items-center gap-1.5">
+                  <span>🔒</span>
+                  <span>Ujian Berkunci Materi Prasyarat</span>
                 </div>
+                <p class="text-[11px] text-gray-300 leading-snug">
+                  Siswa wajib menyelesaikan membaca materi <strong>{{ selectedMateri?.judul }}</strong> terlebih dahulu sebelum Token CBT resmi terbuka.
+                </p>
               </div>
+              <p v-else class="text-[11px] text-gray-400">
+                Jika ditautkan ke materi, token ujian akan disematkan di bagian akhir materi setelah siswa menyelesaikan membaca.
+              </p>
             </div>
           </div>
 
@@ -421,8 +484,8 @@ function handleSubmit() {
                 <button
                   type="button"
                   @click="form.status = form.status === 'aktif' ? 'nonaktif' : 'aktif'"
-                  class="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 min-h-[42px]"
-                  :class="form.status === 'aktif' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-gray-400 border border-white/10'"
+                  class="w-full px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2 min-h-[42px]"
+                  :class="form.status === 'aktif' ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-slate-800 border-white/10 text-gray-400'"
                 >
                   <span class="w-2 h-2 rounded-full" :class="form.status === 'aktif' ? 'bg-emerald-400' : 'bg-gray-400'"></span>
                   <span>{{ form.status === 'aktif' ? 'Aktif (Siswa Dapat Mengakses)' : 'Draf / Non-Aktif' }}</span>
@@ -506,7 +569,7 @@ function handleSubmit() {
 
         </div>
 
-        <!-- KOLOM KANAN (4 COLS): RINGKASAN STICKY & AKSI -->
+        <!-- KOLOM KANAN (4 COLS): RINGKASAN STICKY & SATU-SATUNYA PUSAT TOMBOL AKSI -->
         <div class="lg:col-span-4 lg:sticky lg:top-20 space-y-4">
           <div class="p-5 rounded-2xl bg-slate-900 border border-white/10 shadow-sm space-y-4">
             <div class="flex items-center justify-between pb-3 border-b border-white/10">
@@ -522,12 +585,12 @@ function handleSubmit() {
             <!-- List Ringkasan -->
             <div class="space-y-3 text-xs">
               <div>
-                <span class="text-gray-400 text-[11px] block">Paket Bank Soal:</span>
-                <strong class="text-white block mt-0.5">
-                  {{ selectedBankSoal?.judul || selectedBankSoal?.nama || 'Belum dipilih' }}
+                <span class="text-gray-400 text-[11px] block">Judul Sesi Ujian:</span>
+                <strong class="text-white block mt-0.5 font-bold">
+                  {{ form.judul_ujian || selectedBankSoal?.judul || 'Belum diisi' }}
                 </strong>
                 <span v-if="selectedBankSoal" class="text-teal-400 text-[11px] font-medium block mt-0.5">
-                  {{ selectedBankSoalMapel || 'Umum' }} • {{ selectedBankSoal?.jumlahSoal || 0 }} Soal
+                  {{ selectedBankSoalMapel || 'Umum' }} • {{ selectedBankSoal?.jumlahSoal || 0 }} Butir Soal
                 </span>
               </div>
 
@@ -538,6 +601,14 @@ function handleSubmit() {
                 </strong>
               </div>
 
+              <!-- Prerequisite Materi Recap -->
+              <div class="pt-2 border-t border-white/10">
+                <span class="text-gray-400 text-[11px] block">Materi Prasyarat:</span>
+                <strong :class="selectedMateri ? 'text-amber-300' : 'text-gray-400'" class="block mt-0.5">
+                  {{ selectedMateri ? `🔒 ${selectedMateri.judul}` : 'Tanpa Prasyarat (Bebas)' }}
+                </strong>
+              </div>
+
               <div class="grid grid-cols-2 gap-2 pt-2 border-t border-white/10 text-[11px]">
                 <div>
                   <span class="text-gray-400 block">Durasi:</span>
@@ -545,8 +616,15 @@ function handleSubmit() {
                 </div>
                 <div>
                   <span class="text-gray-400 block">Token:</span>
-                  <strong class="text-teal-300 font-mono tracking-wider">{{ form.token || '-' }}</strong>
+                  <strong class="text-teal-300 font-mono tracking-wider font-bold">{{ form.token || '-' }}</strong>
                 </div>
+              </div>
+
+              <div class="pt-2 border-t border-white/10 text-[11px]">
+                <span class="text-gray-400 block">Waktu Mulai:</span>
+                <strong class="text-gray-200 block mt-0.5">
+                  {{ formatPreviewDate(form.waktu_mulai) }}
+                </strong>
               </div>
 
               <div class="pt-2 border-t border-white/10 text-[11px]">
@@ -557,13 +635,13 @@ function handleSubmit() {
               </div>
             </div>
 
-            <!-- Action Buttons in Summary Card -->
-            <div class="pt-3 border-t border-white/10 space-y-2">
+            <!-- Single Source of Truth Action Buttons in Summary Card -->
+            <div class="pt-4 border-t border-white/10 space-y-2">
               <button
                 @click="handleSubmit"
                 :disabled="isSubmitting"
                 type="button"
-                class="w-full py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs sm:text-sm shadow-md shadow-teal-500/20 active:scale-95 transition-all flex items-center justify-center gap-1.5 min-h-[42px] disabled:opacity-50"
+                class="w-full py-3 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-400 hover:to-cyan-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-teal-500/25 active:scale-95 transition-all flex items-center justify-center gap-1.5 min-h-[44px] disabled:opacity-50"
               >
                 <span v-if="isSubmitting">Sedang Menyimpan...</span>
                 <span v-else>{{ isEditing ? 'Simpan Perubahan' : 'Terbitkan Jadwal Ujian' }}</span>
@@ -572,9 +650,9 @@ function handleSubmit() {
               <button
                 @click="goBack"
                 type="button"
-                class="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 text-xs font-medium transition-all min-h-[40px]"
+                class="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-xs font-semibold transition-all min-h-[40px]"
               >
-                Batal
+                Batal &amp; Kembali
               </button>
             </div>
           </div>

@@ -5,20 +5,34 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CbtJadwal;
 use App\Models\CbtNilai;
+use App\Models\CbtSesi;
 use App\Models\Jadwal;
 use App\Models\Materi;
 use App\Models\NilaiTp;
 use App\Models\PengumpulanTugas;
 use App\Models\Siswa;
 use App\Models\Tugas;
+use App\Services\Cbt\CbtExamService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class SiswaApiController extends Controller
 {
-    public function getMateri(): JsonResponse
+    public function getMateri(Request $request): JsonResponse
     {
-        $materi = Materi::where('is_published', true)->orderBy('id', 'desc')->paginate(20);
+        $siswa = $this->resolveSiswa($request->user());
+        $kelasId = $siswa?->kelas_id;
+
+        $materi = Materi::where('is_published', true)
+            ->when(
+                $kelasId,
+                fn ($q) => $q->where(fn ($qq) => $qq->whereNull('kelas_id')->orWhere('kelas_id', $kelasId)),
+                fn ($q) => $q->whereNull('kelas_id')
+            )
+            ->orderBy('id', 'desc')
+            ->paginate(20);
+
         return response()->json(['success' => true, 'data' => $materi]);
     }
 
@@ -33,33 +47,34 @@ class SiswaApiController extends Controller
             return null;
         }
 
+        if ($user->siswa) {
+            return $user->siswa;
+        }
+
+        if (! $user->kelas_id) {
+            return null;
+        }
+
         $userName = trim($user->name);
 
-        $personalSiswa = Siswa::where(function ($q) use ($userName) {
-            $q->where('nama', $userName)
-              ->orWhereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)]);
-        })
-        ->when($user->kelas_id, fn ($q) => $q->where('kelas_id', $user->kelas_id))
-        ->first();
+        $personalSiswa = Siswa::where('kelas_id', $user->kelas_id)
+            ->where(function ($q) use ($userName) {
+                $q->where('nama', $userName)
+                  ->orWhereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)]);
+            })
+            ->first();
 
         if ($personalSiswa) {
             return $personalSiswa;
         }
 
-        if ($user->kelas_id) {
-            if ($requestedSiswaId) {
-                return Siswa::where('id', $requestedSiswaId)
-                    ->where('kelas_id', $user->kelas_id)
-                    ->first();
-            }
-            return Siswa::where('kelas_id', $user->kelas_id)->first();
-        }
-
         if ($requestedSiswaId) {
-            return Siswa::find($requestedSiswaId);
+            return Siswa::where('id', $requestedSiswaId)
+                ->where('kelas_id', $user->kelas_id)
+                ->first();
         }
 
-        return null;
+        return Siswa::where('kelas_id', $user->kelas_id)->first();
     }
 
     public function getNilai(Request $request): JsonResponse
@@ -102,14 +117,28 @@ class SiswaApiController extends Controller
         $siswa = $this->resolveSiswa($user);
         $kelasId = $siswa?->kelas_id;
 
-        $jadwals = CbtJadwal::with(['bankSoal.mataPelajaran', 'guru', 'kelas'])
+        $jadwals = CbtJadwal::with(['bankSoal.mataPelajaran', 'bankSoal.soals:id,bank_soal_id', 'guru', 'kelas'])
             ->where('status', 'aktif')
             ->where(function ($q) use ($kelasId) {
                 $q->whereNull('kelas_id');
                 if ($kelasId) $q->orWhere('kelas_id', $kelasId);
             })
             ->orderBy('id', 'desc')
-            ->get();
+            ->get()
+            ->map(fn ($j) => [
+                'id' => $j->id,
+                'judulUjian' => $j->judul_ujian,
+                'mapelNama' => $j->bankSoal?->mataPelajaran?->nama ?? 'Mata Pelajaran',
+                'guruNama' => $j->guru?->nama ?? 'Guru Pengajar',
+                'kelasNama' => $j->kelas?->nama_kelas,
+                'durasiMenit' => $j->durasi_menit ?? 60,
+                'waktuMulai' => $j->waktu_mulai?->format('d M Y H:i'),
+                'waktuSelesai' => $j->waktu_selesai?->format('d M Y H:i'),
+                'acakSoal' => (bool) ($j->acak_soal ?? true),
+                'acakOpsi' => (bool) ($j->acak_opsi ?? true),
+                'modeUjian' => $j->mode_ujian ?? 'formal',
+                'jumlahSoal' => $j->bankSoal?->soals->count() ?? 0,
+            ]);
 
         return response()->json(['success' => true, 'data' => $jadwals]);
     }
@@ -118,16 +147,13 @@ class SiswaApiController extends Controller
     {
         $user = $request->user();
         $siswa = $this->resolveSiswa($user);
-        $kelasId = $siswa?->kelas_id;
 
         if (!$siswa) {
             return response()->json(['success' => false, 'message' => 'Data siswa tidak ditemukan'], 404);
         }
 
         $nilais = CbtNilai::with(['jadwal.bankSoal.mataPelajaran', 'siswa:id,nama'])
-            ->whereHas('siswa', function ($q) use ($kelasId) {
-                if ($kelasId) $q->where('kelas_id', $kelasId);
-            })
+            ->where('siswa_id', $siswa->id)
             ->orderBy('id', 'desc')
             ->get()
             ->map(fn ($n) => [
@@ -144,6 +170,44 @@ class SiswaApiController extends Controller
             ]);
 
         return response()->json(['success' => true, 'data' => $nilais]);
+    }
+
+    public function startCbtExam(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'jadwal_id' => 'required|integer|exists:cbt_jadwals,id',
+            'siswa_id' => 'nullable|integer|exists:siswas,id',
+            'token' => 'required|string|max:64',
+        ]);
+
+        $siswa = $this->resolveAuthorizedSiswa($request->user(), $validated['siswa_id'] ?? null);
+        if (! $siswa) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak: identitas siswa tidak valid.'], 403);
+        }
+
+        $jadwal = CbtJadwal::with(['bankSoal.soals'])->findOrFail($validated['jadwal_id']);
+        $service = app(CbtExamService::class);
+
+        try {
+            $sesi = $service->start($jadwal, $siswa, $validated['token'], $request);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => collect($e->errors())->flatten()->first(),
+            ], 403);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Token valid. Ujian dimulai.',
+            'soals' => $service->serializeQuestions($jadwal),
+            'durasiMenit' => $jadwal->durasi_menit ?? 60,
+            'sesi' => [
+                'id' => $sesi->id,
+                'status' => $sesi->status,
+                'sisaWaktuDetik' => $sesi->sisa_waktu_detik,
+            ],
+        ]);
     }
 
     public function submitCbtExam(Request $request): JsonResponse
@@ -166,6 +230,16 @@ class SiswaApiController extends Controller
         $siswaId = $siswa->id;
 
         $jadwal = CbtJadwal::with(['bankSoal.soals'])->findOrFail($validated['jadwal_id']);
+
+        try {
+            $sesi = app(CbtExamService::class)->assertCanSubmit($jadwal, $siswa);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => collect($e->errors())->flatten()->first(),
+            ], 403);
+        }
+
         $soals = $jadwal->bankSoal?->soals ?? collect();
 
         $totalSoal = $soals->count();
@@ -292,7 +366,7 @@ class SiswaApiController extends Controller
                 'jumlah_salah' => $salah,
                 'nilai' => $finalScore,
                 'status' => $status,
-                'waktu_mulai' => now(),
+                'waktu_mulai' => $sesi->waktu_mulai ?? now(),
                 'waktu_selesai' => now(),
             ]
         );

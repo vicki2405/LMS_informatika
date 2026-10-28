@@ -22,6 +22,14 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  masterKelasList: {
+    type: Array,
+    default: () => [],
+  },
+  kelasList: {
+    type: Array,
+    default: () => [],
+  },
 });
 
 // Navigation
@@ -34,7 +42,7 @@ const isRefreshing = ref(false);
 function refreshData() {
   isRefreshing.value = true;
   router.reload({
-    only: ['students', 'summary'],
+    only: ['students', 'summary', 'kelasList', 'masterKelasList'],
     onFinish: () => {
       isRefreshing.value = false;
       showToast('Data monitoring pembaca berhasil diperbarui.', 'info');
@@ -45,9 +53,51 @@ function refreshData() {
 // Filter and Search
 const statusFilter = ref('semua');
 const searchQuery = ref('');
+const selectedKelasFilter = ref('');
 
-const filteredStudents = computed(() => {
+// Available Kelas List strictly from teacher schedule
+const availableKelasList = computed(() => {
+  const set = new Set();
+  (props.kelasList || props.masterKelasList || []).forEach((k) => {
+    if (k && k.nama_kelas) set.add(k.nama_kelas.trim());
+    else if (typeof k === 'string') set.add(k.trim());
+  });
+  if (set.size === 0) {
+    (props.students || []).forEach((s) => {
+      if (s.kelasNama && s.kelasNama !== '-') set.add(s.kelasNama.trim());
+    });
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+});
+
+// Students scoped by selected class
+const scopedStudents = computed(() => {
   let list = props.students || [];
+  if (selectedKelasFilter.value) {
+    list = list.filter((s) => (s.kelasNama || '').trim() === selectedKelasFilter.value.trim());
+  }
+  return list;
+});
+
+// Dynamic summary based on scoped class
+const effectiveSummary = computed(() => {
+  const total = scopedStudents.value.length;
+  const selesai = scopedStudents.value.filter((s) => s.status === 'selesai').length;
+  const membaca = scopedStudents.value.filter((s) => s.status === 'sedang_membaca').length;
+  const belum = scopedStudents.value.filter((s) => s.status === 'belum_baca').length;
+  const persen = total > 0 ? Math.round((selesai / total) * 100) : 0;
+  return {
+    totalSiswa: total,
+    selesaiCount: selesai,
+    membacaCount: membaca,
+    belumBukaCount: belum,
+    persentaseSelesai: persen,
+  };
+});
+
+// Filtered students by status and search query
+const filteredStudents = computed(() => {
+  let list = scopedStudents.value;
 
   if (statusFilter.value !== 'semua') {
     list = list.filter((s) => s.status === statusFilter.value);
@@ -58,7 +108,8 @@ const filteredStudents = computed(() => {
     list = list.filter(
       (s) =>
         (s.nama && s.nama.toLowerCase().includes(q)) ||
-        (s.nis && String(s.nis).toLowerCase().includes(q))
+        (s.nis && String(s.nis).toLowerCase().includes(q)) ||
+        (s.kelasNama && s.kelasNama.toLowerCase().includes(q))
     );
   }
 
@@ -81,7 +132,7 @@ function getTypeBadge(tipe) {
 
 function getInitials(name) {
   if (!name) return 'S';
-  const parts = name.trim().split(/\s+/);
+  const parts = name.trim().split(/\\s+/);
   if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
@@ -153,6 +204,12 @@ function getInitials(name) {
                 👥 Target: {{ materi.targetKelas || 'Semua Kelas' }}
               </span>
               <span
+                v-if="selectedKelasFilter"
+                class="px-3 py-1 rounded-full text-xs font-extrabold bg-cyan-500/20 border border-cyan-500/40 text-cyan-300"
+              >
+                🏢 Rombel: Kelas {{ selectedKelasFilter }}
+              </span>
+              <span
                 v-if="materi.cbtJadwal"
                 class="px-3 py-1 rounded-full text-xs font-extrabold bg-purple-500/20 border border-purple-500/40 text-purple-300 flex items-center gap-1"
               >
@@ -179,10 +236,10 @@ function getInitials(name) {
             <div>
               <div class="text-[11px] font-bold uppercase text-gray-400">Ketuntasan Kelas</div>
               <div class="text-2xl font-black text-white font-mono">
-                {{ summary.persentaseSelesai }}%
+                {{ effectiveSummary.persentaseSelesai }}%
               </div>
               <div class="text-[11px] font-semibold text-emerald-400">
-                {{ summary.selesaiCount }} dari {{ summary.totalSiswa }} Siswa Tuntas
+                {{ effectiveSummary.selesaiCount }} dari {{ effectiveSummary.totalSiswa }} Siswa Tuntas
               </div>
             </div>
           </div>
@@ -194,14 +251,15 @@ function getInitials(name) {
             <span class="text-gray-300 flex items-center gap-1.5">
               <span>Tingkat Ketuntasan Membaca Kelas</span>
               <span class="text-gray-500">•</span>
-              <span class="text-gray-400">{{ summary.selesaiCount }}/{{ summary.totalSiswa }} Siswa</span>
+              <span class="text-gray-400">{{ effectiveSummary.selesaiCount }}/{{ effectiveSummary.totalSiswa }} Siswa</span>
+              <span v-if="selectedKelasFilter" class="text-cyan-400">• Kelas {{ selectedKelasFilter }}</span>
             </span>
-            <span class="text-cyan-300 font-mono font-black">{{ summary.persentaseSelesai }}% Tuntas</span>
+            <span class="text-cyan-300 font-mono font-black">{{ effectiveSummary.persentaseSelesai }}% Tuntas</span>
           </div>
           <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-white/10 p-0.5">
             <div
               class="h-full bg-gradient-to-r from-teal-500 via-cyan-400 to-emerald-400 rounded-full transition-all duration-700 shadow-sm shadow-cyan-400/50"
-              :style="{ width: `${Math.min(100, Math.max(0, summary.persentaseSelesai))}%` }"
+              :style="{ width: `${Math.min(100, Math.max(0, effectiveSummary.persentaseSelesai))}%` }"
             ></div>
           </div>
         </div>
@@ -216,9 +274,11 @@ function getInitials(name) {
             <span class="text-base">👥</span>
           </div>
           <div class="text-2xl sm:text-3xl font-black text-white font-mono">
-            {{ summary.totalSiswa }}
+            {{ effectiveSummary.totalSiswa }}
           </div>
-          <p class="text-[11px] text-gray-400 truncate">Siswa terdaftar di kelas</p>
+          <p class="text-[11px] text-gray-400 truncate">
+            {{ selectedKelasFilter ? `Siswa Kelas ${selectedKelasFilter}` : 'Siswa terdaftar di kelas ampuan' }}
+          </p>
         </div>
 
         <!-- Card 2: Selesai Membaca -->
@@ -226,11 +286,11 @@ function getInitials(name) {
           <div class="flex items-center justify-between text-emerald-400 text-xs font-bold">
             <span class="uppercase tracking-wider text-[10.5px]">🟢 Selesai Baca</span>
             <span class="text-xs font-mono font-black px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30">
-              {{ summary.persentaseSelesai }}%
+              {{ effectiveSummary.persentaseSelesai }}%
             </span>
           </div>
           <div class="text-2xl sm:text-3xl font-black text-emerald-300 font-mono">
-            {{ summary.selesaiCount }}
+            {{ effectiveSummary.selesaiCount }}
           </div>
           <p class="text-[11px] text-emerald-400/80 truncate">Telah tuntas membaca</p>
         </div>
@@ -242,7 +302,7 @@ function getInitials(name) {
             <span class="text-base">📖</span>
           </div>
           <div class="text-2xl sm:text-3xl font-black text-amber-300 font-mono">
-            {{ summary.membacaCount }}
+            {{ effectiveSummary.membacaCount }}
           </div>
           <p class="text-[11px] text-amber-400/80 truncate">Progres sebagian terbaca</p>
         </div>
@@ -254,7 +314,7 @@ function getInitials(name) {
             <span class="text-base">⏳</span>
           </div>
           <div class="text-2xl sm:text-3xl font-black text-gray-300 font-mono">
-            {{ summary.belumBukaCount }}
+            {{ effectiveSummary.belumBukaCount }}
           </div>
           <p class="text-[11px] text-gray-500 truncate">Belum ada riwayat buka</p>
         </div>
@@ -262,63 +322,80 @@ function getInitials(name) {
 
       <!-- FILTER & SEARCH TOOLBAR -->
       <div class="rounded-2xl bg-slate-900/80 border border-white/10 p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-md">
-        <!-- Status Filter Pills -->
-        <div class="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 md:pb-0">
-          <button
-            type="button"
-            @click="statusFilter = 'semua'"
-            :class="[
-              'px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 min-h-[38px] flex items-center gap-1.5',
-              statusFilter === 'semua'
-                ? 'bg-cyan-500 text-slate-950 font-black shadow-md shadow-cyan-500/30'
-                : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-white/5'
-            ]"
-          >
-            <span>Semua Siswa</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{{ summary.totalSiswa }}</span>
-          </button>
+        <div class="flex items-center gap-2.5 flex-wrap text-xs">
+          <!-- Dropdown Filter Rombel Kelas (Kunci Jadwal Guru) -->
+          <div v-if="availableKelasList.length > 1" class="flex items-center gap-1.5 shrink-0">
+            <span class="text-gray-400 font-mono text-[11px]">Rombel:</span>
+            <select
+              v-model="selectedKelasFilter"
+              class="py-1.5 px-3 rounded-xl bg-slate-800 border border-cyan-500/30 text-cyan-300 font-bold text-xs focus:outline-none focus:border-cyan-400 min-h-[38px]"
+              title="Pilih rombel kelas yang diajar guru"
+            >
+              <option value="">🏢 Semua Rombel Kelas ({{ availableKelasList.length }})</option>
+              <option v-for="k in availableKelasList" :key="k" :value="k">
+                Kelas {{ k }}
+              </option>
+            </select>
+          </div>
 
-          <button
-            type="button"
-            @click="statusFilter = 'selesai'"
-            :class="[
-              'px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 min-h-[38px] flex items-center gap-1.5',
-              statusFilter === 'selesai'
-                ? 'bg-emerald-500 text-slate-950 font-black shadow-md shadow-emerald-500/30'
-                : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-emerald-300 border border-white/5'
-            ]"
-          >
-            <span>🟢 Selesai</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{{ summary.selesaiCount }}</span>
-          </button>
+          <!-- Status Filter Pills -->
+          <div class="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 md:pb-0">
+            <button
+              type="button"
+              @click="statusFilter = 'semua'"
+              :class="[
+                'px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 min-h-[38px] flex items-center gap-1.5',
+                statusFilter === 'semua'
+                  ? 'bg-cyan-500 text-slate-950 font-black shadow-md shadow-cyan-500/30'
+                  : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-white/5'
+              ]"
+            >
+              <span>Semua</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{{ effectiveSummary.totalSiswa }}</span>
+            </button>
 
-          <button
-            type="button"
-            @click="statusFilter = 'sedang_membaca'"
-            :class="[
-              'px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 min-h-[38px] flex items-center gap-1.5',
-              statusFilter === 'sedang_membaca'
-                ? 'bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/30'
-                : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-amber-300 border border-white/5'
-            ]"
-          >
-            <span>🟡 Sedang Baca</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{{ summary.membacaCount }}</span>
-          </button>
+            <button
+              type="button"
+              @click="statusFilter = 'selesai'"
+              :class="[
+                'px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 min-h-[38px] flex items-center gap-1.5',
+                statusFilter === 'selesai'
+                  ? 'bg-emerald-500 text-slate-950 font-black shadow-md shadow-emerald-500/30'
+                  : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-emerald-300 border border-white/5'
+              ]"
+            >
+              <span>🟢 Selesai</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{{ effectiveSummary.selesaiCount }}</span>
+            </button>
 
-          <button
-            type="button"
-            @click="statusFilter = 'belum_baca'"
-            :class="[
-              'px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 min-h-[38px] flex items-center gap-1.5',
-              statusFilter === 'belum_baca'
-                ? 'bg-slate-700 text-white font-black shadow-md'
-                : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-white/5'
-            ]"
-          >
-            <span>⚪ Belum Buka</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{{ summary.belumBukaCount }}</span>
-          </button>
+            <button
+              type="button"
+              @click="statusFilter = 'sedang_membaca'"
+              :class="[
+                'px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 min-h-[38px] flex items-center gap-1.5',
+                statusFilter === 'sedang_membaca'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/30'
+                  : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-amber-300 border border-white/5'
+              ]"
+            >
+              <span>🟡 Sedang Baca</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{{ effectiveSummary.membacaCount }}</span>
+            </button>
+
+            <button
+              type="button"
+              @click="statusFilter = 'belum_baca'"
+              :class="[
+                'px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 min-h-[38px] flex items-center gap-1.5',
+                statusFilter === 'belum_baca'
+                  ? 'bg-slate-700 text-white font-black shadow-md'
+                  : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-white/5'
+              ]"
+            >
+              <span>⚪ Belum Buka</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{{ effectiveSummary.belumBukaCount }}</span>
+            </button>
+          </div>
         </div>
 
         <!-- Live Search Input -->
@@ -326,7 +403,7 @@ function getInitials(name) {
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Cari nama atau NIS siswa..."
+            placeholder="Cari nama, NIS, atau kelas..."
             class="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-950 border border-white/15 focus:border-cyan-400 text-white placeholder-gray-500 text-xs outline-none transition min-h-[38px]"
           />
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">🔍</span>
@@ -341,16 +418,17 @@ function getInitials(name) {
         </div>
       </div>
 
-      <!-- DATA LISTING: DESKTOP TABLE (hidden md:block) -->
-      <div class="hidden md:block rounded-3xl bg-slate-900/90 border border-white/10 overflow-hidden shadow-2xl">
+      <!-- DATA LISTING: PURE RESPONSIVE TABLE (TAMPIL TABEL DI SELURUH UKURAN LAYAR) -->
+      <div class="rounded-3xl bg-slate-900/90 border border-white/10 overflow-hidden shadow-2xl">
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs">
-            <thead class="bg-slate-950 text-gray-400 uppercase text-[10.5px] font-black tracking-wider border-b border-white/10">
+          <table class="w-full text-left text-xs min-w-[780px]">
+            <thead class="bg-slate-950 text-gray-400 uppercase text-[10.5px] font-black tracking-wider border-b border-white/10 font-mono">
               <tr>
                 <th class="py-4 px-4 text-center w-12">#</th>
                 <th class="py-4 px-5">Siswa</th>
+                <th class="py-4 px-4">Kelas Rombel</th>
                 <th class="py-4 px-4 text-center">Status Baca</th>
-                <th class="py-4 px-5 w-48">Progres Baca</th>
+                <th class="py-4 px-5 w-44">Progres Baca</th>
                 <th class="py-4 px-4">Pertama Dibuka</th>
                 <th class="py-4 px-4">Selesai Membaca</th>
                 <th class="py-4 px-4 text-right">Terakhir Aktif</th>
@@ -393,6 +471,13 @@ function getInitials(name) {
                       </div>
                     </div>
                   </div>
+                </td>
+
+                <!-- Kelas Rombel -->
+                <td class="py-3.5 px-4">
+                  <span class="px-2.5 py-0.5 rounded-md bg-white/5 border border-white/10 text-cyan-300 font-mono font-bold text-[11px]">
+                    {{ s.kelasNama || '-' }}
+                  </span>
                 </td>
 
                 <!-- Status Badge -->
@@ -455,105 +540,14 @@ function getInitials(name) {
 
               <!-- Empty Table Row -->
               <tr v-if="filteredStudents.length === 0">
-                <td colspan="7" class="py-12 text-center space-y-2">
+                <td colspan="8" class="py-12 text-center space-y-2">
                   <div class="text-3xl">🔍</div>
                   <p class="text-sm font-bold text-gray-300">Tidak ada siswa yang sesuai kriteria.</p>
-                  <p class="text-xs text-gray-500">Coba ubah kata kunci pencarian atau ganti filter status di atas.</p>
+                  <p class="text-xs text-gray-500">Coba ubah kata kunci pencarian atau ganti filter status/rombel di atas.</p>
                 </td>
               </tr>
             </tbody>
           </table>
-        </div>
-      </div>
-
-      <!-- DATA LISTING: MOBILE CARDS (md:hidden) -->
-      <div class="md:hidden space-y-3">
-        <div
-          v-for="(s, idx) in filteredStudents"
-          :key="s.id"
-          class="rounded-2xl bg-slate-900 border border-white/10 p-4 space-y-3 shadow-lg"
-        >
-          <!-- Top Row: Avatar, Name, NIS, Status -->
-          <div class="flex items-start justify-between gap-3">
-            <div class="flex items-center gap-3 min-w-0">
-              <div
-                :class="[
-                  'w-10 h-10 rounded-xl flex items-center justify-center text-xs font-black shrink-0 border',
-                  s.gender === 'P'
-                    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                    : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
-                ]"
-              >
-                {{ getInitials(s.nama) }}
-              </div>
-              <div class="min-w-0">
-                <div class="font-bold text-white text-xs truncate">
-                  {{ idx + 1 }}. {{ s.nama }}
-                </div>
-                <div class="text-[11px] text-gray-400 font-mono">
-                  NIS: {{ s.nis || '-' }} • {{ s.gender === 'P' ? 'Perempuan' : 'Laki-laki' }}
-                </div>
-              </div>
-            </div>
-
-            <!-- Status Pill -->
-            <span
-              v-if="s.status === 'selesai'"
-              class="shrink-0 px-2.5 py-1 rounded-full text-[10.5px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-            >
-              🟢 Selesai
-            </span>
-            <span
-              v-else-if="s.status === 'sedang_membaca'"
-              class="shrink-0 px-2.5 py-1 rounded-full text-[10.5px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40"
-            >
-              🟡 Membaca
-            </span>
-            <span
-              v-else
-              class="shrink-0 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-white/5 text-gray-400 border border-white/10"
-            >
-              ⚪ Belum Buka
-            </span>
-          </div>
-
-          <!-- Progress Bar on Mobile -->
-          <div class="space-y-1 bg-slate-950/60 p-2.5 rounded-xl border border-white/5">
-            <div class="flex items-center justify-between text-[11px]">
-              <span class="text-gray-400">Progres Baca</span>
-              <span class="font-mono font-bold text-white">{{ s.progressPersen || 0 }}%</span>
-            </div>
-            <div class="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-white/10">
-              <div
-                class="h-full rounded-full transition-all duration-300"
-                :class="s.status === 'selesai' ? 'bg-emerald-400' : (s.progressPersen > 0 ? 'bg-amber-400' : 'bg-transparent')"
-                :style="{ width: `${s.progressPersen || 0}%` }"
-              ></div>
-            </div>
-          </div>
-
-          <!-- Timestamp details -->
-          <div class="grid grid-cols-2 gap-2 text-[10.5px] font-mono text-gray-400 bg-white/[0.02] p-2.5 rounded-xl border border-white/5">
-            <div>
-              <span class="text-gray-500 block text-[9.5px] uppercase">Pertama Buka:</span>
-              <span class="text-gray-300">{{ s.openedAt || '-' }}</span>
-            </div>
-            <div>
-              <span class="text-gray-500 block text-[9.5px] uppercase">Selesai Baca:</span>
-              <span class="text-gray-300">{{ s.completedAt || '-' }}</span>
-            </div>
-            <div class="col-span-2 pt-1 border-t border-white/5 flex items-center justify-between">
-              <span class="text-gray-500 text-[9.5px] uppercase">Terakhir Aktif:</span>
-              <span class="text-cyan-300 font-bold">{{ s.terakhirDibaca || '-' }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Mobile Empty State -->
-        <div v-if="filteredStudents.length === 0" class="py-12 text-center rounded-2xl bg-slate-900/60 border border-white/10 p-6 space-y-2">
-          <div class="text-3xl">🔍</div>
-          <p class="text-sm font-bold text-gray-300">Tidak ada siswa yang sesuai.</p>
-          <p class="text-xs text-gray-500">Coba ubah kata kunci pencarian atau filter status.</p>
         </div>
       </div>
 

@@ -824,6 +824,7 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
           :siswaList="props.siswaListProp"
           :tpList="tpList"
           :kelasList="kelasList"
+          :jadwalGuruList="props.jadwalListProp"
           :tahunAjaranList="tahunAjaranList"
           :teacherSubject="teacherSubject"
         />

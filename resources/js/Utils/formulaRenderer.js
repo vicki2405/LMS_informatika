@@ -61,7 +61,7 @@ export function renderFormulaContent(rawText) {
 
   // 5. Restore KaTeX tokens
   mathTokens.forEach(({ token, html: mathHtml }) => {
-    html = html.replace(token, mathHtml);
+    html = html.replace(token, () => mathHtml);
   });
 
   return html;

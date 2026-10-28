@@ -53,6 +53,19 @@ const tpHeaders = computed(() => {
   );
 });
 
+// ─── Helper ambil skor siswa untuk suatu TP secara akurat & bebas tabrakan ───
+function getSiswaScore(siswaItem, tp) {
+  if (!siswaItem || !tp) return undefined;
+  if (siswaItem.scoresByTpId && siswaItem.scoresByTpId[tp.id] !== undefined) {
+    return siswaItem.scoresByTpId[tp.id];
+  }
+  const currentMapel = selectedMapel.value || initMapel.value;
+  if (siswaItem.scoresByMapel && siswaItem.scoresByMapel[currentMapel]?.[tp.kode] !== undefined) {
+    return siswaItem.scoresByMapel[currentMapel][tp.kode];
+  }
+  return siswaItem.scores?.[currentMapel + '_' + tp.kode] ?? siswaItem.scores?.[tp.kode];
+}
+
 // ─── Helper badge predikat ────────────────────────────────────────────────────
 function getPredikatBadge(score) {
   if (score === null || score === undefined || score === 0) {
@@ -66,7 +79,6 @@ function getPredikatBadge(score) {
 
 // ─── Pre-computed & memoized data list for high performance rendering ────────
 const processedNilaiList = computed(() => {
-  const kodes = tpHeaders.value.map(tp => tp.kode);
   const q = searchNilai.value.trim().toLowerCase();
 
   return props.rekapNilaiSemester
@@ -78,8 +90,8 @@ const processedNilaiList = computed(() => {
       );
     })
     .map(siswaItem => {
-      const vals = kodes
-        .map(k => siswaItem.scores?.[k])
+      const vals = tpHeaders.value
+        .map(tp => getSiswaScore(siswaItem, tp))
         .filter(v => v !== undefined && v !== null);
 
       const avg = vals.length === 0 ? null : Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
@@ -253,10 +265,10 @@ const processedNilaiList = computed(() => {
                   class="py-4 px-3 text-center border-r border-white/5 align-middle"
                 >
                   <div
-                    v-if="siswaItem.scores?.[tp.kode] !== undefined"
+                    v-if="getSiswaScore(siswaItem, tp) !== undefined"
                     class="inline-flex items-center justify-center px-3 py-1.5 rounded-xl bg-slate-800/80 border border-white/15 text-white font-mono font-black text-xs shadow-inner"
                   >
-                    {{ siswaItem.scores[tp.kode] }}
+                    {{ getSiswaScore(siswaItem, tp) }}
                   </div>
                   <div v-else class="inline-flex items-center justify-center px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 font-mono text-[11px] font-semibold">
                     Belum
@@ -319,8 +331,8 @@ const processedNilaiList = computed(() => {
                   <span class="text-cyan-300 font-bold text-[11px]">{{ tp.kode }}</span>
                   <div class="text-[9px] text-gray-500 truncate max-w-[80px]" :title="tp.judul">{{ tp.judul }}</div>
                 </div>
-                <span v-if="siswaItem.scores?.[tp.kode] !== undefined" class="font-mono font-black text-white text-xs">
-                  {{ siswaItem.scores[tp.kode] }}
+                <span v-if="getSiswaScore(siswaItem, tp) !== undefined" class="font-mono font-black text-white text-xs">
+                  {{ getSiswaScore(siswaItem, tp) }}
                 </span>
                 <span v-else class="text-amber-300 text-[10px] font-semibold">Belum</span>
               </div>

@@ -73,6 +73,7 @@ class ComprehensiveInputAuditTest extends TestCase
             'mata_pelajaran' => 'Informatika',
             'telepon' => '081234567890',
         ]);
+        $this->guru->kelasAmpuan()->attach($this->kelas->id);
 
         $this->waliKelasUser = User::factory()->create([
             'name' => 'Wali Kelas Audit',
@@ -593,6 +594,15 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 16: Guru dapat membuka Dedicated Page Tambah Jadwal CBT */
     public function test_guru_can_render_cbt_jadwal_create_page(): void
     {
+        $mapel = \App\Models\MataPelajaran::first();
+        \App\Models\Materi::create([
+            'judul' => 'Materi Uji Coba Prasyarat CBT',
+            'tipe' => 'Slider PPT',
+            'is_published' => true,
+            'mapel_id' => $mapel?->id,
+            'kelas_id' => $this->kelas->id,
+        ]);
+
         $response = $this->actingAs($this->guruUser)->get(route('guru.cbt.jadwal.create'));
         $response->assertStatus(200);
         $response->assertInertia(fn ($page) => $page
@@ -600,6 +610,7 @@ class ComprehensiveInputAuditTest extends TestCase
             ->has('bankSoalList')
             ->has('masterKelasList')
             ->has('jurusanList')
+            ->has('materiList')
             ->where('jadwalProp', null)
         );
     }
@@ -819,5 +830,53 @@ class ComprehensiveInputAuditTest extends TestCase
             ->where('materi.id', $materi->id)
             ->where('materi.judul', 'Materi Uji Monitoring Page')
         );
+    }
+
+    /** Test 23: Guru dapat membuka Dedicated Page Live Monitoring CBT & Anti-Cheat */
+    public function test_guru_can_render_cbt_monitoring_page(): void
+    {
+        $bank = \App\Models\CbtBankSoal::create([
+            'guru_id' => $this->guru->id,
+            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'judul' => 'Bank Soal Monitoring CBT',
+            'kode' => 'BANK-MON-1',
+            'tingkat' => 'X',
+            'total_soal' => 5,
+        ]);
+
+        $jadwal = \App\Models\CbtJadwal::create([
+            'bank_soal_id' => $bank->id,
+            'guru_id' => $this->guru->id,
+            'kelas_id' => \App\Models\Kelas::first()->id,
+            'judul_ujian' => 'Ujian Monitoring Realtime',
+            'token' => 'MONIT1',
+            'status' => 'aktif',
+            'durasi_menit' => 60,
+        ]);
+
+        // 1. Test Inertia Page Visit
+        $response = $this->actingAs($this->guruUser)->get(route('guru.cbt.jadwal.monitoring', $jadwal->id));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Guru/CbtMonitoringPage')
+            ->has('jadwal')
+            ->has('stats')
+            ->has('peserta')
+            ->where('jadwal.id', $jadwal->id)
+            ->where('jadwal.token', 'MONIT1')
+        );
+
+        // 2. Test JSON Auto-Poll Request
+        $jsonResponse = $this->actingAs($this->guruUser)
+            ->json('GET', route('guru.cbt.jadwal.monitoring', $jadwal->id));
+
+        $jsonResponse->assertOk();
+        $jsonResponse->assertJsonStructure([
+            'success',
+            'jadwal' => ['id', 'judulUjian', 'token', 'status', 'durasiMenit'],
+            'stats' => ['totalPeserta', 'menunggu', 'mengerjakan', 'selesai', 'terkunci'],
+            'peserta',
+        ]);
     }
 }

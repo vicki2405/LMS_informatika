@@ -1,9 +1,9 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
-import { renderFormulaContent } from '@/Utils/formulaRenderer';
 import { showToast } from '@/Utils/sweetalert';
+import MateriPreviewModal from './MateriPreviewModal.vue';
 
 const props = defineProps({
   materiList: { type: Array, default: () => [] },
@@ -25,14 +25,29 @@ function getInitialSemester() {
   return (currentMonth >= 1 && currentMonth <= 6) ? 'Genap' : 'Ganjil';
 }
 
-// Filter Controls State
+// 1. Filter States
 const selectedSemester = ref(getInitialSemester());
 const selectedTpFilter = ref('Semua');
 const selectedTipeFilter = ref('Semua');
 const selectedStatusFilter = ref('Semua'); // 'Semua', 'ON', 'OFF'
 const searchQuery = ref('');
+const debouncedSearchQuery = ref('');
+let searchTimer = null;
 
-// Filter TP berdasarkan Semester yang dipilih agar tidak membludak ratusan TP
+// Debounce Search 300ms for optimal UI responsiveness
+watch(searchQuery, (newVal) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    debouncedSearchQuery.value = newVal.trim().toLowerCase();
+    currentPage.value = 1;
+  }, 300);
+});
+
+onUnmounted(() => {
+  if (searchTimer) clearTimeout(searchTimer);
+});
+
+// Filter TP options based on active semester
 const availableTps = computed(() => {
   let list = props.tpList || [];
   if (selectedSemester.value !== 'Semua') {
@@ -41,781 +56,752 @@ const availableTps = computed(() => {
   return list;
 });
 
-// Format teks opsi TP agar tidak melebar merusak render popover browser
 function formatTpOption(tp) {
   const judul = tp.judul || '';
   const truncated = judul.length > 45 ? judul.substring(0, 42) + '...' : judul;
   return `${tp.kode}: ${truncated}`;
 }
 
-watch(selectedSemester, () => {
+watch(selectedSemester, (newSem) => {
+  if (typeof window !== 'undefined' && ['Ganjil', 'Genap'].includes(newSem)) {
+    try {
+      localStorage.setItem('guru_active_semester', newSem);
+    } catch (e) {}
+  }
   if (selectedTpFilter.value !== 'Semua') {
     const exists = availableTps.value.some(t => t.id === Number(selectedTpFilter.value));
     if (!exists) {
       selectedTpFilter.value = 'Semua';
     }
   }
+  currentPage.value = 1;
 });
 
-if (typeof window !== 'undefined') {
-  try {
-    localStorage.setItem('guru_active_semester', selectedSemester.value);
-  } catch (e) {}
+watch([selectedTpFilter, selectedTipeFilter, selectedStatusFilter], () => {
+  currentPage.value = 1;
+});
+
+// 2. Single-pass O(N) Filtering
+const filteredMateriList = computed(() => {
+  const q = debouncedSearchQuery.value;
+  const sem = selectedSemester.value;
+  const tpF = selectedTpFilter.value;
+  const tipeF = selectedTipeFilter.value;
+  const statF = selectedStatusFilter.value;
+  const raw = props.materiList || [];
+
+  return raw.filter((m) => {
+    if (sem !== 'Semua') {
+      const mSem = m.semester || m.tp?.semester || 'Ganjil';
+      if (mSem !== sem) return false;
+    }
+    if (tpF !== 'Semua') {
+      if (String(m.tpId || m.tp?.id) !== String(tpF)) return false;
+    }
+    if (tipeF !== 'Semua') {
+      if (m.tipe !== tipeF) return false;
+    }
+    if (statF !== 'Semua') {
+      const isPub = Boolean(m.isPublished);
+      if (statF === 'ON' && !isPub) return false;
+      if (statF === 'OFF' && isPub) return false;
+    }
+    if (q) {
+      const j = (m.judul || '').toLowerCase();
+      const mapel = (m.mapel || m.mapelNama || '').toLowerCase();
+      const k = (m.targetKelas || m.kelas || '').toLowerCase();
+      const desk = (m.deskripsiSingkat || '').toLowerCase();
+      const tpK = (m.tpKode || '').toLowerCase();
+      if (!j.includes(q) && !mapel.includes(q) && !k.includes(q) && !desk.includes(q) && !tpK.includes(q)) {
+        return false;
+      }
+    }
+    return true;
+  });
+});
+
+// 3. Sorting Engine
+const sortBy = ref('id'); // 'id', 'judul', 'mapel', 'tipe', 'targetKelas', 'readsCount', 'isPublished'
+const sortDir = ref('desc'); // 'asc', 'desc'
+
+function toggleSort(field) {
+  if (sortBy.value === field) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortBy.value = field;
+    sortDir.value = 'asc';
+  }
 }
 
-// Toggle Status Loading State
+const sortedMateriList = computed(() => {
+  const list = [...filteredMateriList.value];
+  const field = sortBy.value;
+  const dir = sortDir.value === 'asc' ? 1 : -1;
+
+  list.sort((a, b) => {
+    let valA = a[field];
+    let valB = b[field];
+
+    if (field === 'mapel') {
+      valA = a.mapel || a.mapelNama || '';
+      valB = b.mapel || b.mapelNama || '';
+    } else if (field === 'readsCount') {
+      valA = a.readsCount || 0;
+      valB = b.readsCount || 0;
+    } else if (typeof valA === 'string') {
+      return (valA || '').localeCompare(valB || '') * dir;
+    } else if (typeof valA === 'boolean') {
+      return (valA === valB ? 0 : valA ? 1 : -1) * dir;
+    }
+
+    if (valA < valB) return -1 * dir;
+    if (valA > valB) return 1 * dir;
+    return 0;
+  });
+
+  return list;
+});
+
+// 4. Pagination Engine
+const perPage = ref(10);
+const currentPage = ref(1);
+
+const totalItems = computed(() => sortedMateriList.value.length);
+const totalPages = computed(() => {
+  if (perPage.value === -1) return 1;
+  return Math.ceil(totalItems.value / perPage.value) || 1;
+});
+
+const paginatedMateriList = computed(() => {
+  if (perPage.value === -1) return sortedMateriList.value;
+  const start = (currentPage.value - 1) * perPage.value;
+  return sortedMateriList.value.slice(start, start + perPage.value);
+});
+
+// 5. Bulk Selection Engine
+const selectedIds = ref(new Set());
+
+const isAllSelected = computed(() => {
+  const currentIds = paginatedMateriList.value.map(m => m.id);
+  if (currentIds.length === 0) return false;
+  return currentIds.every(id => selectedIds.value.has(id));
+});
+
+function toggleSelectAll() {
+  const currentIds = paginatedMateriList.value.map(m => m.id);
+  if (isAllSelected.value) {
+    currentIds.forEach(id => selectedIds.value.delete(id));
+  } else {
+    currentIds.forEach(id => selectedIds.value.add(id));
+  }
+}
+
+function toggleSelect(id) {
+  if (selectedIds.value.has(id)) {
+    selectedIds.value.delete(id);
+  } else {
+    selectedIds.value.add(id);
+  }
+}
+
+const isProcessingBulk = ref(false);
+
+async function executeBulkAction(action) {
+  if (selectedIds.value.size === 0 || isProcessingBulk.value) return;
+  const count = selectedIds.value.size;
+
+  if (action === 'delete') {
+    if (!confirm(`Hapus permanen ${count} materi pembelajaran yang dipilih? Tindakan ini tidak dapat dibatalkan.`)) {
+      return;
+    }
+  }
+
+  isProcessingBulk.value = true;
+  try {
+    const res = await axios.post(route('guru.materi.bulk-action'), {
+      action,
+      ids: Array.from(selectedIds.value),
+    });
+    showToast(res.data?.message || 'Aksi massal berhasil diproses!', 'success');
+    selectedIds.value.clear();
+    router.reload({ only: ['materiListProp'] });
+  } catch (err) {
+    showToast(err.response?.data?.message || 'Gagal memproses aksi massal.', 'error');
+  } finally {
+    isProcessingBulk.value = false;
+  }
+}
+
+// 6. Preview Modal State
+const showPreviewModal = ref(false);
+const previewMateriObj = ref(null);
+
+function openPreviewModal(materi) {
+  previewMateriObj.value = materi;
+  showPreviewModal.value = true;
+}
+
+// 7. Toggle Publish Status
 const togglingId = ref(null);
 
-async function togglePublishStatus(materi) {
-  if (togglingId.value) return;
+async function toggleMateriPublish(materi) {
   togglingId.value = materi.id;
-
-  const oldStatus = materi.isPublished !== false;
-  const newStatus = !oldStatus;
-
-  // Optimistic update
-  materi.isPublished = newStatus;
-
   try {
-    const res = await axios.post(route('guru.materi.toggle-status', materi.id), {
-      is_published: newStatus
-    });
+    const res = await axios.post(route('guru.materi.toggle-status', materi.id));
     if (res.data?.success) {
-      showToast(
-        newStatus
-          ? `Materi "${materi.judul}" sekarang AKTIF (ON) dan rilis ke siswa.`
-          : `Materi "${materi.judul}" dinonaktifkan (OFF / Draft).`,
-        'success'
-      );
+      materi.isPublished = res.data.isPublished;
+      showToast(res.data.message, 'success');
     }
   } catch (err) {
-    // Rollback on error
-    materi.isPublished = oldStatus;
-    showToast(err.response?.data?.message || 'Gagal mengubah status materi. Silakan coba lagi.', 'error');
+    showToast('Gagal mengubah status publikasi materi.', 'error');
   } finally {
     togglingId.value = null;
   }
 }
 
-// Filtered Materi List
-const filteredMateriList = computed(() => {
-  let list = props.materiList || [];
-
-  if (selectedSemester.value !== 'Semua') {
-    list = list.filter(m => (m.semester || 'Ganjil') === selectedSemester.value);
-  }
-
-  if (selectedTpFilter.value !== 'Semua') {
-    list = list.filter(m => m.tpId === Number(selectedTpFilter.value));
-  }
-
-  if (selectedTipeFilter.value !== 'Semua') {
-    list = list.filter(m => m.tipe === selectedTipeFilter.value);
-  }
-
-  if (selectedStatusFilter.value === 'ON') {
-    list = list.filter(m => m.isPublished !== false);
-  } else if (selectedStatusFilter.value === 'OFF') {
-    list = list.filter(m => m.isPublished === false);
-  }
-
-  if (searchQuery.value.trim()) {
-    const q = searchQuery.value.toLowerCase();
-    list = list.filter(m => (m.judul || '').toLowerCase().includes(q) || (m.deskripsiSingkat && m.deskripsiSingkat.toLowerCase().includes(q)));
-  }
-
-  return list;
-});
-
-// Stat Summary Calculations
-const totalModul = computed(() => filteredMateriList.value.length);
-const coveredTpCount = computed(() => {
-  const coveredIds = new Set(filteredMateriList.value.map(m => m.tpId));
-  return coveredIds.size;
-});
-const totalConnectedCbt = computed(() => {
-  return filteredMateriList.value.filter(m => !!m.cbtJadwal).length;
-});
-const totalPublished = computed(() => {
-  return filteredMateriList.value.filter(m => m.isPublished !== false).length;
-});
-
-// Preview Modal State
-const showPreviewModal = ref(false);
-const previewMateriObj = ref(null);
-const previewActiveSlide = ref(0);
-
-function openPreviewModal(materi) {
-  previewMateriObj.value = materi;
-  previewActiveSlide.value = 0;
-  showPreviewModal.value = true;
+function openCreateMateri() {
+  router.visit(route('guru.materi.create'));
 }
 
-function getPreviewThemeConfig(theme) {
-  switch (theme) {
-    case 'light':
-      return {
-        wrapper: 'bg-white text-slate-900 border-slate-300 shadow-xl',
-        badge: 'bg-slate-100 text-slate-700 border-slate-300',
-        title: 'text-slate-900',
-        prose: 'prose prose-slate max-w-none text-xs sm:text-sm leading-relaxed text-slate-800',
-        footer: 'border-slate-200 text-slate-500',
-      };
-    case 'navy':
-      return {
-        wrapper: 'bg-blue-950 text-blue-50 border-blue-800 shadow-xl shadow-blue-950/50',
-        badge: 'bg-blue-900/60 text-blue-300 border-blue-700',
-        title: 'text-blue-100',
-        prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-blue-100',
-        footer: 'border-blue-900 text-blue-400',
-      };
-    case 'emerald':
-      return {
-        wrapper: 'bg-emerald-950 text-emerald-50 border-emerald-800 shadow-xl shadow-emerald-950/50',
-        badge: 'bg-emerald-900/60 text-emerald-300 border-emerald-700',
-        title: 'text-emerald-100',
-        prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-emerald-100',
-        footer: 'border-emerald-900 text-emerald-400',
-      };
-    case 'aurora':
-      return {
-        wrapper: 'bg-gradient-to-br from-slate-950 via-purple-950/80 to-slate-900 text-purple-100 border-purple-500/30 shadow-xl shadow-purple-950/50',
-        badge: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
-        title: 'text-white',
-        prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-purple-100',
-        footer: 'border-purple-500/20 text-purple-300',
-      };
-    case 'monochrome':
-      return {
-        wrapper: 'bg-zinc-900 text-zinc-100 border-zinc-700 shadow-xl',
-        badge: 'bg-zinc-800 text-zinc-200 border-zinc-600',
-        title: 'text-white',
-        prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-zinc-200',
-        footer: 'border-zinc-800 text-zinc-400',
-      };
-    case 'dark':
-    default:
-      return {
-        wrapper: 'bg-slate-950 text-slate-100 border-cyan-500/30 shadow-xl shadow-black/80',
-        badge: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30',
-        title: 'text-white',
-        prose: 'prose prose-invert max-w-none text-xs sm:text-sm leading-relaxed text-slate-200',
-        footer: 'border-white/10 text-slate-400',
-      };
-  }
+function openEditMateri(materiId) {
+  router.visit(route('guru.materi.edit', materiId));
 }
 
-// Navigation to dedicated Monitoring Pembaca page
+function confirmDelete(materi) {
+  emit('delete-materi', materi.id);
+}
+
 function openMonitoring(materiId) {
   router.visit(route('guru.materi.monitoring', materiId));
 }
 
-// Navigation to dedicated form pages
-function goCreate() {
-  router.get(route('guru.materi.create'));
-}
-
-function goEdit(materi) {
-  router.get(route('guru.materi.edit', materi.id));
-}
-
-// Helper: Get Icon based on Content Type
 function getTypeBadge(tipe) {
-  if (tipe === 'Slider PPT') return { label: '🖥️ Slider PPT', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' };
-  if (tipe === 'Dokumen PDF/PPT') return { label: '📄 Dokumen PDF/PPT', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' };
-  return { label: '🎥 Video Pembelajaran', color: 'bg-red-500/20 text-red-300 border-red-500/30' };
+  switch (tipe) {
+    case 'Slider PPT':
+      return { label: 'Slider Interaktif', color: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' };
+    case 'PDF':
+      return { label: 'Dokumen PDF', color: 'bg-rose-500/10 text-rose-400 border-rose-500/30' };
+    case 'PPT':
+      return { label: 'Slide PPT', color: 'bg-amber-500/10 text-amber-400 border-amber-500/30' };
+    case 'Video':
+      return { label: 'Video', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' };
+    default:
+      return { label: tipe || 'Materi', color: 'bg-blue-500/10 text-blue-400 border-blue-500/30' };
+  }
 }
 </script>
 
 <template>
-  <div class="space-y-6 animate-in fade-in duration-300">
+  <div class="space-y-6">
 
-    <!-- Header Title & Action Button -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <!-- Top Bar: Header & Actions -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-3xl bg-slate-900/60 border border-white/10 backdrop-blur-xl">
       <div>
         <div class="flex items-center gap-2 mb-1">
-          <h1 class="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2">
-            <span>Kelola Materi Pembelajaran</span>
-            <span class="text-cyan-400 text-base">📚</span>
-          </h1>
-          <span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-extrabold px-3 py-1 rounded-full">
-            Semester {{ selectedSemester }}
-          </span>
+          <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+          <span class="text-xs font-mono tracking-wider uppercase text-cyan-400 font-bold">Modul Pembelajaran & Media Ajar</span>
         </div>
-        <p class="text-gray-400 text-xs sm:text-sm font-medium">
-          Materi interaktif slider PPT berumus sains, PDF/PPT, dan video pembelajaran langsung terhubung ke ujian CBT & monitoring baca siswa.
+        <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
+          <span>Kelola Materi Belajar</span>
+          <span class="text-xs font-mono px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+            {{ totalItems }} Modul
+          </span>
+        </h1>
+        <p class="text-xs text-slate-400 mt-1 max-w-xl">
+          Materi interaktif slider PPT KaTeX, dokumen PDF/PPT, dan video pembelajaran langsung tersambung ke Ujian CBT & monitoring baca siswa.
         </p>
       </div>
 
       <div class="flex items-center gap-2.5 shrink-0">
         <button
-          @click="goCreate"
-          class="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 via-teal-600 to-indigo-600 text-white px-5 py-2.5 rounded-2xl font-extrabold text-xs sm:text-sm shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-105 active:scale-95 transition-all duration-200 min-h-[44px]"
+          @click="openCreateMateri"
+          class="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-500/25 border border-cyan-400/40 transition active:scale-95"
         >
-          <span class="text-base">+</span>
+          <span class="text-base leading-none">＋</span>
           <span>Buat Materi Baru</span>
         </button>
       </div>
     </div>
 
-    <!-- Stat Summary Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-9 h-9 rounded-2xl bg-cyan-500/20 text-cyan-300 font-black text-sm flex items-center justify-center border border-cyan-500/30 shadow-md">📚</span>
-          <span class="text-[11px] font-extrabold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-3 py-1 rounded-full font-mono">TOTAL MATERI</span>
-        </div>
-        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ totalModul }} Materi</div>
-        <div class="text-xs text-gray-400 font-semibold">Semester {{ selectedSemester }}</div>
+    <!-- Filter Control Bar -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 p-4 rounded-2xl bg-slate-950/60 border border-white/10">
+
+      <!-- Search Input (300ms Debounced) -->
+      <div class="lg:col-span-4 relative">
+        <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 text-xs">🔍</span>
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="Cari materi, mapel, kelas, TP..."
+          class="w-full pl-9 pr-8 py-2.5 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white placeholder-slate-400 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 outline-none transition"
+        />
+        <button
+          v-if="searchQuery"
+          @click="searchQuery = ''"
+          class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white text-xs"
+        >✕</button>
       </div>
 
-      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-9 h-9 rounded-2xl bg-purple-500/20 text-purple-300 font-black text-sm flex items-center justify-center border border-purple-500/30 shadow-md">🎯</span>
-          <a href="/guru/dashboard?tab=tp" class="text-[11px] font-extrabold text-purple-300 bg-purple-500/15 border border-purple-500/30 px-3 py-1 rounded-full font-mono hover:bg-purple-500/25 transition">COVERED TP ↗</a>
-        </div>
-        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ coveredTpCount }} / {{ tpList.length }} TP</div>
-        <div class="text-xs text-gray-400 font-semibold">Memiliki Materi Aktif</div>
+      <!-- Semester Selector -->
+      <div class="lg:col-span-2">
+        <select
+          v-model="selectedSemester"
+          class="w-full py-2.5 px-3 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition"
+        >
+          <option value="Semua">Semua Semester</option>
+          <option value="Ganjil">Semester Ganjil</option>
+          <option value="Genap">Semester Genap</option>
+        </select>
       </div>
 
-      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-9 h-9 rounded-2xl bg-indigo-500/20 text-indigo-300 font-black text-sm flex items-center justify-center border border-indigo-500/30 shadow-md">🎯</span>
-          <span class="text-[11px] font-extrabold text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-3 py-1 rounded-full font-mono">TERHUBUNG CBT</span>
-        </div>
-        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ totalConnectedCbt }} Materi</div>
-        <div class="text-xs text-gray-400 font-semibold">Terintegrasi Evaluasi CBT</div>
+      <!-- TP Filter Selector -->
+      <div class="lg:col-span-3">
+        <select
+          v-model="selectedTpFilter"
+          class="w-full py-2.5 px-3 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition truncate"
+        >
+          <option value="Semua">Semua Tujuan Pembelajaran</option>
+          <option v-for="tp in availableTps" :key="tp.id" :value="tp.id">
+            {{ formatTpOption(tp) }}
+          </option>
+        </select>
       </div>
 
-      <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-9 h-9 rounded-2xl bg-emerald-500/20 text-emerald-300 font-black text-sm flex items-center justify-center border border-emerald-500/30 shadow-md">🟢</span>
-          <span class="text-[11px] font-extrabold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 rounded-full font-mono">RILIS SISWA</span>
-        </div>
-        <div class="text-3xl font-black text-white tracking-tight mb-1">{{ totalPublished }} Rilis</div>
-        <div class="text-xs text-gray-400 font-semibold">Status Dilihat Siswa</div>
+      <!-- Tipe Materi Selector -->
+      <div class="lg:col-span-2">
+        <select
+          v-model="selectedTipeFilter"
+          class="w-full py-2.5 px-3 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition"
+        >
+          <option value="Semua">Semua Format</option>
+          <option value="Slider PPT">Slider Interaktif</option>
+          <option value="PDF">Dokumen PDF</option>
+          <option value="PPT">Slide PPT</option>
+          <option value="Video">Video Ajar</option>
+        </select>
+      </div>
+
+      <!-- Status ON/OFF Selector -->
+      <div class="lg:col-span-1">
+        <select
+          v-model="selectedStatusFilter"
+          class="w-full py-2.5 px-2 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition text-center"
+        >
+          <option value="Semua">Semua</option>
+          <option value="ON">Rilis (ON)</option>
+          <option value="OFF">Draft (OFF)</option>
+        </select>
       </div>
     </div>
 
-    <!-- Filter Controls Bar -->
-    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-4 sm:p-5 border border-white/10 shadow-xl">
-      <div class="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-12 gap-3.5 items-end">
-        <!-- Semester -->
-        <div class="md:col-span-3 lg:col-span-2">
-          <label class="block text-[11px] font-bold text-cyan-300 uppercase mb-1">📅 Semester</label>
-          <select
-            v-model="selectedSemester"
-            class="w-full bg-slate-800 border border-cyan-500/40 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-cyan-300 font-extrabold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option value="Ganjil">Semester Ganjil</option>
-            <option value="Genap">Semester Genap</option>
-            <option value="Semua">Semua Semester</option>
-          </select>
-        </div>
+    <!-- Multi-select Bulk Action Floating Bar -->
+    <div
+      v-if="selectedIds.size > 0"
+      class="sticky top-20 z-30 p-3 sm:p-4 rounded-2xl bg-slate-950/95 border-2 border-cyan-500/50 shadow-2xl shadow-cyan-500/20 backdrop-blur-xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200"
+    >
+      <div class="flex items-center gap-3">
+        <span class="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-300 font-mono font-black text-sm flex items-center justify-center border border-cyan-500/30">
+          {{ selectedIds.size }}
+        </span>
+        <span class="text-xs sm:text-sm font-extrabold text-white">Materi Terpilih</span>
+      </div>
 
-        <!-- Sasaran TP -->
-        <div class="md:col-span-3 lg:col-span-3">
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">🎯 Sasaran TP</label>
-          <select
-            v-model="selectedTpFilter"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option value="Semua">Semua TP ({{ availableTps.length }} TP)</option>
-            <option v-for="tp in availableTps" :key="tp.id" :value="tp.id">{{ formatTpOption(tp) }}</option>
-          </select>
-        </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button
+          @click="executeBulkAction('publish')"
+          :disabled="isProcessingBulk"
+          class="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition flex items-center gap-1.5"
+        >
+          <span>👁️</span>
+          <span>Rilis (ON)</span>
+        </button>
 
-        <!-- Format Konten -->
-        <div class="md:col-span-3 lg:col-span-2">
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">📦 Format</label>
-          <select
-            v-model="selectedTipeFilter"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option value="Semua">Semua Format</option>
-            <option value="Slider PPT">🖥️ Slider PPT</option>
-            <option value="Dokumen PDF/PPT">📄 Dokumen PDF/PPT</option>
-            <option value="Video YouTube">🎥 Video</option>
-          </select>
-        </div>
+        <button
+          @click="executeBulkAction('unpublish')"
+          :disabled="isProcessingBulk"
+          class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition flex items-center gap-1.5"
+        >
+          <span>🔒</span>
+          <span>Draft (OFF)</span>
+        </button>
 
-        <!-- Status Rilis -->
-        <div class="md:col-span-3 lg:col-span-2">
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">⚡ Status</label>
-          <select
-            v-model="selectedStatusFilter"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option value="Semua">Semua Status</option>
-            <option value="ON">🟢 ON (Rilis)</option>
-            <option value="OFF">⚪ OFF (Draft)</option>
-          </select>
-        </div>
+        <button
+          @click="executeBulkAction('delete')"
+          :disabled="isProcessingBulk"
+          class="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-xs font-bold transition flex items-center gap-1.5"
+        >
+          <span>🗑️</span>
+          <span>Hapus</span>
+        </button>
 
-        <!-- Search Query -->
-        <div class="md:col-span-6 lg:col-span-3">
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">🔍 Cari Judul Materi</label>
-          <div class="relative">
+        <button
+          @click="selectedIds.clear()"
+          class="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 text-xs font-medium transition"
+        >
+          Batal
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Content Area: Desktop Table & Mobile Cards -->
+    <div v-if="paginatedMateriList.length > 0">
+
+      <!-- Desktop Table View (hidden on mobile, visible on desktop) -->
+      <div class="hidden md:block overflow-hidden rounded-3xl bg-slate-900/60 border border-white/10 shadow-xl backdrop-blur-xl">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs min-w-[850px]">
+
+            <!-- Table Header with Sortable Controls -->
+            <thead class="bg-slate-950/80 border-b border-white/10 text-slate-400 font-extrabold uppercase tracking-wider text-[11px]">
+              <tr>
+                <th class="py-4 px-4 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected"
+                    @change="toggleSelectAll"
+                    class="rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-900 cursor-pointer"
+                  />
+                </th>
+                <th class="py-4 px-4 cursor-pointer hover:text-white transition" @click="toggleSort('judul')">
+                  <div class="flex items-center gap-1.5">
+                    <span>Materi & Modul</span>
+                    <span v-if="sortBy === 'judul'" class="text-cyan-400">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+                  </div>
+                </th>
+                <th class="py-4 px-3 cursor-pointer hover:text-white transition" @click="toggleSort('mapel')">
+                  <div class="flex items-center gap-1.5">
+                    <span>Mata Pelajaran</span>
+                    <span v-if="sortBy === 'mapel'" class="text-cyan-400">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+                  </div>
+                </th>
+                <th class="py-4 px-3 cursor-pointer hover:text-white transition" @click="toggleSort('tipe')">
+                  <div class="flex items-center gap-1.5">
+                    <span>Format</span>
+                    <span v-if="sortBy === 'tipe'" class="text-cyan-400">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+                  </div>
+                </th>
+                <th class="py-4 px-3 cursor-pointer hover:text-white transition" @click="toggleSort('targetKelas')">
+                  <div class="flex items-center gap-1.5">
+                    <span>Target Kelas</span>
+                    <span v-if="sortBy === 'targetKelas'" class="text-cyan-400">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+                  </div>
+                </th>
+                <th class="py-4 px-3 cursor-pointer hover:text-white transition text-center" @click="toggleSort('readsCount')">
+                  <div class="flex items-center justify-center gap-1.5">
+                    <span>📊 Monitoring</span>
+                    <span v-if="sortBy === 'readsCount'" class="text-cyan-400">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+                  </div>
+                </th>
+                <th class="py-4 px-3 cursor-pointer hover:text-white transition text-center" @click="toggleSort('isPublished')">
+                  <div class="flex items-center justify-center gap-1.5">
+                    <span>Status</span>
+                    <span v-if="sortBy === 'isPublished'" class="text-cyan-400">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
+                  </div>
+                </th>
+                <th class="py-4 px-4 text-right">Aksi</th>
+              </tr>
+            </thead>
+
+            <!-- Table Body -->
+            <tbody class="divide-y divide-white/5">
+              <tr
+                v-for="materi in paginatedMateriList"
+                :key="materi.id"
+                class="hover:bg-white/[0.03] transition-colors"
+                :class="selectedIds.has(materi.id) ? 'bg-cyan-500/[0.05]' : ''"
+              >
+                <!-- Checkbox -->
+                <td class="py-3.5 px-4 text-center">
+                  <input
+                    type="checkbox"
+                    :checked="selectedIds.has(materi.id)"
+                    @change="toggleSelect(materi.id)"
+                    class="rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-900 cursor-pointer"
+                  />
+                </td>
+
+                <!-- Materi Title & Info -->
+                <td class="py-3.5 px-4">
+                  <div class="flex flex-col">
+                    <button
+                      @click="openPreviewModal(materi)"
+                      class="font-black text-white hover:text-cyan-300 text-left transition text-sm leading-snug line-clamp-1"
+                      title="Klik untuk pratinjau"
+                    >
+                      {{ materi.judul }}
+                    </button>
+                    <div class="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
+                      <span v-if="materi.kegiatan?.length" class="text-cyan-400 font-mono">
+                        {{ materi.kegiatan.length }} Slide
+                      </span>
+                      <span v-if="materi.cbtJadwalId" class="inline-flex items-center gap-1 text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
+                        <span>📝 Terhubung CBT</span>
+                      </span>
+                      <span class="text-slate-500">Semester {{ materi.semester || 'Ganjil' }}</span>
+                    </div>
+                  </div>
+                </td>
+
+                <!-- Mata Pelajaran Saja (TP Dihapus) -->
+                <td class="py-3.5 px-3">
+                  <span class="font-extrabold text-slate-200">{{ materi.mapel || materi.mapelNama || '-' }}</span>
+                </td>
+
+                <!-- Format Badge -->
+                <td class="py-3.5 px-3">
+                  <span :class="['text-[10px] font-bold px-2 py-0.5 rounded-full border inline-block whitespace-nowrap', getTypeBadge(materi.tipe).color]">
+                    {{ getTypeBadge(materi.tipe).label }}
+                  </span>
+                </td>
+
+                <!-- Target Kelas -->
+                <td class="py-3.5 px-3">
+                  <span class="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-slate-300 font-bold text-[11px] whitespace-nowrap">
+                    {{ materi.targetKelas || 'Semua Kelas' }}
+                  </span>
+                </td>
+
+                <!-- Akses & Monitoring Button -->
+                <td class="py-3.5 px-3 text-center">
+                  <button
+                    @click="openMonitoring(materi.id)"
+                    class="group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 hover:text-white text-xs font-bold transition active:scale-95 shadow-sm"
+                    title="Buka Analitik & Monitoring Baca Siswa"
+                  >
+                    <span>📊</span>
+                    <span>Monitoring</span>
+                    <span class="text-[11px] font-mono px-1.5 py-0.5 rounded-md bg-cyan-500/20 text-cyan-200 border border-cyan-400/20">
+                      {{ materi.readsCompletedCount || 0 }}/{{ materi.readsCount || 0 }}
+                    </span>
+                  </button>
+                </td>
+
+                <!-- Publish Status Toggle -->
+                <td class="py-3.5 px-3 text-center">
+                  <button
+                    @click="toggleMateriPublish(materi)"
+                    :disabled="togglingId === materi.id"
+                    class="px-2.5 py-1 rounded-full text-[10px] font-extrabold border transition shadow-sm"
+                    :class="materi.isPublished ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30' : 'bg-slate-800 text-slate-400 border-white/10 hover:bg-slate-700'"
+                  >
+                    <span v-if="togglingId === materi.id">...</span>
+                    <span v-else>{{ materi.isPublished ? 'ON (Rilis)' : 'OFF (Draft)' }}</span>
+                  </button>
+                </td>
+
+                <!-- Action Buttons -->
+                <td class="py-3.5 px-4 text-right">
+                  <div class="flex items-center justify-end gap-1.5">
+                    <button
+                      @click="openPreviewModal(materi)"
+                      class="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-400 border border-white/10 transition"
+                      title="Pratinjau Materi"
+                    >
+                      👁️
+                    </button>
+                    <button
+                      @click="openEditMateri(materi.id)"
+                      class="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-amber-400 border border-white/10 transition"
+                      title="Edit Materi"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      @click="confirmDelete(materi)"
+                      class="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/20 text-rose-400 border border-white/10 transition"
+                      title="Hapus Materi"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Mobile Optimized Card List View (md:hidden) -->
+      <div class="md:hidden space-y-3">
+        <!-- Mobile Select All Bar -->
+        <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-900/80 border border-white/10 text-xs font-bold text-gray-300">
+          <label class="flex items-center gap-2 cursor-pointer">
             <input
-              v-model="searchQuery"
-              type="text"
-              placeholder="Cari materi..."
-              class="w-full bg-slate-800 border border-white/10 rounded-2xl pl-4 pr-9 py-2.5 text-xs sm:text-sm text-white placeholder-gray-400 focus:border-cyan-400 outline-none min-h-[44px]"
+              type="checkbox"
+              :checked="isAllSelected"
+              @change="toggleSelectAll"
+              class="rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
             />
-            <button
-              v-if="searchQuery"
-              @click="searchQuery = ''"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-xs font-bold"
-            >✕</button>
-          </div>
+            <span>Pilih Semua di Halaman Ini</span>
+          </label>
+          <span class="text-[11px] font-mono text-cyan-400">{{ selectedIds.size }} dipilih</span>
         </div>
-      </div>
-    </div>
 
-    <!-- MAIN MATERI TABLE & CARD VIEW -->
-    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
-      <!-- Table Header Bar -->
-      <div class="p-4 sm:p-5 border-b border-white/10 bg-slate-950/60 flex items-center justify-between">
-        <h3 class="text-xs font-black text-white uppercase tracking-wider">📚 Daftar Materi Pembelajaran:</h3>
-        <span class="text-xs text-gray-400 font-mono font-bold">Total {{ filteredMateriList.length }} Materi</span>
-      </div>
-
-      <!-- Desktop Table View -->
-      <div class="hidden md:block overflow-x-auto">
-        <table class="w-full text-left text-xs sm:text-sm text-gray-300">
-          <thead class="bg-slate-950/60 text-gray-400 uppercase text-[11px] font-extrabold tracking-wider border-b border-white/10">
-            <tr>
-              <th class="px-4 py-4 text-center w-12 border-r border-white/5">No</th>
-              <th class="px-5 py-4 w-32 border-r border-white/5">Target TP</th>
-              <th class="px-6 py-4 border-r border-white/5">Materi & Integrasi</th>
-              <th class="px-4 py-4 w-36 border-r border-white/5">Format</th>
-              <th class="px-4 py-4 text-center w-36 border-r border-white/5">Monitoring Baca</th>
-              <th class="px-4 py-4 text-center w-28 border-r border-white/5">Status</th>
-              <th class="px-5 py-4 text-right w-44">Aksi</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-white/5 font-medium">
-            <tr v-for="(materi, index) in filteredMateriList" :key="materi.id" class="hover:bg-white/5 transition-colors">
-              <td class="px-4 py-4 text-center font-mono text-gray-400 text-xs border-r border-white/5">
-                {{ index + 1 }}
-              </td>
-
-              <!-- Target TP Badge -->
-              <td class="px-5 py-4 border-r border-white/5">
-                <div class="flex flex-col items-start gap-1">
-                  <span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-black px-3 py-1 rounded-full">
-                    {{ materi.tpKode || 'TP-01' }}
-                  </span>
-                  <span v-if="materi.mapelNama" class="bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    {{ materi.mapelNama }}
-                  </span>
-                </div>
-              </td>
-
-              <!-- Judul Materi & Integrasi CBT -->
-              <td class="px-6 py-4 border-r border-white/5">
-                <div class="space-y-1.5">
-                  <div
-                    class="font-black text-white text-sm hover:text-cyan-300 transition-colors cursor-pointer"
-                    @click="openPreviewModal(materi)"
-                  >
-                    {{ materi.judul }}
-                  </div>
-                  <div class="text-gray-400 text-xs line-clamp-1 font-normal">{{ materi.deskripsiSingkat }}</div>
-
-                  <!-- Integrasi CBT Badge -->
-                  <div class="flex items-center gap-2 flex-wrap pt-0.5">
-                    <span v-if="materi.cbtJadwal" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                      🎯 Terhubung CBT: {{ materi.cbtJadwal.judul }}
-                    </span>
-                    <span v-if="materi.kegiatan?.length" class="text-[10px] text-slate-400">
-                      🧩 {{ materi.kegiatan.length }} slide/tahap
-                    </span>
-                    <span class="text-[10px] text-cyan-400 font-semibold">
-                      🏛️ {{ materi.targetKelas || 'Semua Kelas' }}
-                    </span>
-                  </div>
-                </div>
-              </td>
-
-              <!-- Format Badge -->
-              <td class="px-4 py-4 border-r border-white/5">
-                <span :class="['text-xs font-extrabold px-3 py-1 rounded-full border inline-flex items-center gap-1.5', getTypeBadge(materi.tipe).color]">
-                  {{ getTypeBadge(materi.tipe).label }}
-                </span>
-              </td>
-
-              <!-- Monitoring Siswa Button / Badge -->
-              <td class="px-4 py-4 text-center border-r border-white/5">
-                <button
-                  @click="openMonitoring(materi.id)"
-                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition active:scale-95 shadow-sm"
-                  title="Klik untuk melihat siapa saja yang telah membuka/membaca materi ini"
-                >
-                  <span>👥</span>
-                  <span>Pantau Siswa</span>
-                  <span v-if="materi.readsCount" class="ml-0.5 px-1.5 py-0.2 rounded-full bg-cyan-500 text-slate-950 font-black text-[10px]">
-                    {{ materi.readsCount }}
-                  </span>
-                </button>
-              </td>
-
-              <!-- Status Publikasi (Setting ON / OFF) -->
-              <td class="px-4 py-4 text-center border-r border-white/5">
-                <button
-                  type="button"
-                  @click="togglePublishStatus(materi)"
-                  :disabled="togglingId === materi.id"
-                  class="group inline-flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-200 active:scale-95 focus:outline-none min-h-[36px]"
-                  :class="[
-                    materi.isPublished !== false
-                      ? 'bg-emerald-500/15 border-emerald-500/40 hover:bg-emerald-500/25 text-emerald-300'
-                      : 'bg-slate-800/80 border-slate-700 hover:bg-slate-800 text-slate-400'
-                  ]"
-                  :title="materi.isPublished !== false ? 'Materi sedang ON (Rilis). Klik untuk mematikan ke OFF (Draft)' : 'Materi sedang OFF (Draft). Klik untuk mengaktifkan ke ON (Rilis)'"
-                >
-                  <!-- Switch Track & Thumb -->
-                  <div
-                    class="w-8 h-4 rounded-full p-0.5 transition-colors duration-200 flex items-center relative"
-                    :class="materi.isPublished !== false ? 'bg-emerald-500 justify-end' : 'bg-slate-600 justify-start'"
-                  >
-                    <div
-                      class="w-3 h-3 rounded-full bg-white shadow-sm transform transition-transform duration-200"
-                      :class="{'animate-pulse': togglingId === materi.id}"
-                    ></div>
-                  </div>
-                  <!-- Label Text -->
-                  <span class="text-[11px] font-black tracking-wide">
-                    {{ materi.isPublished !== false ? 'ON (Rilis)' : 'OFF (Draft)' }}
-                  </span>
-                </button>
-              </td>
-
-              <!-- Action Buttons -->
-              <td class="px-5 py-4 text-right shrink-0">
-                <div class="flex items-center justify-end gap-1.5">
-                  <button
-                    @click="openPreviewModal(materi)"
-                    class="p-2 text-xs font-bold text-cyan-300 bg-cyan-500/15 hover:bg-cyan-500/30 rounded-xl border border-cyan-500/30 transition active:scale-95"
-                    title="Pratinjau Tampilan Siswa"
-                  >👁️</button>
-                  <button
-                    @click="goEdit(materi)"
-                    class="p-2 text-xs font-bold text-purple-300 bg-purple-500/15 hover:bg-purple-500/30 rounded-xl border border-purple-500/30 transition active:scale-95"
-                    title="Edit Materi"
-                  >✏️</button>
-                  <button
-                    @click="$emit('delete-materi', materi.id)"
-                    class="p-2 text-xs font-bold text-red-400 bg-red-500/15 hover:bg-red-500/30 rounded-xl border border-red-500/30 transition active:scale-95"
-                    title="Hapus Materi"
-                  >🗑️</button>
-                </div>
-              </td>
-            </tr>
-
-            <tr v-if="filteredMateriList.length === 0">
-              <td colspan="7" class="px-6 py-12 text-center text-gray-400 text-xs font-medium">
-                Belum ada materi pembelajaran untuk semester {{ selectedSemester }}. Klik <strong>+ Buat Materi Baru</strong> untuk memulai.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Mobile Smartphone Card List View -->
-      <div class="block md:hidden p-4 space-y-4">
-        <div v-for="materi in filteredMateriList" :key="materi.id" class="bg-slate-950/40 rounded-2xl p-4 border border-white/10 space-y-3 shadow-md">
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center gap-1.5 flex-wrap">
-              <span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-black px-2.5 py-0.5 rounded-full">
-                {{ materi.tpKode || 'TP-01' }}
-              </span>
-              <span v-if="materi.mapelNama" class="bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                {{ materi.mapelNama }}
-              </span>
-              <span v-if="materi.targetKelas" class="bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                🏛️ {{ materi.targetKelas }}
-              </span>
+        <!-- Mobile Cards -->
+        <div
+          v-for="materi in paginatedMateriList"
+          :key="'mob-' + materi.id"
+          class="p-4 rounded-2xl bg-slate-900/80 border border-white/10 shadow-lg space-y-3 transition-all"
+          :class="selectedIds.has(materi.id) ? 'ring-2 ring-cyan-500/50 bg-cyan-950/20' : ''"
+        >
+          <!-- Card Header: Checkbox + Judul + Status Badge -->
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-start gap-2.5 min-w-0">
+              <input
+                type="checkbox"
+                :checked="selectedIds.has(materi.id)"
+                @change="toggleSelect(materi.id)"
+                class="mt-1 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-500 cursor-pointer shrink-0"
+              />
+              <div class="min-w-0">
+                <span class="text-[10px] font-black font-mono text-cyan-400 block">{{ materi.tpKode || 'TP-01' }}</span>
+                <h4 class="font-bold text-white text-sm leading-snug line-clamp-2">{{ materi.judul }}</h4>
+              </div>
             </div>
-            <!-- Switch Toggle ON / OFF Mobile -->
+
+            <!-- Publish Switch -->
             <button
               type="button"
-              @click="togglePublishStatus(materi)"
+              @click="toggleMateriPublish(materi)"
               :disabled="togglingId === materi.id"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all duration-200 active:scale-95 min-h-[38px]"
-              :class="[
-                materi.isPublished !== false
-                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                  : 'bg-slate-800/90 border-slate-700 text-slate-400'
-              ]"
-              :title="materi.isPublished !== false ? 'Status ON: Klik untuk Nonaktifkan (OFF)' : 'Status OFF: Klik untuk Rilis (ON)'"
+              class="px-2.5 py-1 rounded-full text-[10px] font-extrabold border transition shadow-sm shrink-0 min-h-[36px] flex items-center justify-center cursor-pointer"
+              :class="materi.isPublished ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30' : 'bg-slate-800 text-slate-400 border-white/10 hover:bg-slate-700'"
             >
-              <div
-                class="w-7 h-3.5 rounded-full p-0.5 transition-colors duration-200 flex items-center relative"
-                :class="materi.isPublished !== false ? 'bg-emerald-500 justify-end' : 'bg-slate-600 justify-start'"
-              >
-                <div
-                  class="w-2.5 h-2.5 rounded-full bg-white shadow-sm transition-transform duration-200"
-                  :class="{'animate-pulse': togglingId === materi.id}"
-                ></div>
-              </div>
-              <span class="text-[10px] font-extrabold tracking-tight">
-                {{ materi.isPublished !== false ? 'ON' : 'OFF' }}
-              </span>
+              <span v-if="togglingId === materi.id">...</span>
+              <span v-else>{{ materi.isPublished ? 'ON (Rilis)' : 'OFF (Draft)' }}</span>
             </button>
           </div>
 
-          <div>
-            <h3 class="font-extrabold text-white text-sm cursor-pointer" @click="openPreviewModal(materi)">
-              {{ materi.judul }}
-            </h3>
-            <p class="text-xs text-gray-300 leading-relaxed mt-1 line-clamp-2">{{ materi.deskripsiSingkat }}</p>
-            <div v-if="materi.cbtJadwal" class="mt-2 text-[11px] text-indigo-300 font-bold flex items-center gap-1">
-              <span>🎯 Terhubung CBT:</span> {{ materi.cbtJadwal.judul }}
-            </div>
-          </div>
-
-          <div class="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
-            <span :class="['text-[10px] font-extrabold px-2.5 py-1 rounded-full border', getTypeBadge(materi.tipe).color]">
+          <!-- Card Meta Badges -->
+          <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span class="px-2 py-0.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 font-medium">
+              📖 {{ materi.mapel || materi.mapelNama || '-' }}
+            </span>
+            <span
+              class="px-2 py-0.5 rounded-lg border font-semibold"
+              :class="getTypeBadge(materi.tipe).color"
+            >
               {{ getTypeBadge(materi.tipe).label }}
             </span>
+            <span class="px-2 py-0.5 rounded-lg bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 font-mono">
+              🏫 {{ materi.targetKelas || 'Semua Kelas' }}
+            </span>
+          </div>
+
+          <!-- Card Footer: Stats & Actions -->
+          <div class="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              @click="openMonitoring(materi.id)"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 text-xs font-bold min-h-[38px] transition active:scale-95 cursor-pointer"
+              title="Buka Analitik & Monitoring Baca Siswa"
+            >
+              <span>📊</span>
+              <span>Monitoring Siswa</span>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-cyan-500/20 text-cyan-200 border border-cyan-400/20">
+                {{ materi.readsCompletedCount || 0 }}/{{ materi.readsCount || 0 }}
+              </span>
+            </button>
 
             <div class="flex items-center gap-1.5">
               <button
-                @click="openMonitoring(materi.id)"
-                class="px-2.5 py-1 text-xs font-bold text-cyan-300 bg-cyan-500/15 rounded-lg border border-cyan-500/30"
+                type="button"
+                @click="openPreviewModal(materi)"
+                class="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-cyan-400 border border-white/10 transition text-xs font-bold min-h-[38px] flex items-center gap-1 cursor-pointer"
+                title="Pratinjau Materi"
               >
-                👥 Pantau
+                <span>👁️</span>
+                <span>Lihat</span>
               </button>
               <button
-                @click="goEdit(materi)"
-                class="px-2.5 py-1 text-xs font-bold text-purple-300 bg-purple-500/15 rounded-lg border border-purple-500/30"
+                type="button"
+                @click="openEditMateri(materi.id)"
+                class="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-amber-400 border border-white/10 transition text-xs font-bold min-h-[38px] flex items-center gap-1 cursor-pointer"
+                title="Edit Materi"
               >
-                ✏️
+                <span>✏️</span>
               </button>
               <button
-                @click="$emit('delete-materi', materi.id)"
-                class="px-2.5 py-1 text-xs font-bold text-red-400 bg-red-500/15 rounded-lg border border-red-500/30"
+                type="button"
+                @click="confirmDelete(materi)"
+                class="px-3 py-2 rounded-xl bg-white/5 hover:bg-rose-500/20 text-rose-400 border border-white/10 transition text-xs font-bold min-h-[38px] flex items-center gap-1 cursor-pointer"
+                title="Hapus Materi"
               >
-                🗑️
+                <span>🗑️</span>
               </button>
             </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- MODAL PREVIEW DETAIL MATERI GURU -->
-    <div
-      v-if="showPreviewModal && previewMateriObj"
-      class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6"
-    >
-      <div class="bg-slate-900 border border-white/15 rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-        <!-- Header -->
-        <div class="p-5 bg-slate-950 border-b border-white/10 flex items-center justify-between gap-4">
-          <div class="min-w-0">
-            <span :class="['text-[10px] font-bold px-2 py-0.5 rounded-full border mb-1 inline-block', getTypeBadge(previewMateriObj.tipe).color]">
-              {{ getTypeBadge(previewMateriObj.tipe).label }}
-            </span>
-            <h2 class="text-base sm:text-lg font-black text-white truncate">{{ previewMateriObj.judul }}</h2>
-          </div>
+      <!-- Pagination Toolbar -->
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-2xl bg-slate-950/60 border border-white/10 mt-4 text-xs">
+        <div class="flex items-center gap-3 text-slate-400">
+          <span>Menampilkan {{ (currentPage - 1) * perPage + 1 }} - {{ Math.min(currentPage * perPage, totalItems) }} dari {{ totalItems }} materi</span>
+          <select
+            v-model="perPage"
+            @change="currentPage = 1"
+            class="py-1 px-2 bg-slate-900 border border-white/15 rounded-lg text-white text-xs outline-none focus:border-cyan-400"
+          >
+            <option :value="10">10 / hal</option>
+            <option :value="25">25 / hal</option>
+            <option :value="50">50 / hal</option>
+            <option :value="-1">Semua</option>
+          </select>
+        </div>
+
+        <div v-if="totalPages > 1" class="flex items-center gap-1">
           <button
-            @click="showPreviewModal = false"
-            class="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center transition"
-          >✕</button>
-        </div>
+            @click="currentPage--"
+            :disabled="currentPage === 1"
+            class="px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 text-slate-300 font-bold hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition"
+          >
+            ← Prev
+          </button>
 
-        <!-- Body -->
-        <div class="flex-1 overflow-y-auto p-6 space-y-6">
-          <!-- Slider Mode Preview -->
-          <div v-if="previewMateriObj.tipe === 'Slider PPT' && previewMateriObj.kegiatan?.length" class="space-y-4">
-            <!-- Slide Selector -->
-            <div class="flex items-center gap-2 overflow-x-auto pb-2 border-b border-white/10">
-              <button
-                v-for="(sl, sIdx) in previewMateriObj.kegiatan"
-                :key="sl.id || sIdx"
-                @click="previewActiveSlide = sIdx"
-                class="px-3 py-1.5 rounded-xl text-xs font-bold border transition shrink-0"
-                :class="previewActiveSlide === sIdx ? 'bg-cyan-500 text-white border-cyan-400' : 'bg-white/5 border-white/10 text-slate-400'"
-              >
-                Slide {{ sIdx + 1 }}: {{ sl.judul || sl.label }}
-              </button>
-            </div>
+          <span class="px-3 py-1.5 text-slate-400 font-mono font-bold">
+            {{ currentPage }} / {{ totalPages }}
+          </span>
 
-            <!-- Slide Content Card -->
-            <div
-              class="p-6 rounded-2xl border space-y-4 min-h-[300px] transition-all flex flex-col justify-between"
-              :class="getPreviewThemeConfig(previewMateriObj.theme).wrapper"
-            >
-              <div>
-                <div class="flex items-center justify-between pb-2 border-b mb-3" :class="getPreviewThemeConfig(previewMateriObj.theme).footer">
-                  <span class="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded" :class="getPreviewThemeConfig(previewMateriObj.theme).badge">
-                    {{ previewMateriObj.kegiatan[previewActiveSlide]?.label || 'Konsep' }}
-                  </span>
-                  <span class="text-xs font-mono opacity-60">
-                    Slide {{ previewActiveSlide + 1 }} / {{ previewMateriObj.kegiatan.length }}
-                  </span>
-                </div>
-
-                <h3 class="text-base sm:text-lg font-black mb-4 leading-snug" :class="getPreviewThemeConfig(previewMateriObj.theme).title">
-                  {{ previewMateriObj.kegiatan[previewActiveSlide]?.judul }}
-                </h3>
-
-                <!-- Layout Check -->
-                <div v-if="previewMateriObj.kegiatan[previewActiveSlide]?.layout === 'image_left'" class="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
-                  <div class="md:col-span-5 rounded-2xl overflow-hidden bg-black/40 border border-white/15 max-h-72 flex items-center justify-center">
-                    <img v-if="previewMateriObj.kegiatan[previewActiveSlide]?.fileUrl" :src="previewMateriObj.kegiatan[previewActiveSlide].fileUrl" class="w-full object-contain" />
-                  </div>
-                  <div class="md:col-span-7">
-                    <div
-                      class="slide-markdown-content text-xs sm:text-sm leading-relaxed"
-                      :class="getPreviewThemeConfig(previewMateriObj.theme).prose"
-                      v-html="renderFormulaContent(previewMateriObj.kegiatan[previewActiveSlide]?.konten)"
-                    ></div>
-                  </div>
-                </div>
-
-                <div v-else-if="previewMateriObj.kegiatan[previewActiveSlide]?.layout === 'image_right'" class="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
-                  <div class="md:col-span-7 order-2 md:order-1">
-                    <div
-                      class="slide-markdown-content text-xs sm:text-sm leading-relaxed"
-                      :class="getPreviewThemeConfig(previewMateriObj.theme).prose"
-                      v-html="renderFormulaContent(previewMateriObj.kegiatan[previewActiveSlide]?.konten)"
-                    ></div>
-                  </div>
-                  <div class="md:col-span-5 order-1 md:order-2 rounded-2xl overflow-hidden bg-black/40 border border-white/15 max-h-72 flex items-center justify-center">
-                    <img v-if="previewMateriObj.kegiatan[previewActiveSlide]?.fileUrl" :src="previewMateriObj.kegiatan[previewActiveSlide].fileUrl" class="w-full object-contain" />
-                  </div>
-                </div>
-
-                <div v-else-if="previewMateriObj.kegiatan[previewActiveSlide]?.layout === 'highlight'" class="p-5 rounded-2xl border border-amber-400/40 bg-amber-500/10 space-y-4">
-                  <div
-                    class="slide-markdown-content text-xs sm:text-sm leading-relaxed"
-                    :class="getPreviewThemeConfig(previewMateriObj.theme).prose"
-                    v-html="renderFormulaContent(previewMateriObj.kegiatan[previewActiveSlide]?.konten)"
-                  ></div>
-                  <div v-if="previewMateriObj.kegiatan[previewActiveSlide]?.fileUrl" class="max-w-md mx-auto rounded-xl overflow-hidden border border-white/20">
-                    <img :src="previewMateriObj.kegiatan[previewActiveSlide].fileUrl" class="w-full object-contain max-h-64" />
-                  </div>
-                </div>
-
-                <div v-else class="space-y-4">
-                  <div v-if="previewMateriObj.kegiatan[previewActiveSlide]?.fileUrl" class="max-w-xl mx-auto rounded-2xl overflow-hidden border border-white/20">
-                    <img :src="previewMateriObj.kegiatan[previewActiveSlide].fileUrl" class="w-full object-contain max-h-72" />
-                  </div>
-                  <div
-                    class="slide-markdown-content text-xs sm:text-sm leading-relaxed"
-                    :class="getPreviewThemeConfig(previewMateriObj.theme).prose"
-                    v-html="renderFormulaContent(previewMateriObj.kegiatan[previewActiveSlide]?.konten)"
-                  ></div>
-                </div>
-              </div>
-
-              <!-- Footer Meta -->
-              <div class="pt-3 mt-4 border-t flex items-center justify-between text-[10px] opacity-70" :class="getPreviewThemeConfig(previewMateriObj.theme).footer">
-                <span>SMKS Muhammadiyah 2 Genteng</span>
-                <span>Modul Interaktif Siswa</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Document / Video Preview -->
-          <div v-else class="space-y-4">
-            <div v-if="previewMateriObj.fileUrl" class="p-4 rounded-2xl bg-slate-950 border border-white/10 flex items-center justify-between">
-              <span class="text-xs text-slate-300 font-bold truncate">Berkas / Tautan Pembelajaran</span>
-              <a
-                :href="previewMateriObj.fileUrl"
-                target="_blank"
-                class="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-black text-xs hover:bg-cyan-400 transition"
-              >
-                Buka Dokumen
-              </a>
-            </div>
-
-            <div v-if="previewMateriObj.deskripsiSingkat" class="p-5 rounded-2xl bg-slate-950/60 border border-white/10">
-              <h4 class="text-xs font-bold text-slate-400 mb-2 uppercase">Petunjuk & Deskripsi</h4>
-              <p class="text-sm text-slate-200 leading-relaxed whitespace-pre-line">{{ previewMateriObj.deskripsiSingkat }}</p>
-            </div>
-          </div>
+          <button
+            @click="currentPage++"
+            :disabled="currentPage >= totalPages"
+            class="px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 text-slate-300 font-bold hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition"
+          >
+            Next →
+          </button>
         </div>
       </div>
     </div>
+
+    <!-- Empty State -->
+    <div
+      v-else
+      class="text-center py-16 px-4 rounded-3xl bg-slate-900/40 border border-dashed border-white/15 space-y-4"
+    >
+      <div class="w-16 h-16 rounded-3xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-3xl mx-auto border border-cyan-500/20">
+        📚
+      </div>
+      <div>
+        <h3 class="text-base sm:text-lg font-black text-white">Belum Ada Materi Ditemukan</h3>
+        <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+          Tidak ada materi yang sesuai dengan kriteria filter atau pencarian Anda. Silakan ubah filter atau buat materi baru.
+        </p>
+      </div>
+      <button
+        @click="openCreateMateri"
+        class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-cyan-500 text-slate-950 font-black text-xs hover:bg-cyan-400 transition"
+      >
+        <span>＋ Buat Materi Pertama</span>
+      </button>
+    </div>
+
+    <!-- Modular Preview Modal -->
+    <MateriPreviewModal
+      :show="showPreviewModal"
+      :materi="previewMateriObj"
+      @close="showPreviewModal = false"
+    />
 
   </div>
 </template>
-
-<style scoped>
-/* Scoped adjustments for Slide Preview Markdown */
-:deep(.slide-markdown-content u) {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-:deep(.slide-markdown-content s),
-:deep(.slide-markdown-content del) {
-  text-decoration: line-through;
-  opacity: 0.75;
-}
-
-:deep(.slide-markdown-content ol) {
-  padding-left: 1.5rem;
-  margin: 0.75rem 0;
-  list-style-type: decimal;
-}
-
-:deep(.slide-markdown-content ol[type="a"]) {
-  list-style-type: lower-alpha;
-}
-
-:deep(.slide-markdown-content ol[type="A"]) {
-  list-style-type: upper-alpha;
-}
-
-:deep(.slide-markdown-content ol[type="i"]) {
-  list-style-type: lower-roman;
-}
-
-:deep(.slide-markdown-content ul) {
-  padding-left: 1.25rem;
-  margin: 0.75rem 0;
-  list-style-type: disc;
-}
-
-:deep(.slide-markdown-content li) {
-  margin-bottom: 0.35rem;
-  line-height: 1.5;
-}
-
-:deep(.slide-markdown-content table) {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 0.75rem 0;
-  font-size: 0.85em;
-}
-
-:deep(.slide-markdown-content th),
-:deep(.slide-markdown-content td) {
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  padding: 0.4rem 0.6rem;
-  text-align: left;
-}
-
-:deep(.slide-markdown-content th) {
-  background: rgba(255, 255, 255, 0.08);
-  font-weight: 800;
-}
-
-:deep(.slide-markdown-content blockquote) {
-  border-left: 3px solid #38bdf8;
-  padding: 0.4rem 0.8rem;
-  margin: 0.75rem 0;
-  background: rgba(56, 189, 248, 0.08);
-  border-radius: 0 0.5rem 0.5rem 0;
-  font-style: italic;
-}
-
-select option {
-  background-color: #0f172a;
-  color: #f8fafc;
-}
-</style>

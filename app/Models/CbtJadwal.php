@@ -67,4 +67,14 @@ class CbtJadwal extends Model
     {
         return $this->hasMany(CbtSesi::class, 'jadwal_id');
     }
+
+    public function materis(): HasMany
+    {
+        return $this->hasMany(Materi::class, 'cbt_jadwal_id');
+    }
+
+    public function materi(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Materi::class, 'cbt_jadwal_id')->where('is_published', true);
+    }
 }

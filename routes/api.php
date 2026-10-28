@@ -42,6 +42,11 @@ Route::prefix('v1')->group(function () {
         // 3. Guru API Endpoints
         Route::prefix('guru')->middleware('role:guru|admin')->group(function () {
             Route::get('/jadwal', [GuruApiController::class, 'getJadwal']);
+            Route::post('/jadwal', [GuruApiController::class, 'storeJadwal']);
+            Route::delete('/jadwal/{id}', [GuruApiController::class, 'deleteJadwal']);
+            Route::get('/kelas', [GuruApiController::class, 'getKelas']);
+            Route::post('/kelas-ampuan', [GuruApiController::class, 'saveKelasAmpuan']);
+            Route::delete('/kelas-ampuan/{id}', [GuruApiController::class, 'removeKelasAmpuan']);
             Route::get('/absensi', [GuruApiController::class, 'getAbsensi']);
             Route::post('/absensi/batch', [GuruApiController::class, 'storeAbsensiBatch']);
             Route::get('/jurnal', [GuruApiController::class, 'getJurnal']);
@@ -52,6 +57,8 @@ Route::prefix('v1')->group(function () {
             Route::delete('/tp/{id}', [GuruApiController::class, 'deleteTp']);
             Route::get('/nilai', [GuruApiController::class, 'getNilai']);
             Route::post('/nilai/batch', [GuruApiController::class, 'storeNilaiBatch']);
+            Route::post('/nilai/clear-kolom', [GuruApiController::class, 'clearNilaiTpKolom']);
+            Route::post('/nilai/swap-tp', [GuruApiController::class, 'swapOrMoveNilaiTp']);
             Route::get('/materi', [GuruApiController::class, 'getMateri']);
             Route::post('/materi/{id}/toggle-status', [GuruApiController::class, 'toggleMateriStatus']);
             
@@ -95,6 +102,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/cbt/daftar-siswa', [SiswaApiController::class, 'getDaftarSiswa']);
             Route::get('/cbt/jadwal', [SiswaApiController::class, 'getCbtJadwals']);
             Route::get('/cbt/nilai', [SiswaApiController::class, 'getCbtNilais']);
+            Route::post('/cbt/start', [SiswaApiController::class, 'startCbtExam']);
             Route::post('/cbt/submit', [SiswaApiController::class, 'submitCbtExam']);
         });
     });

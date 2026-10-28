@@ -9,6 +9,7 @@ const props = defineProps({
   kelasSiswa: { type: String, default: 'Kelas' },
   nilaiTPList: { type: Array, default: () => [] },
   siswaObj: { type: Object, default: () => ({}) },
+  activeSiswa: { type: Object, default: () => null },
 });
 
 // 1. Academic Period Filter (Semester Ganjil / Genap)
@@ -64,7 +65,17 @@ const effectiveMapelFilter = computed(() => {
 // 3. Shared Class Account Student Identity Management (Strictly synced from Tab Materi & CBT)
 const activeSiswaId = ref(null);
 
+watch(() => props.activeSiswa, (newS) => {
+  if (newS?.id) {
+    activeSiswaId.value = Number(newS.id);
+  }
+});
+
 function syncActiveSiswaFromStorage() {
+  if (props.activeSiswa?.id) {
+    activeSiswaId.value = Number(props.activeSiswa.id);
+    return;
+  }
   try {
     const savedId = localStorage.getItem('siswacloud_active_siswa_id');
     if (savedId && props.siswaList.some(s => String(s.id) === String(savedId))) {

@@ -16,8 +16,12 @@ class ProfileUpdateRequest extends FormRequest
      */
     public function rules(): array
     {
+        $isStudent = $this->user()?->hasRole('murid') || $this->user()?->siswa()->exists();
+
         return [
-            'name' => ['required', 'string', 'max:255'],
+            'name' => $isStudent
+                ? ['prohibited']
+                : ['required', 'string', 'max:255'],
             'email' => [
                 'required',
                 'string',

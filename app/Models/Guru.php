@@ -11,12 +11,24 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Guru extends Model
 {
     protected $table = 'gurus';
+
+    public function setMataPelajaranAttribute($value): void
+    {
+        $this->attributes['mapel_utama'] = $value;
+    }
+
+    public function getMataPelajaranAttribute(): ?string
+    {
+        return $this->attributes['mapel_utama'] ?? null;
+    }
+
     
     protected $fillable = [
         'nip',
         'nama',
         'telepon',
         'mapel_utama',
+        'mata_pelajaran',
         'user_id',
     ];
 

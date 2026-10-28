@@ -18,6 +18,7 @@ use App\Models\TujuanPembelajaran;
 use App\Models\CbtJadwal;
 use App\Models\MateriRead;
 use App\Services\Security\FileSecurityService;
+use App\Services\Security\TeacherAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -34,19 +35,45 @@ class GuruDashboardController extends Controller
      */
     private function resolveGuru(Request $request): ?Guru
     {
-        $user = $request->user();
-        if (! $user) {
-            return null;
+        return TeacherAccessService::resolveGuru($request->user());
+    }
+
+    private function ensureKelasAccess(Request $request, ?int $kelasId, bool $allowUnassigned = false): void
+    {
+        if (TeacherAccessService::isAdmin($request->user())) {
+            return;
         }
 
-        if ($user->guru) {
-            return $user->guru;
+        $guru = $this->resolveGuru($request);
+        $allowedKelas = TeacherAccessService::kelasIds($guru);
+
+        if ($allowUnassigned && empty($allowedKelas)) {
+            return;
         }
 
-        return Guru::query()
-            ->where('user_id', '=', $user->id)
-            ->orWhere('nama', '=', $user->name)
-            ->first();
+        abort_unless(
+            in_array((int) $kelasId, $allowedKelas, true),
+            403,
+            'Akses ditolak: Anda tidak mengajar kelas ini.'
+        );
+    }
+
+    private function ensureTpAccess(Request $request, TujuanPembelajaran $tp): void
+    {
+        abort_unless(
+            TeacherAccessService::canAccessTp($request->user(), $this->resolveGuru($request), $tp),
+            403,
+            'Akses ditolak: TP ini bukan milik mapel yang Anda ajar.'
+        );
+    }
+
+    private function ensureMateriAccess(Request $request, Materi $materi): void
+    {
+        abort_unless(
+            TeacherAccessService::canAccessMateri($request->user(), $this->resolveGuru($request), $materi),
+            403,
+            'Akses ditolak: materi ini bukan milik Anda.'
+        );
     }
 
     /**
@@ -54,21 +81,7 @@ class GuruDashboardController extends Controller
      */
     private function getTeacherKelasIds(?int $guruId): array
     {
-        if (! $guruId) {
-            return [];
-        }
-
-        $pivotIds = DB::table('guru_kelas')
-            ->where('guru_id', '=', $guruId)
-            ->pluck('kelas_id')
-            ->toArray();
-
-        $jadwalIds = Jadwal::query()
-            ->where('guru_id', '=', $guruId)
-            ->pluck('kelas_id')
-            ->toArray();
-
-        return array_unique(array_merge($pivotIds, $jadwalIds));
+        return TeacherAccessService::kelasIds($guruId ? Guru::query()->find($guruId) : null);
     }
 
     /**
@@ -95,7 +108,7 @@ class GuruDashboardController extends Controller
             'jurnalListProp' => fn () => $this->getJurnalData($guruId),
             'tpListProp' => fn () => $this->getTpData($guru?->mapel_utama),
             'nilaiListProp' => fn () => $this->getNilaiData($guruId, $kelasIds),
-            'materiListProp' => fn () => $this->getMateriData($guruId, $kelasIds, $teacherMapelIds),
+            'materiListProp' => fn () => GuruMateriController::getMateriData($guruId, $kelasIds, $teacherMapelIds),
             'mapelListProp' => fn () => $teacherMapels,
             'cbtBankSoalListProp' => fn () => GuruCbtController::getBankSoalsList($guruId),
             'cbtJadwalListProp' => fn () => GuruCbtController::getJadwalsList($guruId),
@@ -401,62 +414,12 @@ class GuruDashboardController extends Controller
 
     private function getMateriData(?int $guruId = null, array $kelasIds = [], array $mapelIds = []): array
     {
-        $query = Materi::query()->with(['tp', 'kelas', 'mapel', 'kegiatans'])->orderBy('id', 'desc');
-        if (! empty($kelasIds)) {
-            $query->where(function ($q) use ($kelasIds) {
-                $q->whereIn('kelas_id', $kelasIds)->orWhereNull('kelas_id');
-            });
-        }
-        if (! empty($mapelIds)) {
-            $query->where(function ($q) use ($mapelIds) {
-                $q->whereIn('mapel_id', $mapelIds)->orWhereNull('mapel_id');
-            });
-        }
-
-        return $query->limit(500)->get()->map(fn (Materi $m) => $this->serializeMateri($m))->toArray();
+        return GuruMateriController::getMateriData($guruId, $kelasIds, $mapelIds);
     }
 
     private function serializeMateri(Materi $m): array
     {
-        $mapelName = $m->mapel?->nama ?? $m->tp?->mapel ?? '';
-        $targetKelas = $m->kelas?->nama_kelas ?? ($mapelName ? "Semua Kelas ({$mapelName})" : 'Semua Kelas');
-
-        return [
-            'id' => $m->id,
-            'tpId' => $m->tp_id,
-            'tpKode' => $m->tp?->kode ?? 'TP-01',
-            'kelasId' => $m->kelas_id,
-            'targetKelas' => $targetKelas,
-            'mapelId' => $m->mapel_id,
-            'mapelNama' => $m->mapel?->nama ?? $m->tp?->mapel ?? '',
-            'judul' => $m->judul,
-            'tipe' => $m->tipe,
-            'fileUrl' => $m->file_path ? asset('storage/'.$m->file_path) : ($m->file_url ?? ''),
-            'filePath' => $m->file_path,
-            'fileName' => $m->file_path ? basename($m->file_path) : '',
-            'deskripsiSingkat' => $m->deskripsi ?? '',
-            'kegiatan' => $m->kegiatans->map(fn ($s) => [
-                'id' => $s->id,
-                'label' => $s->label,
-                'layout' => $s->layout ?? 'standard',
-                'judul' => $s->judul,
-                'konten' => $s->konten,
-                'filePath' => $s->file_path,
-                'fileName' => $s->file_path ? basename($s->file_path) : '',
-                'fileUrl' => $s->file_path ? asset('storage/'.$s->file_path) : ($s->file_url ?? ''),
-            ])->values(),
-            'theme' => $m->theme ?? 'dark',
-            'cbtJadwalId' => $m->cbt_jadwal_id,
-            'cbtJadwal' => $m->cbtJadwal ? [
-                'id' => $m->cbtJadwal->id,
-                'judul' => $m->cbtJadwal->judul_ujian,
-                'durasi' => $m->cbtJadwal->durasi_menit,
-            ] : null,
-            'isPublished' => $m->is_published,
-            'semester' => $m->semester,
-            'readsCount' => $m->reads()->count(),
-            'readsCompletedCount' => $m->reads()->where('status', 'selesai')->count(),
-        ];
+        return GuruMateriController::serializeMateri($m);
     }
 
     /**
@@ -464,7 +427,7 @@ class GuruDashboardController extends Controller
      */
     public function createMateri(Request $request): Response
     {
-        return $this->materiFormData($request, null);
+        return (new GuruMateriController())->createMateri($request);
     }
 
     /**
@@ -472,9 +435,7 @@ class GuruDashboardController extends Controller
      */
     public function editMateri(int $id, Request $request): Response
     {
-        $materi = Materi::query()->with(['tp', 'mapel', 'kelas', 'kegiatans'])->findOrFail($id);
-
-        return $this->materiFormData($request, $materi);
+        return (new GuruMateriController())->editMateri($id, $request);
     }
 
     private function materiFormData(Request $request, ?Materi $materi): Response
@@ -514,6 +475,8 @@ class GuruDashboardController extends Controller
             'tanggal' => 'required|date',
             'kelas' => 'required|string',
             'rows' => 'required|array',
+            'rows.*.siswaId' => 'required|integer|exists:siswas,id',
+            'rows.*.status' => 'nullable|string|in:Hadir,Sakit,Izin,Alpa',
         ]);
 
         $kelasObj = Kelas::query()->where('nama_kelas', '=', $validated['kelas'])->first();
@@ -522,7 +485,19 @@ class GuruDashboardController extends Controller
             throw ValidationException::withMessages(['kelas' => 'Kelas "'.$validated['kelas'].'" tidak ditemukan di database! Presensi batal disimpan.']);
         }
 
+        $this->ensureKelasAccess($request, $kelasObj->id, true);
+
         $kelasId = $kelasObj->id;
+        $rowSiswaIds = collect($validated['rows'])->pluck('siswaId')->filter()->unique()->values();
+        $validSiswaIds = Siswa::query()
+            ->whereIn('id', $rowSiswaIds, 'and', false)
+            ->where('kelas_id', $kelasId)
+            ->pluck('id');
+
+        if ($rowSiswaIds->diff($validSiswaIds)->isNotEmpty()) {
+            throw ValidationException::withMessages(['rows' => 'Terdapat siswa yang bukan anggota kelas ini.']);
+        }
+
         $tglStr = date('Y-m-d', strtotime($validated['tanggal']));
 
         $inactiveSiswaIds = Siswa::query()
@@ -556,9 +531,11 @@ class GuruDashboardController extends Controller
     /**
      * Delete a single attendance record.
      */
-    public function deleteAbsensi(int $id): RedirectResponse
+    public function deleteAbsensi(Request $request, int $id): RedirectResponse
     {
-        Absensi::query()->where('id', '=', $id)->delete();
+        $record = Absensi::query()->findOrFail($id);
+        $this->ensureKelasAccess($request, $record->kelas_id);
+        $record->delete();
 
         return redirect()->back()->with('message', 'Catatan absensi berhasil dihapus!');
     }
@@ -573,6 +550,7 @@ class GuruDashboardController extends Controller
         ]);
 
         $record = Absensi::query()->with('siswa')->findOrFail($id);
+        $this->ensureKelasAccess($request, $record->kelas_id);
         if ($record->siswa && in_array($record->siswa->status, ['Keluar', 'Pindah'])) {
             return redirect()->back()->with('error', 'Presensi tidak dapat diubah karena siswa telah berstatus '.$record->siswa->status.'!');
         }
@@ -616,13 +594,31 @@ class GuruDashboardController extends Controller
     public function storeNilaiBatch(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'tpId' => 'required|integer',
+            'tpId' => 'required|integer|exists:tujuan_pembelajarans,id',
             'scores' => 'required|array',
+            'scores.*.siswaId' => 'required|integer|exists:siswas,id',
+            'scores.*.nilai' => 'nullable|numeric|min:0|max:100',
+            'scores.*.catatan' => 'nullable|string',
         ]);
 
-        $user = $request->user();
-        $guru = $user?->guru ?? Guru::query()->where('user_id', '=', $user?->id)->first();
+        $guru = $this->resolveGuru($request);
         $guruId = $guru?->id;
+        $tp = TujuanPembelajaran::findOrFail($validated['tpId']);
+        $this->ensureTpAccess($request, $tp);
+
+        $siswaIds = collect($validated['scores'])->pluck('siswaId')->filter()->unique()->values();
+        $teacherKelasIds = $this->getTeacherKelasIds($guruId);
+
+        if (! empty($teacherKelasIds)) {
+            $validSiswaIds = Siswa::query()
+                ->whereIn('id', $siswaIds, 'and', false)
+                ->whereIn('kelas_id', $teacherKelasIds, 'and', false)
+                ->pluck('id');
+
+            if ($siswaIds->diff($validSiswaIds)->isNotEmpty()) {
+                throw ValidationException::withMessages(['scores' => 'Terdapat siswa yang bukan anggota kelas yang Anda ajar.']);
+            }
+        }
 
         DB::transaction(function () use ($validated, $guruId) {
             foreach ($validated['scores'] as $s) {
@@ -657,12 +653,16 @@ class GuruDashboardController extends Controller
             'kelas' => 'required|string',
         ]);
 
+        $tp = TujuanPembelajaran::findOrFail($validated['tpId']);
+        $this->ensureTpAccess($request, $tp);
+
         $kelasObj = Kelas::where('nama_kelas', $validated['kelas'])->first();
         if ($kelasObj) {
+            $this->ensureKelasAccess($request, $kelasObj->id);
             $siswaIds = Siswa::where('kelas_id', $kelasObj->id)->pluck('id')->toArray();
             if (!empty($siswaIds)) {
                 NilaiTp::where('tp_id', $validated['tpId'])
-                    ->whereIn('siswa_id', $siswaIds)
+                    ->whereIn('siswa_id', $siswaIds, 'and', false)
                     ->delete();
             }
         }
@@ -687,8 +687,14 @@ class GuruDashboardController extends Controller
             return redirect()->back()->withErrors(['kelas' => 'Data kelas tidak ditemukan.']);
         }
 
-        $user = $request->user();
-        $guru = $user?->guru ?? Guru::query()->where('user_id', '=', $user?->id)->first();
+        $this->ensureKelasAccess($request, $kelasObj->id);
+
+        $sourceTp = TujuanPembelajaran::findOrFail($validated['sourceTpId']);
+        $targetTp = TujuanPembelajaran::findOrFail($validated['targetTpId']);
+        $this->ensureTpAccess($request, $sourceTp);
+        $this->ensureTpAccess($request, $targetTp);
+
+        $guru = $this->resolveGuru($request);
         $guruId = $guru?->id;
 
         $siswaIds = Siswa::where('kelas_id', $kelasObj->id)->pluck('id')->toArray();
@@ -696,8 +702,8 @@ class GuruDashboardController extends Controller
         $targetTpId = (int)$validated['targetTpId'];
 
         DB::transaction(function () use ($sourceTpId, $targetTpId, $siswaIds, $validated, $guruId) {
-            $sourceRecords = NilaiTp::where('tp_id', $sourceTpId)->whereIn('siswa_id', $siswaIds)->get()->keyBy('siswa_id');
-            $targetRecords = NilaiTp::where('tp_id', $targetTpId)->whereIn('siswa_id', $siswaIds)->get()->keyBy('siswa_id');
+            $sourceRecords = NilaiTp::where('tp_id', $sourceTpId)->whereIn('siswa_id', $siswaIds, 'and', false)->get()->keyBy('siswa_id');
+            $targetRecords = NilaiTp::where('tp_id', $targetTpId)->whereIn('siswa_id', $siswaIds, 'and', false)->get()->keyBy('siswa_id');
 
             if ($validated['mode'] === 'swap') {
                 foreach ($siswaIds as $sId) {
@@ -740,7 +746,7 @@ class GuruDashboardController extends Controller
                     }
                 }
                 // Hapus nilai source pada kelas ini
-                NilaiTp::where('tp_id', $sourceTpId)->whereIn('siswa_id', $siswaIds)->delete();
+                NilaiTp::where('tp_id', $sourceTpId)->whereIn('siswa_id', $siswaIds, 'and', false)->delete();
             }
         });
 
@@ -753,9 +759,11 @@ class GuruDashboardController extends Controller
      */
     public function storeJurnal(Request $request): RedirectResponse
     {
-        $user = $request->user();
-        $guru = $user?->guru ?? Guru::query()->where('user_id', '=', $user?->id, 'and')->first();
-        $guruId = $guru?->id ?? $user->id;
+        $guru = $this->resolveGuru($request);
+        if (! $guru) {
+            throw ValidationException::withMessages(['guru' => 'Akun Anda belum terhubung ke data Guru!']);
+        }
+        $guruId = $guru->id;
 
         $jamKe = $request->input('jam_ke') ?? $request->input('jamKe') ?? 'Jam 1 - 2';
         $mataPelajaran = $request->input('mata_pelajaran') ?? $request->input('mataPelajaran') ?? 'Informatika';
@@ -764,7 +772,7 @@ class GuruDashboardController extends Controller
         $semester = $request->input('semester') ?? 'Ganjil';
 
         $validated = $request->validate([
-            'id' => 'nullable|integer',
+            'id' => 'nullable|integer|exists:jurnals,id',
             'tanggal' => 'required|date',
             'kelas' => 'required|string',
             'materi' => 'required|string',
@@ -779,6 +787,17 @@ class GuruDashboardController extends Controller
 
         if (! $kelasObj) {
             throw ValidationException::withMessages(['kelas' => 'Kelas "'.$validated['kelas'].'" tidak ditemukan di database! Jurnal batal disimpan.']);
+        }
+
+        $this->ensureKelasAccess($request, $kelasObj->id, true);
+
+        if (! empty($validated['id'])) {
+            $existingJurnal = Jurnal::findOrFail($validated['id']);
+            abort_unless(
+                $existingJurnal->guru_id === $guruId || $request->user()->hasRole('admin'),
+                403,
+                'Akses ditolak: jurnal ini bukan milik Anda.'
+            );
         }
 
         Jurnal::query()->updateOrCreate(
@@ -805,15 +824,16 @@ class GuruDashboardController extends Controller
      */
     public function deleteJurnal(int $id): RedirectResponse
     {
-        $user = request()->user();
-        $guru = $user?->guru ?? Guru::query()->where('user_id', '=', $user?->id)->first();
-        $guruId = $guru?->id;
+        $jurnal = Jurnal::findOrFail($id);
+        $guru = $this->resolveGuru(request());
 
-        $query = Jurnal::query()->where('id', '=', $id);
-        if ($guruId && ! $user->hasRole('admin')) {
-            $query->where('guru_id', '=', $guruId);
-        }
-        $query->delete();
+        abort_unless(
+            TeacherAccessService::isAdmin(request()->user()) || ($guru && $jurnal->guru_id === $guru->id),
+            403,
+            'Akses ditolak: jurnal ini bukan milik Anda.'
+        );
+
+        $jurnal->delete();
 
         return redirect()->back()->with('message', 'Jurnal mengajar berhasil dihapus!');
     }
@@ -974,135 +994,29 @@ HTML;
     }
 
     /**
-     * Store or update Materi (with optional file upload & flexible learning phases).
+     * Store or update Materi (delegated to GuruMateriController).
      */
     public function storeMateri(Request $request): RedirectResponse
     {
-        $tpId = $request->input('tp_id') ?? $request->input('tpId');
-        $kelasId = $request->input('kelas_id') ?? $request->input('kelasId');
-        $mapelId = $request->input('mapel_id') ?? $request->input('mapelId');
-        $cbtJadwalId = $request->input('cbt_jadwal_id') ?? $request->input('cbtJadwalId');
-        $theme = $request->input('theme', 'dark');
-        $fileUrl = $request->input('file_url') ?? $request->input('fileUrl');
-        $deskripsi = $request->input('deskripsi') ?? $request->input('deskripsiSingkat');
-        $isPublished = $request->has('is_published') ? $request->boolean('is_published') : ($request->has('isPublished') ? $request->boolean('isPublished') : true);
-
-        $tpId = $tpId === '' ? null : $tpId;
-        $kelasId = ($kelasId === '' || $kelasId === 'all' || $kelasId === 'null') ? null : $kelasId;
-        $mapelId = $mapelId === '' ? null : $mapelId;
-        $cbtJadwalId = $cbtJadwalId === '' ? null : $cbtJadwalId;
-
-        $validated = $request->validate([
-            'id' => 'nullable|integer',
-            'judul' => 'required|string|max:255',
-            'tipe' => 'required|string',
-            'theme' => 'nullable|string',
-            'semester' => 'required|string',
-            'file' => 'nullable|file|mimes:pdf,ppt,pptx,doc,docx,mp4,mov,jpg,jpeg,png,webp|max:30720',
-            'kegiatan_file.*' => 'nullable|file|mimes:pdf,ppt,pptx,doc,docx,mp4,mov,jpg,jpeg,png,webp|max:30720',
-            'kegiatan_files.*' => 'nullable|file|mimes:pdf,ppt,pptx,doc,docx,mp4,mov,jpg,jpeg,png,webp|max:30720',
-        ]);
-
-        $file = $request->file('file');
-        $kegiatanRaw = $request->input('kegiatan');
-        $kegiatan = is_string($kegiatanRaw) ? (json_decode($kegiatanRaw, true) ?: []) : (is_array($kegiatanRaw) ? $kegiatanRaw : []);
-        $keyedFiles = $request->file('kegiatan_files') ?? [];
-        $indexedFiles = array_values($request->file('kegiatan_file') ?? []);
-
-        $materi = Materi::query()->findOrNew($validated['id'] ?? null);
-
-        if ($file) {
-            FileSecurityService::validateUploadedFile($file, ['pdf', 'ppt', 'pptx', 'doc', 'docx', 'mp4', 'mov', 'jpg', 'jpeg', 'png', 'webp']);
-            if ($materi->file_path) {
-                Storage::disk('public')->delete($materi->file_path);
-            }
-            $materi->file_path = $file->store('materi', 'public');
-            $materi->file_url = null;
-        }
-
-        $materi->tp_id = $tpId;
-        $materi->kelas_id = $kelasId;
-        $materi->mapel_id = $mapelId;
-        $materi->cbt_jadwal_id = $cbtJadwalId;
-        $materi->theme = $theme ?: 'dark';
-        $materi->judul = $validated['judul'];
-        $materi->tipe = $validated['tipe'];
-        if (! empty($fileUrl)) {
-            $materi->file_url = $fileUrl;
-        }
-        $materi->deskripsi = $deskripsi;
-        $semRaw = strtolower(trim((string)$validated['semester']));
-        $materi->semester = (str_contains($semRaw, 'genap') || $semRaw === '2') ? 'Genap' : 'Ganjil';
-        $materi->is_published = $isPublished;
-        $materi->save();
-
-        $oldKegiatanFiles = $materi->kegiatans()->pluck('file_path')->filter()->values()->all();
-
-        $materi->kegiatans()->delete();
-        $urutan = 1;
-        $keptPaths = [];
-        foreach (array_values($kegiatan) as $index => $step) {
-            $label = $step['label'] ?? null;
-            $judul = $step['judul'] ?? null;
-            $konten = $step['konten'] ?? null;
-            $fileKey = $step['_fileKey'] ?? null;
-
-            // Look up uploaded file: priority explicit slide index, then _fileKey from keyed array, then indexed fallback
-            $newFile = $keyedFiles[$index]
-                ?? ($fileKey !== null && isset($keyedFiles[$fileKey]) ? $keyedFiles[$fileKey] : null)
-                ?? ($fileKey !== null && isset($indexedFiles[$fileKey]) ? $indexedFiles[$fileKey] : null)
-                ?? ($indexedFiles[$index] ?? null);
-
-            $filePath = $step['filePath'] ?? $step['file_path'] ?? null;
-            $fileUrl = $step['fileUrl'] ?? $step['file_url'] ?? null;
-
-            if (empty($label) && empty($judul) && empty($konten) && ! $newFile && empty($filePath) && empty($fileUrl)) {
-                continue;
-            }
-
-            if ($newFile) {
-                FileSecurityService::validateUploadedFile($newFile, ['pdf', 'ppt', 'pptx', 'doc', 'docx', 'mp4', 'mov', 'jpg', 'jpeg', 'png', 'webp']);
-                $filePath = $newFile->store('materi', 'public');
-            }
-            if ($filePath) {
-                $keptPaths[] = $filePath;
-            }
-
-            $materi->kegiatans()->create([
-                'urutan' => $urutan++,
-                'label' => $label,
-                'layout' => $step['layout'] ?? 'standard',
-                'judul' => $judul,
-                'konten' => $konten,
-                'file_path' => $filePath,
-                'file_url' => $newFile ? null : $fileUrl,
-            ]);
-        }
-
-        foreach ($oldKegiatanFiles as $oldPath) {
-            if (! in_array($oldPath, $keptPaths, true)) {
-                Storage::disk('public')->delete($oldPath);
-            }
-        }
-
-        return redirect()->route('guru.dashboard', ['tab' => 'materi'])->with('message', 'Materi pembelajaran berhasil disimpan!');
+        return (new GuruMateriController())->storeMateri($request);
     }
 
     /**
      * Delete Materi.
      */
-    public function deleteMateri(int $id): RedirectResponse
+    public function deleteMateri(Request $request, int $id): RedirectResponse
     {
-        $materi = Materi::query()->find($id);
-        if ($materi) {
-            if ($materi->file_path) {
-                Storage::disk('public')->delete($materi->file_path);
-            }
-            foreach ($materi->kegiatans()->pluck('file_path')->filter() as $path) {
-                Storage::disk('public')->delete($path);
-            }
+        $materi = Materi::query()->findOrFail($id);
+        $this->ensureMateriAccess($request, $materi);
+
+        if ($materi->file_path) {
+            Storage::disk('public')->delete($materi->file_path);
         }
-        Materi::destroy($id);
+        foreach ($materi->kegiatans()->pluck('file_path')->filter() as $path) {
+            Storage::disk('public')->delete($path);
+        }
+
+        $materi->delete();
 
         return redirect()->back()->with('message', 'Materi pembelajaran berhasil dihapus!');
     }
@@ -1113,6 +1027,7 @@ HTML;
     public function toggleMateriStatus(int $id, Request $request)
     {
         $materi = Materi::query()->findOrFail($id);
+        $this->ensureMateriAccess($request, $materi);
 
         if ($request->has('is_published')) {
             $materi->is_published = $request->boolean('is_published');
@@ -1138,7 +1053,7 @@ HTML;
     public function storeTp(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'id' => 'nullable|integer',
+            'id' => 'nullable|integer|exists:tujuan_pembelajarans,id',
             'kode' => 'required|string',
             'mapel' => 'nullable|string|max:100',
             'judul' => 'required|string',
@@ -1147,6 +1062,17 @@ HTML;
             'semester' => 'required|string',
             'tahunAjaran' => 'nullable|string',
         ]);
+
+        $guru = $this->resolveGuru($request);
+        $mapel = trim((string) ($validated['mapel'] ?? ''));
+        $allowedMapels = TeacherAccessService::mapelNames($guru);
+        abort_unless(
+            TeacherAccessService::isAdmin($request->user())
+                || empty($allowedMapels)
+                || ($mapel !== '' && in_array($mapel, $allowedMapels, true)),
+            403,
+            'Akses ditolak: mapel ini bukan mapel yang Anda ajar.'
+        );
 
         $taKode = $request->input('tahunAjaran') ?? $request->input('tahun_ajaran');
         $activeTa = null;
@@ -1172,12 +1098,9 @@ HTML;
         ];
 
         if ($tpId) {
-            $tp = TujuanPembelajaran::query()->find($tpId);
-            if ($tp) {
-                $tp->update($dataToSave);
-            } else {
-                TujuanPembelajaran::query()->create($dataToSave);
-            }
+            $tp = TujuanPembelajaran::findOrFail($tpId);
+            $this->ensureTpAccess($request, $tp);
+            $tp->update($dataToSave);
         } else {
             TujuanPembelajaran::query()->create($dataToSave);
         }
@@ -1199,7 +1122,7 @@ HTML;
         }
 
         $validated = $request->validate([
-            'id' => 'nullable|integer',
+            'id' => 'nullable|integer|exists:jadwals,id',
             'hari' => 'required|string',
             'jam_ke' => 'required',
             'waktu' => 'nullable|string',
@@ -1212,6 +1135,15 @@ HTML;
         $kelasObj = Kelas::query()->where('nama_kelas', '=', $validated['kelas'])->first();
         if (! $kelasObj) {
             throw ValidationException::withMessages(['kelas' => 'Kelas "'.$validated['kelas'].'" tidak ditemukan di database!']);
+        }
+
+        if (! empty($validated['id'])) {
+            $existingJadwal = Jadwal::findOrFail($validated['id']);
+            abort_unless(
+                $existingJadwal->guru_id === $guruId || $request->user()->hasRole('admin'),
+                403,
+                'Akses ditolak: jadwal ini bukan milik Anda.'
+            );
         }
 
         // Validasi bentrok: pastikan kelas pada hari & jam tersebut belum diisi oleh guru lain
@@ -1255,7 +1187,7 @@ HTML;
         ];
 
         if ($targetId) {
-            $jadwalRecord = Jadwal::find($targetId);
+            $jadwalRecord = Jadwal::query()->find($targetId);
             if ($jadwalRecord) {
                 $jadwalRecord->update($jadwalData);
             } else {
@@ -1281,22 +1213,18 @@ HTML;
     /**
      * Delete Class Schedule.
      */
-    public function deleteJadwal(int $id): RedirectResponse
+    public function deleteJadwal(Request $request, int $id): RedirectResponse
     {
-        $user = request()->user();
-        $guru = $user?->guru ?? Guru::query()->where('user_id', '=', $user?->id, 'and')->first();
-        $guruId = $guru?->id;
+        $jadwal = Jadwal::findOrFail($id);
+        $guru = $this->resolveGuru($request);
 
-        $jadwal = Jadwal::query()->find($id);
-        if (! $jadwal) {
-            throw ValidationException::withMessages(['jadwal' => 'Jadwal tidak ditemukan!']);
-        }
+        abort_unless(
+            TeacherAccessService::isAdmin($request->user()) || ($guru && $jadwal->guru_id === $guru->id),
+            403,
+            'Anda tidak memiliki akses untuk menghapus jadwal ini!'
+        );
 
-        if ($guruId && $jadwal->guru_id !== $guruId) {
-            throw ValidationException::withMessages(['jadwal' => 'Anda tidak memiliki akses untuk menghapus jadwal ini!']);
-        }
-
-        Jadwal::query()->where('id', '=', $id)->delete();
+        $jadwal->delete();
 
         return redirect()->route('guru.dashboard', ['tab' => 'jadwal'])->with('message', 'Jadwal pelajaran berhasil dihapus!');
     }
@@ -1306,7 +1234,9 @@ HTML;
      */
     public function deleteTp(int $id): RedirectResponse
     {
-        TujuanPembelajaran::query()->where('id', '=', $id)->delete();
+        $tp = TujuanPembelajaran::findOrFail($id);
+        $this->ensureTpAccess(request(), $tp);
+        $tp->delete();
 
         return redirect()->back()->with('message', 'Tujuan Pembelajaran berhasil dihapus!');
     }
@@ -1329,7 +1259,6 @@ HTML;
             'kelas_ids.*' => 'required|integer|exists:kelases,id',
         ]);
 
-        // sync() replaces existing records — perfect for multi-select
         $guru->kelasAmpuan()->sync($validated['kelas_ids']);
 
         $count = count($validated['kelas_ids']);
@@ -1360,6 +1289,7 @@ HTML;
     public function getMateriMonitoring(Request $request, int $id): Response|JsonResponse
     {
         $materi = Materi::with(['kelas', 'mapel', 'cbtJadwal', 'reads.siswa'])->findOrFail($id);
+        $this->ensureMateriAccess($request, $materi);
 
         $query = Siswa::query()->where('status', 'Aktif');
         if ($materi->kelas_id) {

@@ -6,6 +6,7 @@ const props = defineProps({
   tugasList: { type: Array, default: () => [] },
   siswaList: { type: Array, default: () => [] },
   siswaObj: { type: Object, default: () => ({}) },
+  activeSiswa: { type: Object, default: () => null },
 });
 
 const emit = defineEmits(['submit-tugas']);
@@ -21,7 +22,7 @@ const uploadForm = ref({
 function openUploadModal(tugas) {
   selectedTugasUpload.value = tugas;
   uploadForm.value = {
-    siswaId: props.siswaObj?.id || (props.siswaList?.[0]?.id ?? ''),
+    siswaId: props.activeSiswa?.id || props.siswaObj?.id || (props.siswaList?.[0]?.id ?? ''),
     catatan: '',
     linkHasil: ''
   };

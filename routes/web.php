@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\BackupController;
 use App\Http\Controllers\Guru\GuruDashboardController;
 use App\Http\Controllers\Guru\GuruCbtController;
+use App\Http\Controllers\Guru\GuruMateriController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Siswa\SiswaDashboardController;
 use App\Http\Controllers\WelcomeController;
@@ -91,8 +92,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('guru')->middleware('role:guru|admin')->name('guru.')->group(function () {
         Route::get('/dashboard', [GuruDashboardController::class, 'index'])->name('dashboard');
         Route::get('/jurnal/export-pdf', [GuruDashboardController::class, 'exportJurnalPdf'])->name('jurnal.export-pdf');
-        Route::get('/materi/create', [GuruDashboardController::class, 'createMateri'])->name('materi.create');
-        Route::get('/materi/{id}/edit', [GuruDashboardController::class, 'editMateri'])->name('materi.edit');
+        Route::get('/materi/create', [GuruMateriController::class, 'createMateri'])->name('materi.create');
+        Route::get('/materi/{id}/edit', [GuruMateriController::class, 'editMateri'])->name('materi.edit');
         Route::post('/absensi/store-batch', [GuruDashboardController::class, 'storeAbsensiBatch'])->name('absensi.store-batch');
         Route::patch('/absensi/{id}', [GuruDashboardController::class, 'updateAbsensi'])->name('absensi.update');
         Route::delete('/absensi/bulk-date', [GuruDashboardController::class, 'deleteAbsensiBulkDate'])->name('absensi.bulk-delete');
@@ -102,10 +103,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/nilai/swap-tp', [GuruDashboardController::class, 'swapOrMoveNilaiTp'])->name('nilai.swap-tp');
         Route::post('/jurnal/store', [GuruDashboardController::class, 'storeJurnal'])->name('jurnal.store');
         Route::delete('/jurnal/{id}', [GuruDashboardController::class, 'deleteJurnal'])->name('jurnal.delete');
-        Route::post('/materi/store', [GuruDashboardController::class, 'storeMateri'])->name('materi.store');
-        Route::delete('/materi/{id}', [GuruDashboardController::class, 'deleteMateri'])->name('materi.delete');
-        Route::get('/materi/{id}/monitoring', [GuruDashboardController::class, 'getMateriMonitoring'])->name('materi.monitoring');
-        Route::post('/materi/{id}/toggle-status', [GuruDashboardController::class, 'toggleMateriStatus'])->name('materi.toggle-status');
+        Route::post('/materi/store', [GuruMateriController::class, 'storeMateri'])->name('materi.store');
+        Route::post('/materi/bulk-action', [GuruMateriController::class, 'bulkAction'])->name('materi.bulk-action');
+        Route::delete('/materi/{id}', [GuruMateriController::class, 'deleteMateri'])->name('materi.delete');
+        Route::get('/materi/{id}/monitoring', [GuruMateriController::class, 'getMateriMonitoring'])->name('materi.monitoring');
+        Route::post('/materi/{id}/toggle-status', [GuruMateriController::class, 'toggleMateriStatus'])->name('materi.toggle-status');
         Route::post('/tp/store', [GuruDashboardController::class, 'storeTp'])->name('tp.store');
         Route::delete('/tp/{id}', [GuruDashboardController::class, 'deleteTp'])->name('tp.delete');
         Route::post('/jadwal/store', [GuruDashboardController::class, 'storeJadwal'])->name('jadwal.store');
@@ -141,6 +143,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('siswa')->middleware('role:murid|admin')->name('siswa.')->group(function () {
         Route::get('/dashboard', [SiswaDashboardController::class, 'index'])->name('dashboard');
         Route::post('/tugas/submit', [SiswaDashboardController::class, 'submitTugas'])->name('tugas.submit');
+        Route::post('/cbt/start', [SiswaDashboardController::class, 'startCbtExam'])->name('cbt.start');
         Route::post('/cbt/gabung-ruang-tunggu', [SiswaDashboardController::class, 'gabungRuangTunggu'])->name('cbt.gabung-ruang-tunggu');
         Route::post('/cbt/keluar-ruang-tunggu', [SiswaDashboardController::class, 'keluarRuangTunggu'])->name('cbt.keluar-ruang-tunggu');
         Route::post('/cbt/catat-pelanggaran', [SiswaDashboardController::class, 'catatPelanggaran'])->name('cbt.catat-pelanggaran');

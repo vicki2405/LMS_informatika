@@ -5,11 +5,12 @@ const props = defineProps({
   siswaObj: { type: Object, default: () => ({}) },
   kelasSiswa: { type: String, default: 'Kelas' },
   siswaList: { type: Array, default: () => [] },
+  activeSiswa: { type: Object, default: () => null },
   cbtJadwalList: { type: Array, default: () => [] },
   cbtNilaiList: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(['change-view']);
+const emit = defineEmits(['change-view', 'switch-siswa']);
 
 // Computed Stats
 const totalJadwal = computed(() => props.cbtJadwalList.length);
@@ -82,8 +83,20 @@ const latestNilai = computed(() => {
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
             PORTAL CBT SISWA • KELAS {{ kelasSiswa }} • TA {{ $page.props.activeTahunAjaran?.kode || '2025/2026' }}
           </div>
+          <div v-if="activeSiswa" class="flex items-center gap-2 mb-2">
+            <span class="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-200 text-xs font-black">
+              <span>👤 Siswa Aktif:</span>
+              <span class="text-white underline">{{ activeSiswa.nama }}</span>
+              <button
+                @click="$emit('switch-siswa')"
+                class="ml-2 px-2 py-0.5 rounded-lg bg-cyan-500/30 hover:bg-cyan-500/50 text-white font-bold text-[10px] transition"
+              >
+                Ganti Siswa ⇄
+              </button>
+            </span>
+          </div>
           <h1 class="text-2xl sm:text-4xl font-black text-white tracking-tight">
-            Ruang Belajar Kelas {{ kelasSiswa }} 🚀
+            {{ activeSiswa ? 'Selamat Belajar, ' + activeSiswa.nama : 'Ruang Belajar Kelas ' + kelasSiswa }} 🚀
           </h1>
           <p class="text-gray-300 text-sm mt-2 max-w-2xl leading-relaxed">
             Portal resmi Computer Based Test (CBT) SMKS Muhammadiyah 2 Genteng. Setiap siswa memilih identitas nama masing-masing saat masuk ke ruang ujian agar perolehan nilai otomatis tercatat ke buku nilai guru.
