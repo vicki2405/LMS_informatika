@@ -115,27 +115,53 @@ function onKelasChange() {
   }
 }
 
-// Waktu Mulai & Automatic Selesai Calculation
-function setNowAsStartTime() {
-  const now = new Date();
+// Waktu Mulai & Waktu Selesai Helpers
+function formatToDatetimeLocal(d) {
   const pad = (n) => String(n).padStart(2, '0');
-  form.value.waktu_mulai = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  calcWaktuSelesai();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function calcWaktuSelesai() {
-  if (!form.value.waktu_mulai) return;
-  const start = new Date(form.value.waktu_mulai);
-  if (isNaN(start.getTime())) return;
-  const durasi = Number(form.value.durasi_menit) || 60;
-  const end = new Date(start.getTime() + durasi * 60 * 1000);
-  const pad = (n) => String(n).padStart(2, '0');
-  form.value.waktu_selesai = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`;
+function setNowAsStartTime() {
+  const now = new Date();
+  form.value.waktu_mulai = formatToDatetimeLocal(now);
+  if (!form.value.waktu_selesai) {
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0);
+    form.value.waktu_selesai = formatToDatetimeLocal(end);
+  }
+}
+
+function onWaktuMulaiChange() {
+  if (form.value.waktu_mulai && !form.value.waktu_selesai) {
+    const start = new Date(form.value.waktu_mulai);
+    if (!isNaN(start.getTime())) {
+      const end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 23, 59, 0);
+      form.value.waktu_selesai = formatToDatetimeLocal(end);
+    }
+  }
+}
+
+function setSelesaiPreset(type) {
+  const base = form.value.waktu_mulai ? new Date(form.value.waktu_mulai) : new Date();
+  if (isNaN(base.getTime())) return;
+
+  let target = new Date(base.getTime());
+  if (type === 'today_end') {
+    target = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 59, 0);
+  } else if (type === 'plus_4h') {
+    target = new Date(base.getTime() + 4 * 60 * 60 * 1000);
+  } else if (type === 'plus_1d') {
+    target = new Date(base.getTime() + 24 * 60 * 60 * 1000);
+  } else if (type === 'plus_3d') {
+    target = new Date(base.getTime() + 3 * 24 * 60 * 60 * 1000);
+  } else if (type === 'durasi_exact') {
+    const durasi = Number(form.value.durasi_menit) || 60;
+    target = new Date(base.getTime() + durasi * 60 * 1000);
+  }
+  form.value.waktu_selesai = formatToDatetimeLocal(target);
 }
 
 function setDurasi(minutes) {
   form.value.durasi_menit = minutes;
-  calcWaktuSelesai();
 }
 
 function formatPreviewDate(datetimeStr) {
@@ -169,8 +195,14 @@ function handleSubmit() {
     form.value.judul_ujian = selectedBankSoal.value?.judul || selectedBankSoal.value?.nama || 'Ujian CBT';
   }
 
-  // Ensure waktu_selesai is calculated before submission
-  calcWaktuSelesai();
+  if (form.value.waktu_mulai && form.value.waktu_selesai) {
+    const start = new Date(form.value.waktu_mulai);
+    const end = new Date(form.value.waktu_selesai);
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end < start) {
+      showToast('Batas Akhir Akses (Waktu Tutup) tidak boleh lebih awal dari Waktu Mulai Akses!', 'error');
+      return;
+    }
+  }
 
   isSubmitting.value = true;
   router.post(route('guru.cbt.jadwal.store'), form.value, {
@@ -348,53 +380,127 @@ function handleSubmit() {
               </p>
             </div>
 
-            <!-- Waktu Mulai & Durasi Pengerjaan (Tanpa Dobel Input Waktu Selesai Manual) -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-              <div>
-                <div class="flex items-center justify-between mb-1.5">
-                  <label class="text-xs font-semibold text-gray-300">
-                    Waktu Mulai Akses <span class="text-rose-400">*</span>
-                  </label>
-                  <button
-                    type="button"
-                    @click="setNowAsStartTime"
-                    class="text-[10px] text-teal-400 hover:text-teal-300 underline font-medium"
-                  >
-                    ⚡ Mulai Sekarang
-                  </button>
+            <!-- Pengaturan Rentang Akses Ujian & Durasi Pengerjaan -->
+            <div class="space-y-4 pt-1">
+              <!-- Waktu Mulai & Waktu Selesai (Rentang Gerbang Akses) -->
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <!-- Waktu Mulai Akses -->
+                <div>
+                  <div class="flex items-center justify-between mb-1.5">
+                    <label class="text-xs font-semibold text-gray-300">
+                      Waktu Mulai Akses (Buka) <span class="text-rose-400">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      @click="setNowAsStartTime"
+                      class="text-[10px] text-teal-400 hover:text-teal-300 underline font-medium"
+                    >
+                      ⚡ Mulai Sekarang
+                    </button>
+                  </div>
+                  <input
+                    v-model="form.waktu_mulai"
+                    @change="onWaktuMulaiChange"
+                    type="datetime-local"
+                    style="color-scheme: dark;"
+                    class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white text-xs outline-none min-h-[42px]"
+                  />
+                  <p class="text-[10px] text-gray-400 mt-1">
+                    Waktu gerbang ujian mulai dibuka untuk siswa.
+                  </p>
                 </div>
-                <input
-                  v-model="form.waktu_mulai"
-                  @change="calcWaktuSelesai"
-                  type="datetime-local"
-                  style="color-scheme: dark;"
-                  class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white text-xs outline-none min-h-[42px]"
-                />
+
+                <!-- Waktu Selesai / Batas Akhir Akses -->
+                <div>
+                  <div class="flex items-center justify-between mb-1.5">
+                    <label class="text-xs font-semibold text-gray-300">
+                      Batas Akhir Akses (Tutup) <span class="text-rose-400">*</span>
+                    </label>
+                    <span v-if="form.waktu_selesai" class="text-[10px] text-teal-400 font-mono">
+                      {{ formatPreviewDate(form.waktu_selesai) }}
+                    </span>
+                  </div>
+                  <input
+                    v-model="form.waktu_selesai"
+                    type="datetime-local"
+                    style="color-scheme: dark;"
+                    class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white text-xs outline-none min-h-[42px]"
+                  />
+                  <!-- Preset Tombol Cepat Batas Akhir -->
+                  <div class="flex items-center gap-1.5 flex-wrap mt-1.5">
+                    <span class="text-[10px] text-gray-400">Preset:</span>
+                    <button
+                      type="button"
+                      @click="setSelesaiPreset('today_end')"
+                      class="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-300 min-h-[36px] flex items-center"
+                      title="Tutup malam ini jam 23:59"
+                    >
+                      Hari Ini 23:59
+                    </button>
+                    <button
+                      type="button"
+                      @click="setSelesaiPreset('plus_4h')"
+                      class="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-300 min-h-[36px] flex items-center"
+                      title="4 Jam dari waktu buka"
+                    >
+                      +4 Jam
+                    </button>
+                    <button
+                      type="button"
+                      @click="setSelesaiPreset('plus_1d')"
+                      class="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-300 min-h-[36px] flex items-center"
+                      title="Besok (+24 jam)"
+                    >
+                      +1 Hari (Besok)
+                    </button>
+                    <button
+                      type="button"
+                      @click="setSelesaiPreset('plus_3d')"
+                      class="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-300 min-h-[36px] flex items-center"
+                      title="3 Hari lagi"
+                    >
+                      +3 Hari
+                    </button>
+                    <button
+                      type="button"
+                      @click="setSelesaiPreset('durasi_exact')"
+                      class="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-300 min-h-[36px] flex items-center"
+                      title="Tepat setelah durasi pengerjaan"
+                    >
+                      Sesuai Durasi
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <div class="flex items-center justify-between mb-1.5">
-                  <label class="text-xs font-semibold text-gray-300">
-                    Durasi Pengerjaan (Menit) <span class="text-rose-400">*</span>
-                  </label>
-                  <span class="text-xs font-bold text-teal-400 font-mono">{{ form.durasi_menit }} Menit</span>
+              <!-- Durasi Pengerjaan per Siswa -->
+              <div class="p-3.5 rounded-xl bg-slate-800/60 border border-white/10 space-y-2">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="text-xs font-semibold text-gray-300 block">
+                      Durasi Pengerjaan per Siswa <span class="text-rose-400">*</span>
+                    </label>
+                    <p class="text-[10px] text-gray-400">
+                      Jatah timer countdown masing-masing siswa setelah mereka menekan tombol "Mulai Ujian".
+                    </p>
+                  </div>
+                  <span class="text-xs sm:text-sm font-bold text-teal-400 font-mono">{{ form.durasi_menit }} Menit</span>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                   <input
                     v-model.number="form.durasi_menit"
-                    @input="calcWaktuSelesai"
                     type="number"
                     min="5"
                     max="300"
-                    class="w-24 px-3 py-2.5 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white font-mono font-bold text-xs outline-none min-h-[42px]"
+                    class="w-24 px-3 py-2 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white font-mono font-bold text-xs outline-none min-h-[38px]"
                   />
-                  <div class="flex items-center gap-1 flex-wrap">
+                  <div class="flex items-center gap-1.5 flex-wrap">
                     <button
                       v-for="d in [30, 45, 60, 90, 120]"
                       :key="d"
                       type="button"
                       @click="setDurasi(d)"
-                      class="px-2.5 py-2 rounded-lg text-xs font-medium transition-all min-h-[38px]"
+                      class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all min-h-[38px] flex items-center"
                       :class="form.durasi_menit === d ? 'bg-teal-500 text-slate-950 font-bold' : 'bg-white/5 hover:bg-white/10 text-gray-300'"
                     >
                       {{ d }}m
@@ -402,16 +508,19 @@ function handleSubmit() {
                   </div>
                 </div>
               </div>
-            </div>
 
-            <!-- Auto-Calculated Completion Time Preview -->
-            <div v-if="form.waktu_mulai" class="p-3 rounded-xl bg-slate-800/60 border border-white/5 flex items-center justify-between text-xs text-gray-300">
-              <span class="flex items-center gap-2 text-gray-400">
-                <span>⏱️ Selesai Otomatis Pada:</span>
-              </span>
-              <span class="font-mono font-bold text-teal-300">
-                {{ formatPreviewDate(form.waktu_selesai) }}
-              </span>
+              <!-- Info Ringkasan Akses Ujian -->
+              <div v-if="form.waktu_mulai || form.waktu_selesai" class="p-3 rounded-xl bg-teal-500/10 border border-teal-500/20 text-xs space-y-1">
+                <div class="flex items-center justify-between text-teal-300 font-medium flex-wrap gap-1">
+                  <span>📅 Rentang Akses Ujian Siswa:</span>
+                  <span class="font-mono text-[11px]">
+                    {{ formatPreviewDate(form.waktu_mulai) }} s/d {{ formatPreviewDate(form.waktu_selesai) }}
+                  </span>
+                </div>
+                <p class="text-[10px] text-teal-200/80">
+                  💡 Siswa (termasuk yang daring) dapat masuk dan mengerjakan kapan saja sebelum batas tutup, dengan timer mandiri selama {{ form.durasi_menit }} menit.
+                </p>
+              </div>
             </div>
 
             <!-- TAUTKAN MATERI PEMBELAJARAN (Menyelesaikan dobel alur antar menu) -->

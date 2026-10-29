@@ -879,4 +879,65 @@ class ComprehensiveInputAuditTest extends TestCase
             'peserta',
         ]);
     }
+
+    /** Test 24: Guru dapat mengatur jendela akses fleksibel untuk daring dan tidak ditimpa oleh durasi */
+    public function test_guru_can_set_flexible_access_window_for_online_students(): void
+    {
+        $bank = \App\Models\CbtBankSoal::create([
+            'kode' => 'BANK-DARING-1',
+            'judul' => 'Bank Soal Ujian Daring',
+            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'guru_id' => $this->guru->id,
+            'tingkat' => 'X',
+        ]);
+
+        $today = now()->format('Y-m-d');
+        $waktuMulai = "{$today}T07:00";
+        $waktuSelesai = "{$today}T23:59";
+
+        // 1. Simpan jadwal dengan buka jam 07:00 dan tutup jam 23:59 (durasi 60 menit)
+        $response = $this->actingAs($this->guruUser)->post(route('guru.cbt.jadwal.store'), [
+            'bank_soal_id' => $bank->id,
+            'judul_ujian' => 'Ujian Daring Fleksibel',
+            'waktu_mulai' => $waktuMulai,
+            'waktu_selesai' => $waktuSelesai,
+            'durasi_menit' => 60,
+            'token' => 'DARING1',
+            'status' => 'aktif',
+            'mode_ujian' => 'formal',
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $jadwal = \App\Models\CbtJadwal::where('token', 'DARING1')->first();
+        $this->assertNotNull($jadwal);
+        // Pastikan waktu_selesai benar-benar jam 23:59 dan TIDAK ditimpa oleh durasi (08:00)
+        $this->assertEquals('23:59', $jadwal->waktu_selesai->format('H:i'));
+
+        // 2. Validasi penolakan jika waktu_selesai lebih awal dari waktu_mulai
+        $invalidResponse = $this->actingAs($this->guruUser)->post(route('guru.cbt.jadwal.store'), [
+            'bank_soal_id' => $bank->id,
+            'judul_ujian' => 'Ujian Jam Terbalik',
+            'waktu_mulai' => "{$today}T15:00",
+            'waktu_selesai' => "{$today}T10:00",
+            'durasi_menit' => 60,
+            'token' => 'TERBALIK',
+            'status' => 'aktif',
+        ]);
+        $invalidResponse->assertSessionHasErrors('waktu_selesai');
+
+        // 3. Simulasikan siswa sekolah daring yang masuk jam 12:00 siang (setelah jam 08:00)
+        \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse("{$today} 12:00:00"));
+        $service = app(\App\Services\Cbt\CbtExamService::class);
+
+        // Siswa harus diizinkan mengikuti ujian karena jendela akses masih terbuka sampai 23:59
+        $eligible = true;
+        try {
+            $service->assertJadwalEligible($jadwal, $this->siswa);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $eligible = false;
+        }
+        $this->assertTrue($eligible, 'Siswa daring jam 12:00 seharusnya diizinkan memulai ujian.');
+
+        \Carbon\Carbon::setTestNow(); // Reset time mock
+    }
 }

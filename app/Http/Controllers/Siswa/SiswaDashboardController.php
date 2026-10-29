@@ -224,7 +224,7 @@ class SiswaDashboardController extends Controller
                         'durasiMenit' => $m->cbtJadwal->durasi_menit,
                         'token' => $m->cbtJadwal->token,
                     ] : null,
-                    'fileUrl' => $m->file_path ? asset('storage/'.$m->file_path) : ($m->file_url ?? ''),
+                    'fileUrl' => $m->file_path ? ('/storage/'.ltrim($m->file_path, '/')) : ($m->file_url ?? ''),
                     'filePath' => $m->file_path,
                     'fileName' => $m->file_path ? basename($m->file_path) : '',
                     'deskripsi' => $m->deskripsi ?? '',
@@ -237,7 +237,7 @@ class SiswaDashboardController extends Controller
                         'konten' => $s->konten,
                         'filePath' => $s->file_path,
                         'fileName' => $s->file_path ? basename($s->file_path) : '',
-                        'fileUrl' => $s->file_path ? asset('storage/'.$s->file_path) : ($s->file_url ?? ''),
+                        'fileUrl' => $s->file_path ? ('/storage/'.ltrim($s->file_path, '/')) : ($s->file_url ?? ''),
                     ])->values(),
                     'reads' => $m->reads->map(fn ($r) => [
                         'siswaId' => $r->siswa_id,

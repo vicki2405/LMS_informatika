@@ -228,14 +228,14 @@ class CbtExamService
                     'opsiD' => $s->opsi_d,
                     'opsiE' => $s->opsi_e,
                     'bobot' => $s->bobot ?? 1,
-                    'mediaSoal' => $s->media_soal ? asset('storage/'.$s->media_soal) : null,
+                    'mediaSoal' => $s->media_soal ? ('/storage/'.ltrim($s->media_soal, '/')) : null,
                     'tipeMediaSoal' => $s->tipe_media_soal,
                     'posisiMediaSoal' => $s->posisi_media_soal ?? 'bawah',
-                    'gambarOpsiA' => $s->gambar_opsi_a ? asset('storage/'.$s->gambar_opsi_a) : null,
-                    'gambarOpsiB' => $s->gambar_opsi_b ? asset('storage/'.$s->gambar_opsi_b) : null,
-                    'gambarOpsiC' => $s->gambar_opsi_c ? asset('storage/'.$s->gambar_opsi_c) : null,
-                    'gambarOpsiD' => $s->gambar_opsi_d ? asset('storage/'.$s->gambar_opsi_d) : null,
-                    'gambarOpsiE' => $s->gambar_opsi_e ? asset('storage/'.$s->gambar_opsi_e) : null,
+                    'gambarOpsiA' => $s->gambar_opsi_a ? ('/storage/'.ltrim($s->gambar_opsi_a, '/')) : null,
+                    'gambarOpsiB' => $s->gambar_opsi_b ? ('/storage/'.ltrim($s->gambar_opsi_b, '/')) : null,
+                    'gambarOpsiC' => $s->gambar_opsi_c ? ('/storage/'.ltrim($s->gambar_opsi_c, '/')) : null,
+                    'gambarOpsiD' => $s->gambar_opsi_d ? ('/storage/'.ltrim($s->gambar_opsi_d, '/')) : null,
+                    'gambarOpsiE' => $s->gambar_opsi_e ? ('/storage/'.ltrim($s->gambar_opsi_e, '/')) : null,
                 ];
 
                 if ($isGameMode && (! $s->tipe_soal || $s->tipe_soal === 'pilihan_ganda')) {
