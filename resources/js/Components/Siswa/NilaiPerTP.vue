@@ -450,7 +450,7 @@ function getPredikat(finalScore, isComplete) {
         </div>
 
         <!-- Desktop View (Tabel Rincian Nilai Siswa) -->
-        <div class="hidden sm:block overflow-x-auto">
+        <div class="hidden md:block overflow-x-auto">
           <table class="w-full text-left text-xs text-gray-300">
             <thead class="bg-slate-950/80 text-gray-400 uppercase text-[10px] font-extrabold tracking-wider border-b border-white/10">
               <tr>
@@ -538,7 +538,7 @@ function getPredikat(finalScore, isComplete) {
         </div>
 
         <!-- Mobile View (Card List Rincian TP) -->
-        <div class="block sm:hidden p-4 space-y-3">
+        <div class="md:hidden p-4 space-y-3">
           <div
             v-for="(tp, index) in activeTpList"
             :key="'m-det-' + tp.id"

@@ -145,9 +145,10 @@ function viewStudentTaskDetail(item) {
       </div>
     </div>
 
-    <!-- Tabel Data Ketuntasan Tugas -->
+    <!-- Tabel Data Ketuntasan Tugas & Mobile Cards -->
     <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
-      <div class="overflow-x-auto">
+      <!-- Desktop Table View -->
+      <div class="hidden md:block overflow-x-auto">
         <table class="w-full text-left text-xs sm:text-sm text-gray-300 border-collapse table-fixed min-w-[1080px]">
           <thead class="bg-slate-950/60 text-gray-400 uppercase text-[11px] font-extrabold tracking-wider border-b border-white/10">
             <tr>
@@ -222,6 +223,82 @@ function viewStudentTaskDetail(item) {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Mobile Card List View (md:hidden) -->
+      <div class="md:hidden divide-y divide-white/10">
+        <div
+          v-for="(t, idx) in filteredTugasList"
+          :key="'mob-tugas-' + t.id"
+          class="p-4 space-y-3.5 hover:bg-white/[0.02] transition-colors"
+        >
+          <!-- Top Row: Student Name & Status Badge -->
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="font-extrabold text-white text-sm truncate">{{ t.namaSiswa }}</div>
+              <div class="text-[11px] font-mono text-gray-400 mt-0.5">
+                #{{ idx + 1 }} • NIS: {{ t.nis }}
+              </div>
+            </div>
+
+            <span
+              :class="[
+                'px-2.5 py-1 rounded-full text-[10px] font-black border shrink-0',
+                t.status === 'Tuntas' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' :
+                t.status === 'Remedial' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' :
+                t.status === 'Belum Dinilai' ? 'bg-gray-500/20 text-gray-400 border-gray-500/30' :
+                'bg-red-500/20 text-red-300 border-red-500/30'
+              ]"
+            >
+              {{ t.status }}
+            </span>
+          </div>
+
+          <!-- Modul Tugas & Mapel Info -->
+          <div class="bg-slate-950/60 rounded-2xl p-3 border border-white/5 space-y-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="bg-indigo-500/20 text-indigo-300 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-indigo-500/30">
+                {{ t.mapel }}
+              </span>
+              <span class="text-xs text-gray-400">Guru: <span class="text-gray-200 font-semibold">{{ t.guruPengajar }}</span></span>
+            </div>
+
+            <div class="text-xs text-white font-medium">
+              <template v-if="t.source === 'Nilai TP'">
+                <span class="text-cyan-300 font-black font-mono">{{ t.kodeTp }}</span>
+                <span class="text-gray-500">·</span>
+                <span class="text-gray-400">{{ t.semester }}</span> — {{ t.judulTugas }}
+              </template>
+              <template v-else>{{ t.judulTugas }}</template>
+            </div>
+
+            <div v-if="t.catatan" class="text-[11px] text-cyan-200 bg-cyan-950/40 p-2 rounded-xl border border-cyan-500/20">
+              💬 Catatan: {{ t.catatan }}
+            </div>
+          </div>
+
+          <!-- Score & Detail Action Bar -->
+          <div class="flex items-center justify-between pt-1 border-t border-white/5">
+            <div class="flex items-baseline gap-1.5">
+              <span class="text-[11px] text-gray-400 font-bold uppercase">Nilai:</span>
+              <span class="text-lg font-black font-mono text-white">
+                {{ t.nilai || '-' }}
+              </span>
+            </div>
+
+            <button
+              @click="viewStudentTaskDetail(t)"
+              class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/30 rounded-xl border border-indigo-500/30 min-h-[38px] transition-all active:scale-95 shadow-sm"
+            >
+              <span>👁️</span>
+              <span>Detail Progres</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="filteredTugasList.length === 0" class="py-12 text-center text-gray-400 text-xs font-medium">
+          Tidak ada laporan ketuntasan tugas yang sesuai.
+        </div>
       </div>
     </div>
 

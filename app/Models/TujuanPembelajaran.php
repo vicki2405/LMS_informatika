@@ -13,4 +13,9 @@ class TujuanPembelajaran extends Model
     {
         return $this->belongsTo(TahunAjaran::class);
     }
+
+    public function nilaiTps()
+    {
+        return $this->hasMany(NilaiTp::class, 'tp_id');
+    }
 }

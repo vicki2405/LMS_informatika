@@ -728,8 +728,8 @@ function submitTransfer() {
 
       <!-- MODE TABEL: TABEL MATRIKS RINGKAS (UNTUK BANYAK KELAS / ROMBEL) -->
       <div v-else class="space-y-4">
-        <!-- Pure Responsive Table (Selalu Tampil Sebagai Tabel di Semua Layar) -->
-        <div class="overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
+        <!-- Desktop Table View (hidden md:block) -->
+        <div class="hidden md:block overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
           <table class="w-full text-left border-collapse text-xs min-w-[700px]">
             <thead>
               <tr class="border-b border-white/10 bg-white/5 text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">
@@ -796,6 +796,71 @@ function submitTransfer() {
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- Mobile Card List View (md:hidden) -->
+        <div class="md:hidden space-y-3.5">
+          <div
+            v-for="j in filteredJadwalCards"
+            :key="'mob-jadwal-' + j.id"
+            class="p-4 rounded-2xl bg-slate-900 border border-white/10 space-y-3.5 shadow-lg"
+          >
+            <!-- Header: Title, Mapel, Class Badge -->
+            <div class="flex items-start justify-between gap-2.5">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap mb-1">
+                  <span class="px-2 py-0.5 rounded-md bg-teal-500/15 text-teal-300 border border-teal-500/30 text-[10px] font-bold font-mono">
+                    📖 {{ j.mapelNama }}
+                  </span>
+                  <span class="px-2 py-0.5 rounded-md bg-white/5 text-gray-300 border border-white/10 text-[10px] font-mono font-bold">
+                    {{ j.kelasNama }}
+                  </span>
+                  <span v-if="j.isDeleted" class="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-bold">
+                    📁 Arsip
+                  </span>
+                </div>
+                <h4 class="font-bold text-white text-sm leading-snug">{{ j.judulUjian }}</h4>
+              </div>
+
+              <!-- Avg Score Badge -->
+              <div class="text-right shrink-0">
+                <span class="text-[10px] text-gray-400 block uppercase font-mono">Rata-rata</span>
+                <span class="text-lg font-black font-mono text-cyan-300">{{ j.avgScore }}</span>
+              </div>
+            </div>
+
+            <!-- Participation Bar -->
+            <div class="bg-slate-950/60 p-3 rounded-xl border border-white/5 space-y-1.5">
+              <div class="flex items-center justify-between text-[11px] font-mono">
+                <span class="text-gray-400">Partisipasi Siswa</span>
+                <span class="text-emerald-400 font-bold">{{ j.sudahUjianCount }}/{{ j.totalSiswaKelas }} ({{ j.partisipasiPersen }}%)</span>
+              </div>
+              <div class="w-full h-2 rounded-full bg-slate-900 overflow-hidden border border-white/5">
+                <div
+                  class="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-400"
+                  :style="{ width: j.partisipasiPersen + '%' }"
+                ></div>
+              </div>
+            </div>
+
+            <!-- Token & Action Footer -->
+            <div class="flex items-center justify-between pt-1 border-t border-white/5 text-xs">
+              <div class="text-[11px] text-gray-400 font-mono">
+                <span>Token: <strong class="text-amber-300">{{ j.token }}</strong></span>
+                <span class="mx-1">•</span>
+                <span>{{ j.durasiMenit }} Menit</span>
+              </div>
+
+              <button
+                type="button"
+                @click="selectSchedule(j.id)"
+                class="px-4 py-2 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 text-xs font-bold transition-all inline-flex items-center gap-1.5 min-h-[38px] active:scale-95 cursor-pointer"
+              >
+                <span>Evaluasi</span>
+                <span>➔</span>
+              </button>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -1051,8 +1116,8 @@ function submitTransfer() {
       <!-- TAB 1: DAFTAR NILAI & PERINGKAT                                       -->
       <!-- ===================================================================== -->
       <div v-if="activeEvaluationTab === 'nilai'" class="space-y-4">
-        <!-- Pure Responsive Table (Selalu Tampil Sebagai Tabel di Semua Layar) -->
-        <div v-if="sortedScheduleGrades.length > 0" class="overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
+        <!-- Desktop Table View (hidden md:block) -->
+        <div v-if="sortedScheduleGrades.length > 0" class="hidden md:block overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
           <table class="w-full text-left border-collapse text-xs min-w-[650px]">
             <thead>
               <tr class="border-b border-white/10 bg-white/5 text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">
@@ -1151,6 +1216,86 @@ function submitTransfer() {
           </table>
         </div>
 
+        <!-- Mobile Card List View for Student Grades (md:hidden) -->
+        <div v-if="sortedScheduleGrades.length > 0" class="md:hidden space-y-3">
+          <div
+            v-for="n in sortedScheduleGrades"
+            :key="'mob-grade-' + n.id"
+            class="p-4 rounded-2xl bg-slate-900 border border-white/10 space-y-3 shadow-lg"
+          >
+            <!-- Top: Rank, Student Info, Score Badge -->
+            <div class="flex items-start justify-between gap-2.5">
+              <div class="flex items-start gap-2.5 min-w-0">
+                <!-- Rank -->
+                <div class="shrink-0 pt-0.5">
+                  <span v-if="getRank(n.id) === 1" class="inline-flex items-center px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/50 text-amber-300 font-bold text-xs">
+                    🥇 #1
+                  </span>
+                  <span v-else-if="getRank(n.id) === 2" class="inline-flex items-center px-2 py-0.5 rounded-lg bg-slate-400/20 border border-slate-300/40 text-slate-200 font-bold text-xs">
+                    🥈 #2
+                  </span>
+                  <span v-else-if="getRank(n.id) === 3" class="inline-flex items-center px-2 py-0.5 rounded-lg bg-amber-700/25 border border-amber-600/40 text-amber-300 font-bold text-xs">
+                    🥉 #3
+                  </span>
+                  <span v-else class="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-white/5 text-gray-400 font-mono font-bold text-xs">
+                    #{{ getRank(n.id) }}
+                  </span>
+                </div>
+
+                <div class="min-w-0">
+                  <p class="font-bold text-white text-sm truncate">{{ n.namaSiswa }}</p>
+                  <div class="flex items-center gap-1.5 text-[11px] text-gray-400 font-mono mt-0.5">
+                    <span>NIS: {{ n.nis }}</span>
+                    <span>•</span>
+                    <span class="text-teal-300 font-bold">{{ n.kelasNama }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Nilai -->
+              <div class="text-right shrink-0">
+                <span
+                  :class="[
+                    'inline-flex items-center justify-center px-3 py-1 rounded-xl font-black text-sm border font-mono',
+                    n.nilai >= 75
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                      : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                  ]"
+                >
+                  {{ n.nilai }}
+                </span>
+                <span
+                  :class="[
+                    'block mt-1 text-[10px] font-bold',
+                    n.status === 'Tuntas' ? 'text-emerald-400' : 'text-amber-400'
+                  ]"
+                >
+                  {{ n.status }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Action Buttons Footer -->
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
+              <button
+                type="button"
+                @click="openDetail(n)"
+                class="px-3 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 text-xs font-bold transition-colors min-h-[38px] flex items-center gap-1.5 active:scale-95"
+              >
+                <span>📄 Detail Lembar Ujian</span>
+              </button>
+              <button
+                type="button"
+                @click="resetStudentSession(n)"
+                class="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-bold transition-colors min-h-[38px] flex items-center gap-1.5 active:scale-95"
+                title="Izinkan Ujian Ulang / Remedial"
+              >
+                <span>🔄 Ujian Ulang</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Empty State in Table -->
         <div v-else class="text-center py-12 rounded-2xl bg-slate-900 border border-white/10 space-y-2">
           <span class="text-3xl block">🔍</span>
@@ -1176,7 +1321,8 @@ function submitTransfer() {
           </div>
         </div>
 
-        <div v-if="uncompletedStudents.length > 0" class="overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
+        <!-- Desktop View (hidden md:block) -->
+        <div v-if="uncompletedStudents.length > 0" class="hidden md:block overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
           <table class="w-full text-left border-collapse text-xs min-w-[600px]">
             <thead>
               <tr class="border-b border-white/10 bg-white/5 text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">
@@ -1203,6 +1349,31 @@ function submitTransfer() {
           </table>
         </div>
 
+        <!-- Mobile Card List View for Uncompleted Students (md:hidden) -->
+        <div v-if="uncompletedStudents.length > 0" class="md:hidden space-y-3">
+          <div
+            v-for="(s, idx) in uncompletedStudents"
+            :key="'mob-uncompleted-' + s.id"
+            class="p-4 rounded-2xl bg-slate-900 border border-amber-500/20 space-y-2 shadow-md"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <p class="font-bold text-white text-sm">{{ s.nama }}</p>
+                <div class="flex items-center gap-1.5 text-[11px] text-gray-400 font-mono mt-0.5">
+                  <span>#{{ idx + 1 }}</span>
+                  <span>•</span>
+                  <span>NIS: {{ s.nis }}</span>
+                  <span>•</span>
+                  <span class="text-amber-300 font-bold">{{ s.kelas }}</span>
+                </div>
+              </div>
+              <span class="px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold font-mono shrink-0">
+                Belum Ujian
+              </span>
+            </div>
+          </div>
+        </div>
+
         <div v-else class="text-center py-12 rounded-2xl bg-slate-900 border border-white/10 space-y-2">
           <span class="text-3xl block">🎉</span>
           <h4 class="text-sm font-bold text-white">Semua Siswa Telah Mengerjakan!</h4>
@@ -1224,7 +1395,8 @@ function submitTransfer() {
           </div>
         </div>
 
-        <div v-if="violatingStudents.length > 0" class="overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
+        <!-- Desktop View (hidden md:block) -->
+        <div v-if="violatingStudents.length > 0" class="hidden md:block overflow-x-auto rounded-2xl bg-slate-900 border border-white/10 shadow-xl">
           <table class="w-full text-left border-collapse text-xs min-w-[600px]">
             <thead>
               <tr class="border-b border-white/10 bg-white/5 text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">
@@ -1264,6 +1436,41 @@ function submitTransfer() {
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- Mobile Card List View for Violating Students (md:hidden) -->
+        <div v-if="violatingStudents.length > 0" class="md:hidden space-y-3">
+          <div
+            v-for="v in violatingStudents"
+            :key="'mob-violating-' + v.id"
+            class="p-4 rounded-2xl bg-slate-900 border border-rose-500/30 space-y-3 shadow-md"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <p class="font-bold text-white text-sm">{{ v.namaSiswa }}</p>
+                <div class="flex items-center gap-1.5 text-[11px] text-gray-400 font-mono mt-0.5">
+                  <span>NIS: {{ v.nis }}</span>
+                  <span>•</span>
+                  <span class="text-cyan-300 font-bold">{{ v.kelasNama }}</span>
+                </div>
+              </div>
+
+              <span class="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold text-[10px] shrink-0 font-mono">
+                ⚠️ {{ v.jumlahPelanggaran }}x Pelanggaran
+              </span>
+            </div>
+
+            <div class="flex items-center justify-between pt-2 border-t border-white/5 text-xs">
+              <span class="text-gray-400 font-mono text-[11px]">Sesi: {{ v.sesiStatus || 'selesai' }}</span>
+              <button
+                type="button"
+                @click="openDetail(v)"
+                class="px-3 py-1.5 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold min-h-[36px] active:scale-95"
+              >
+                Detail Lembar Ujian
+              </button>
+            </div>
+          </div>
         </div>
 
         <div v-else class="text-center py-12 rounded-2xl bg-slate-900 border border-white/10 space-y-2">

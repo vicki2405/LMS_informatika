@@ -418,9 +418,10 @@ function getInitials(name) {
         </div>
       </div>
 
-      <!-- DATA LISTING: PURE RESPONSIVE TABLE (TAMPIL TABEL DI SELURUH UKURAN LAYAR) -->
+      <!-- DATA LISTING: RESPONSIVE DUAL-VIEW (DESKTOP TABLE & MOBILE CARDS) -->
       <div class="rounded-3xl bg-slate-900/90 border border-white/10 overflow-hidden shadow-2xl">
-        <div class="overflow-x-auto">
+        <!-- Desktop Table View (hidden md:block) -->
+        <div class="hidden md:block overflow-x-auto">
           <table class="w-full text-left text-xs min-w-[780px]">
             <thead class="bg-slate-950 text-gray-400 uppercase text-[10.5px] font-black tracking-wider border-b border-white/10 font-mono">
               <tr>
@@ -548,6 +549,97 @@ function getInitials(name) {
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- Mobile Card List View (md:hidden) -->
+        <div class="md:hidden divide-y divide-white/10">
+          <div
+            v-for="(s, idx) in filteredStudents"
+            :key="'mob-materi-read-' + s.id"
+            class="p-4 space-y-3.5 hover:bg-white/[0.02] transition-colors"
+          >
+            <!-- Top Identity & Status Row -->
+            <div class="flex items-start justify-between gap-2.5">
+              <div class="flex items-center gap-3 min-w-0">
+                <div
+                  :class="[
+                    'w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-black shrink-0 border shadow-md',
+                    s.gender === 'P'
+                      ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                      : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                  ]"
+                >
+                  {{ getInitials(s.nama) }}
+                </div>
+                <div class="min-w-0">
+                  <div class="font-bold text-white text-sm truncate">{{ s.nama }}</div>
+                  <div class="flex items-center gap-1.5 text-[11px] text-gray-400 font-mono mt-0.5">
+                    <span>#{{ idx + 1 }}</span>
+                    <span>•</span>
+                    <span>NIS: {{ s.nis || '-' }}</span>
+                    <span>•</span>
+                    <span class="text-cyan-300 font-bold">{{ s.kelasNama || '-' }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Status Badge -->
+              <span
+                v-if="s.status === 'selesai'"
+                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0"
+              >
+                <span>✓ Selesai</span>
+              </span>
+              <span
+                v-else-if="s.status === 'sedang_membaca'"
+                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0"
+              >
+                <span>📖 Sedang Baca</span>
+              </span>
+              <span
+                v-else
+                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-white/5 text-gray-400 border border-white/10 shrink-0"
+              >
+                <span>⚪ Belum Buka</span>
+              </span>
+            </div>
+
+            <!-- Reading Progress Bar -->
+            <div class="bg-slate-950/60 rounded-2xl p-3 border border-white/5 space-y-2">
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-gray-400 text-[11px] font-bold uppercase">Progres Membaca:</span>
+                <span class="font-mono font-black" :class="s.status === 'selesai' ? 'text-emerald-400' : 'text-cyan-300'">
+                  {{ s.progressPersen || 0 }}%
+                </span>
+              </div>
+              <div class="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-white/10 p-0.5">
+                <div
+                  class="h-full rounded-full transition-all duration-500"
+                  :class="s.status === 'selesai' ? 'bg-gradient-to-r from-teal-400 to-emerald-400' : (s.progressPersen > 0 ? 'bg-gradient-to-r from-amber-400 to-orange-400' : 'bg-transparent')"
+                  :style="{ width: `${s.progressPersen || 0}%` }"
+                ></div>
+              </div>
+            </div>
+
+            <!-- Reading Timeline Grid -->
+            <div class="grid grid-cols-2 gap-2 text-[11px] font-mono">
+              <div class="bg-slate-950/40 p-2 rounded-xl border border-white/5">
+                <span class="text-gray-500 block text-[9.5px] uppercase font-sans font-bold">Pertama Dibuka</span>
+                <span class="text-gray-300">{{ s.openedAt || '-' }}</span>
+              </div>
+              <div class="bg-slate-950/40 p-2 rounded-xl border border-white/5">
+                <span class="text-gray-500 block text-[9.5px] uppercase font-sans font-bold">Selesai Dibaca</span>
+                <span class="text-emerald-300 font-semibold">{{ s.completedAt || '-' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Empty State Mobile -->
+          <div v-if="filteredStudents.length === 0" class="py-12 text-center space-y-2">
+            <div class="text-3xl">🔍</div>
+            <p class="text-sm font-bold text-gray-300">Tidak ada siswa yang sesuai kriteria.</p>
+            <p class="text-xs text-gray-500">Coba ubah kata kunci pencarian atau ganti filter status/rombel di atas.</p>
+          </div>
         </div>
       </div>
 

@@ -60,13 +60,12 @@ class SiswaDashboardController extends Controller
                 ->toArray();
 
             if (empty($kelasMapels)) {
-                $kelasMapels = NilaiTp::query()
-                    ->whereHas('siswa', fn ($q) => $q->where('kelas_id', $kelasId))
-                    ->with('tp')
-                    ->get()
-                    ->pluck('tp.mapel')
+                $kelasMapels = TujuanPembelajaran::query()
+                    ->whereHas('nilaiTps.siswa', fn ($q) => $q->where('kelas_id', $kelasId))
+                    ->whereNotNull('mapel')
+                    ->distinct()
+                    ->pluck('mapel')
                     ->filter()
-                    ->unique()
                     ->values()
                     ->toArray();
             }
@@ -299,8 +298,8 @@ class SiswaDashboardController extends Controller
 
         return CbtJadwal::query()
             ->with([
+                'bankSoal' => fn ($q) => $q->select(['id', 'judul', 'mata_pelajaran_id'])->withCount('soals'),
                 'bankSoal.mataPelajaran:id,nama',
-                'bankSoal.soals' => fn ($q) => $q->orderBy('nomor_urut', 'asc'),
                 'guru:id,nama',
                 'jurusan:id,nama,kode',
                 'kelas:id,nama_kelas',
@@ -350,7 +349,7 @@ class SiswaDashboardController extends Controller
                     'acakSoal' => (bool) ($j->acak_soal ?? true),
                     'acakOpsi' => (bool) ($j->acak_opsi ?? true),
                     'modeUjian' => $j->mode_ujian ?? 'formal',
-                    'jumlahSoal' => $j->bankSoal?->soals->count() ?? 0,
+                    'jumlahSoal' => $j->bankSoal?->soals_count ?? ($j->bankSoal?->soals?->count() ?? 0),
                     'totalSelesai' => $jadwalNilais->count(),
                     'riwayatPeserta' => $jadwalNilais->map(fn ($r) => [
                         'siswaId' => $r->siswa_id,

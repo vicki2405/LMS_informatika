@@ -314,6 +314,112 @@ function processImport() {
           </tbody>
         </table>
       </div>
+
+      <!-- Mobile Card List View (md:hidden) -->
+      <div class="md:hidden divide-y divide-white/10">
+        <div
+          v-for="(s, idx) in sortedFilteredSiswa"
+          :key="'mob-siswa-' + s.id"
+          class="p-4 space-y-3.5 hover:bg-white/[0.02] transition-colors"
+        >
+          <!-- Header: No, Nama, Gender, NIS -->
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-md">
+                {{ s.nama.substring(0, 2).toUpperCase() }}
+              </div>
+              <div class="min-w-0">
+                <div class="font-extrabold text-white text-sm truncate">{{ s.nama }}</div>
+                <div class="flex items-center gap-2 text-[11px] text-gray-400 font-mono mt-0.5">
+                  <span>#{{ idx + 1 }}</span>
+                  <span>•</span>
+                  <span>NIS: {{ s.nis || '100' + (idx + 1) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <span
+              :class="[
+                'px-2.5 py-1 rounded-full font-black text-[10px] shrink-0',
+                s.jenisKelamin === 'Laki-laki'
+                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                  : 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
+              ]"
+            >
+              {{ s.jenisKelamin === 'Laki-laki' ? 'Laki-laki (L)' : 'Perempuan (P)' }}
+            </span>
+          </div>
+
+          <!-- Kontak Details Grid -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <!-- WA Siswa -->
+            <div class="bg-slate-950/60 rounded-xl p-2.5 border border-white/5 flex items-center justify-between gap-2">
+              <span class="text-gray-400 text-[11px] font-bold">WA Siswa:</span>
+              <a
+                v-if="s.teleponSiswa || s.telepon"
+                :href="'https://wa.me/' + (s.teleponSiswa || s.telepon).replace(/[^0-9]/g, '')"
+                target="_blank"
+                class="text-cyan-300 hover:text-white font-mono font-bold text-xs truncate flex items-center gap-1"
+                title="Hubungi Siswa"
+              >
+                📱 {{ s.teleponSiswa || s.telepon }}
+              </a>
+              <span v-else class="text-gray-600 font-mono">-</span>
+            </div>
+
+            <!-- WA Ortu -->
+            <div class="bg-slate-950/60 rounded-xl p-2.5 border border-white/5 flex items-center justify-between gap-2">
+              <span class="text-gray-400 text-[11px] font-bold truncate">Ortu: {{ s.namaOrangTua ? s.namaOrangTua.split(' ')[0] : 'Wali' }}</span>
+              <a
+                v-if="s.teleponOrtu || s.telepon"
+                :href="'https://wa.me/' + (s.teleponOrtu || s.telepon).replace(/[^0-9]/g, '')"
+                target="_blank"
+                class="text-emerald-300 hover:text-white font-mono font-bold text-xs truncate flex items-center gap-1"
+                title="Hubungi Orang Tua"
+              >
+                💬 {{ s.teleponOrtu || s.telepon }}
+              </a>
+              <span v-else class="text-gray-600 font-mono">-</span>
+            </div>
+          </div>
+
+          <!-- Bottom Action Buttons: Maps, Edit, Hapus -->
+          <div class="flex items-center justify-between gap-2 pt-1 border-t border-white/5">
+            <div>
+              <a
+                v-if="s.linkMaps"
+                :href="s.linkMaps"
+                target="_blank"
+                class="inline-flex items-center gap-1.5 px-3 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-bold rounded-xl border border-rose-500/30 min-h-[38px] transition-all active:scale-95"
+              >
+                📍 Lokasi Rumah
+              </a>
+              <span v-else class="text-gray-600 text-xs italic">Lokasi belum diset</span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button
+                @click="openEditSiswa(s)"
+                class="px-3 py-2 text-xs font-bold text-cyan-300 bg-cyan-500/15 hover:bg-cyan-500/30 rounded-xl border border-cyan-500/30 min-h-[38px] transition-all active:scale-95 flex items-center gap-1"
+                title="Edit Data Siswa"
+              >
+                ✏️ Edit
+              </button>
+              <button
+                @click="handleDeleteSiswa(s.id, s.nama)"
+                class="px-3 py-2 text-xs font-bold text-red-400 bg-red-500/15 hover:bg-red-500/30 rounded-xl border border-red-500/30 min-h-[38px] transition-all active:scale-95 flex items-center gap-1"
+                title="Hapus Siswa"
+              >
+                🗑️ Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="sortedFilteredSiswa.length === 0" class="py-12 text-center text-gray-400 text-xs font-medium">
+          Tidak ada data siswa yang cocok.
+        </div>
+      </div>
     </div>
 
     <!-- Modal Form Tambah / Edit Siswa -->
