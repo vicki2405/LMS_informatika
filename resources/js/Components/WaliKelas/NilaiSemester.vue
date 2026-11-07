@@ -227,7 +227,7 @@ const processedNilaiList = computed(() => {
                   v-for="tp in tpHeaders"
                   :key="tp.id"
                   class="py-3 px-4 text-center border-r border-white/5"
-                  :style="{ width: (50 / tpHeaders.length) + '%' }"
+                  :style="{ width: (tpHeaders.length > 0 ? (50 / tpHeaders.length) : 50) + '%' }"
                 >
                   <div class="flex items-center justify-center gap-1 font-black text-cyan-300 text-xs">
                     <span>{{ tp.kode }}</span>

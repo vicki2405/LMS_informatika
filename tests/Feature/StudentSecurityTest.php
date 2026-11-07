@@ -207,6 +207,81 @@ class StudentSecurityTest extends TestCase
             ->assertJsonCount(1, 'soals');
     }
 
+    public function test_shared_class_account_does_not_leak_other_student_homework(): void
+    {
+        $siswa2 = Siswa::create([
+            'nama' => 'Siswa Lain',
+            'kelas_id' => $this->kelas->id,
+            'jenis_kelamin' => 'L',
+            'status' => 'Aktif',
+        ]);
+
+        $tugas = \App\Models\Tugas::create([
+            'judul' => 'Tugas Matematika',
+            'mata_pelajaran' => 'Matematika',
+            'kelas_id' => $this->kelas->id,
+            'tenggat' => now()->addDays(2),
+        ]);
+
+        // Siswa 2 mengumpulkan tugas
+        \App\Models\PengumpulanTugas::create([
+            'tugas_id' => $tugas->id,
+            'siswa_id' => $siswa2->id,
+            'status' => 'Sudah Dikirim',
+            'nilai' => 95,
+        ]);
+
+        // Siswa 1 membuka dashboard (belum mengumpulkan tugas)
+        $response = $this->actingAs($this->studentUser)
+            ->get(route('siswa.dashboard', ['siswa_id' => $this->student->id]));
+
+        $response->assertOk();
+        $tugasList = $response->viewData('page')['props']['tugasListProp'];
+        $this->assertNotEmpty($tugasList);
+        $this->assertEquals('Belum Dikerjakan', $tugasList[0]['status']);
+        $this->assertNull($tugasList[0]['nilai']);
+    }
+
+    public function test_cbt_graceful_finalize_when_deadline_passed(): void
+    {
+        [$jadwal] = $this->makeCbtExam();
+
+        $this->actingAs($this->studentUser)
+            ->post(route('siswa.cbt.start'), [
+                'jadwal_id' => $jadwal->id,
+                'siswa_id' => $this->student->id,
+                'token' => 'ABC123',
+            ])
+            ->assertOk();
+
+        // Simulasikan waktu sesi telah melewati batas durasi ujian
+        CbtSesi::where('jadwal_id', $jadwal->id)
+            ->where('siswa_id', $this->student->id)
+            ->update([
+                'waktu_mulai' => now()->subHours(2),
+            ]);
+
+        $soal = $jadwal->bankSoal->soals->first();
+
+        // Kirim jawaban saat timer habis (graceful finalize)
+        $response = $this->actingAs($this->studentUser)
+            ->post(route('siswa.cbt.submit'), [
+                'jadwal_id' => $jadwal->id,
+                'siswa_id' => $this->student->id,
+                'answers' => [
+                    $soal->id => 'D', // Jawaban benar
+                ],
+            ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('cbt_nilais', [
+            'jadwal_id' => $jadwal->id,
+            'siswa_id' => $this->student->id,
+            'nilai' => 100,
+            'status' => 'Tuntas',
+        ]);
+    }
+
     private function makeCbtExam(): array
     {
         $bank = CbtBankSoal::create([

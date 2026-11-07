@@ -103,6 +103,7 @@ onMounted(() => {
         const savedId = localStorage.getItem('siswacloud_active_siswa_id');
         if (savedId && props.siswaListProp.some(s => String(s.id) === String(savedId))) {
           activeSiswaId.value = Number(savedId);
+          fetchStudentData(Number(savedId));
         } else {
           showIdentityModal.value = true;
         }
@@ -119,6 +120,15 @@ onUnmounted(() => {
   }
 });
 
+function fetchStudentData(siswaId) {
+  if (!siswaId) return;
+  router.reload({
+    data: { siswa_id: siswaId },
+    only: ['tugasListProp', 'nilaiTpListProp'],
+    preserveScroll: true,
+  });
+}
+
 function selectStudent(student) {
   activeSiswaId.value = student.id;
   try {
@@ -126,6 +136,7 @@ function selectStudent(student) {
   } catch (e) {}
   showIdentityModal.value = false;
   showToast(`Selamat datang, ${student.nama}!`, 'success');
+  fetchStudentData(student.id);
 }
 
 function switchStudent() {
@@ -147,6 +158,18 @@ const filteredClassSiswaList = computed(() => {
 const materiList = ref(props.materiListProp || []);
 const tugasList = ref(props.tugasListProp || []);
 const nilaiTPList = ref(props.nilaiTpListProp || []);
+
+watch(() => props.tugasListProp, (newVal) => {
+  tugasList.value = newVal || [];
+}, { deep: true });
+
+watch(() => props.nilaiTpListProp, (newVal) => {
+  nilaiTPList.value = newVal || [];
+}, { deep: true });
+
+watch(() => props.materiListProp, (newVal) => {
+  materiList.value = newVal || [];
+}, { deep: true });
 const notifications = ref([]);
 
 const unreadNotifCount = computed(() => notifications.value.filter(n => !n.read).length);

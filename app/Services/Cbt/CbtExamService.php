@@ -167,7 +167,9 @@ class CbtExamService
             ->addSeconds(120);
 
         if (now()->gt($deadline)) {
-            $this->fail('Waktu ujian telah habis.');
+            // Jika waktu ujian terlampaui saat auto-submit tiba di server,
+            // sisa waktu diset ke 0 dan sistem tetap memproses penilaian lembar jawaban (graceful auto-finalize).
+            $sesi->update(['sisa_waktu_detik' => 0]);
         }
 
         return $sesi;

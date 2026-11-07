@@ -289,9 +289,15 @@ class WaliKelasDashboardController extends Controller
 
             // Calculate overall average from all recorded unique TP scores
             $allScores = array_values($scoresByTpId);
-            $avg = count($allScores) > 0
-                ? round(array_sum($allScores) / count($allScores), 1)
-                : 0;
+            $hasScores = count($allScores) > 0;
+            $avg = $hasScores ? round(array_sum($allScores) / count($allScores), 1) : null;
+            $predikat = '-';
+            $status = 'Belum Dinilai';
+
+            if ($hasScores && $avg !== null) {
+                $predikat = $avg >= 90 ? 'A (Sangat Baik)' : ($avg >= 80 ? 'B (Baik)' : ($avg >= 75 ? 'C (Cukup)' : 'D (Perlu Bimbingan)'));
+                $status = $avg >= 75 ? 'Tuntas' : 'Belum Tuntas';
+            }
 
             return [
                 'id' => $s->id,
@@ -301,8 +307,8 @@ class WaliKelasDashboardController extends Controller
                 'scoresByTpId' => $scoresByTpId,
                 'scoresByMapel' => $scoresByMapel,
                 'nilaiAkhir' => $avg,
-                'predikat' => $avg >= 90 ? 'A (Sangat Baik)' : ($avg >= 80 ? 'B (Baik)' : ($avg >= 75 ? 'C (Cukup)' : 'D (Perlu Bimbingan)')),
-                'status' => $avg >= 75 ? 'Tuntas' : 'Belum Tuntas',
+                'predikat' => $predikat,
+                'status' => $status,
             ];
         });
     }

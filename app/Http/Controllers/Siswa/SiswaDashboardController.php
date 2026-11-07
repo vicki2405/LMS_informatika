@@ -40,7 +40,8 @@ class SiswaDashboardController extends Controller
         $user = $request->user();
 
         // 1. Resolve Student Record bound to this account
-        $siswaObj = $this->resolveAuthorizedSiswa($request);
+        $requestedSiswaId = $request->query('siswa_id') ?? $request->input('siswa_id');
+        $siswaObj = $this->resolveAuthorizedSiswa($request, $requestedSiswaId ? (int) $requestedSiswaId : null);
 
         $siswaId = $siswaObj?->id;
         $kelasId = $siswaObj?->kelas_id ?? $user->kelas_id;
@@ -261,6 +262,8 @@ class SiswaDashboardController extends Controller
             ->with(['pengumpulans' => function ($q) use ($siswaId) {
                 if ($siswaId) {
                     $q->where('siswa_id', '=', $siswaId);
+                } else {
+                    $q->whereRaw('1 = 0');
                 }
             }])
             ->orderBy('id', 'desc')
@@ -455,6 +458,10 @@ class SiswaDashboardController extends Controller
 
     private function getNilaiTpData(?int $siswaId): array
     {
+        if (! $siswaId) {
+            return [];
+        }
+
         return NilaiTp::query()->where('siswa_id', '=', $siswaId)->with('tp')->get()->map(function ($n) {
             $nilai = $n->nilai;
             $predikat = '-';

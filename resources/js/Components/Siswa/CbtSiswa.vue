@@ -1296,6 +1296,10 @@ function handleVisibilityChange() {
 
 function handleWindowBlur() {
   if (currentMode.value === 'exam_room') {
+    // Abaikan jika fokus sedang berada pada elemen form (misal input/textarea keyboard mobile)
+    if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+      return;
+    }
     recordViolation('Beralih Jendela / Membuka Aplikasi Lain (Split Screen / AI)');
   }
 }
@@ -1375,8 +1379,17 @@ function removeAntiCheatListeners() {
   window.removeEventListener('keydown', handleKeyDown);
 }
 
+let lastViolationTimestamp = 0;
+
 async function recordViolation(reason) {
   if (isExamLocked.value) return;
+
+  // Throttling 1.5 detik: cegah double violation saat window blur dan visibilitychange terpicu berbarengan di mobile
+  const now = Date.now();
+  if (now - lastViolationTimestamp < 1500) {
+    return;
+  }
+  lastViolationTimestamp = now;
 
   violationCount.value++;
 
@@ -1557,8 +1570,33 @@ function submitExam(force = false) {
         );
       }
     },
-    onError: () => {
-      showToast('Terjadi kendala saat menyimpan jawaban ujian.', 'error');
+    onError: (errors) => {
+      isExamSubmitted.value = false;
+      const errMsg = (errors && Object.values(errors)[0]) || 'Terjadi kendala jaringan saat menyimpan lembar jawaban ujian.';
+      Swal.fire({
+        title: 'Gagal Mengirim Jawaban',
+        html: `
+          <div class="text-left text-xs sm:text-sm text-gray-300 space-y-2 mt-2">
+            <p class="text-rose-400 font-bold">${errMsg}</p>
+            <p>Jawaban Anda <strong>tetap tersimpan di layar</strong> dan tidak hilang. Pastikan perangkat Anda terhubung ke internet lalu tekan tombol di bawah untuk mencoba kembali.</p>
+          </div>
+        `,
+        icon: 'error',
+        showCancelButton: true,
+        confirmButtonColor: '#06b6d4',
+        cancelButtonColor: '#475569',
+        confirmButtonText: '🔄 Coba Kirim Ulang Sekarang',
+        cancelButtonText: 'Tutup & Periksa',
+        background: '#0f172a',
+        color: '#fff',
+        customClass: {
+          popup: 'rounded-3xl border border-white/10 shadow-2xl backdrop-blur-xl',
+        },
+      }).then((res) => {
+        if (res.isConfirmed) {
+          submitExam(force);
+        }
+      });
     },
   });
 }
