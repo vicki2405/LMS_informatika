@@ -102,7 +102,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/cbt/daftar-siswa', [SiswaApiController::class, 'getDaftarSiswa']);
             Route::get('/cbt/jadwal', [SiswaApiController::class, 'getCbtJadwals']);
             Route::get('/cbt/nilai', [SiswaApiController::class, 'getCbtNilais']);
-            Route::post('/cbt/start', [SiswaApiController::class, 'startCbtExam']);
+            Route::post('/cbt/start', [SiswaApiController::class, 'startCbtExam'])->middleware('throttle:15,1');
             Route::post('/cbt/submit', [SiswaApiController::class, 'submitCbtExam']);
         });
     });

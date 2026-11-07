@@ -143,7 +143,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('siswa')->middleware('role:murid|admin')->name('siswa.')->group(function () {
         Route::get('/dashboard', [SiswaDashboardController::class, 'index'])->name('dashboard');
         Route::post('/tugas/submit', [SiswaDashboardController::class, 'submitTugas'])->name('tugas.submit');
-        Route::post('/cbt/start', [SiswaDashboardController::class, 'startCbtExam'])->name('cbt.start');
+        Route::post('/cbt/start', [SiswaDashboardController::class, 'startCbtExam'])->middleware('throttle:15,1')->name('cbt.start');
         Route::post('/cbt/gabung-ruang-tunggu', [SiswaDashboardController::class, 'gabungRuangTunggu'])->name('cbt.gabung-ruang-tunggu');
         Route::post('/cbt/keluar-ruang-tunggu', [SiswaDashboardController::class, 'keluarRuangTunggu'])->name('cbt.keluar-ruang-tunggu');
         Route::post('/cbt/catat-pelanggaran', [SiswaDashboardController::class, 'catatPelanggaran'])->name('cbt.catat-pelanggaran');

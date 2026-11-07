@@ -192,6 +192,15 @@ class GuruMateriController extends Controller
         $guruId = $guru?->id;
         $teacherMapels = $this->getTeacherMapelList($guru);
 
+        $formatKelas = fn ($k) => [
+            'id' => $k->id,
+            'nama' => $k->nama_kelas,
+            'namaKelas' => $k->nama_kelas,
+            'nama_kelas' => $k->nama_kelas,
+            'tingkat' => $k->tingkat,
+            'jurusan_id' => $k->jurusan_id,
+        ];
+
         $teacherKelas = [];
         if ($guruId) {
             $kelasIds = $this->getTeacherKelasIds($guruId);
@@ -199,10 +208,11 @@ class GuruMateriController extends Controller
                 ->whereIn('id', $kelasIds)
                 ->orderBy('nama_kelas', 'asc')
                 ->get()
+                ->map($formatKelas)
                 ->toArray();
         }
 
-        $masterKelas = Kelas::query()->orderBy('nama_kelas', 'asc')->get()->toArray();
+        $masterKelas = Kelas::query()->orderBy('nama_kelas', 'asc')->get()->map($formatKelas)->toArray();
         $teacherCbtJadwals = GuruCbtController::getJadwalsList($guruId);
 
         $teacherMapelNames = collect($teacherMapels)->pluck('nama')->merge(
@@ -239,8 +249,12 @@ class GuruMateriController extends Controller
                     'jamKe' => $j->jam_ke,
                     'waktu' => $j->waktu,
                     'mapel' => $j->mata_pelajaran,
+                    'mataPelajaran' => $j->mata_pelajaran,
                     'kelas' => $j->kelas?->nama_kelas ?? 'X RPL 1',
+                    'namaKelas' => $j->kelas?->nama_kelas ?? 'X RPL 1',
+                    'nama_kelas' => $j->kelas?->nama_kelas ?? 'X RPL 1',
                     'kelasId' => $j->kelas_id,
+                    'tingkat' => $j->kelas?->tingkat ?? 'X',
                 ])->toArray();
         }
 
@@ -282,8 +296,8 @@ class GuruMateriController extends Controller
             'tipe' => 'required|string',
             'theme' => 'nullable|string',
             'semester' => 'required|string',
-            'file_url' => ['nullable', 'string', 'max:2048', 'regex:/^https?:\/\//i'],
-            'fileUrl' => ['nullable', 'string', 'max:2048', 'regex:/^https?:\/\//i'],
+            'file_url' => ['nullable', 'string', 'max:2048'],
+            'fileUrl' => ['nullable', 'string', 'max:2048'],
             'file' => 'nullable|file|mimes:pdf,ppt,pptx,doc,docx,mp4,mov,jpg,jpeg,png,webp|max:30720',
             'kegiatan_file.*' => 'nullable|file|mimes:pdf,ppt,pptx,doc,docx,mp4,mov,jpg,jpeg,png,webp|max:30720',
             'kegiatan_files.*' => 'nullable|file|mimes:pdf,ppt,pptx,doc,docx,mp4,mov,jpg,jpeg,png,webp|max:30720',
@@ -345,15 +359,21 @@ class GuruMateriController extends Controller
                 $konten = $step['konten'] ?? null;
                 $fileKey = $step['_fileKey'] ?? null;
 
-                $newFile = $keyedFiles[$index]
-                    ?? ($fileKey !== null && isset($keyedFiles[$fileKey]) ? $keyedFiles[$fileKey] : null)
-                    ?? ($fileKey !== null && isset($indexedFiles[$fileKey]) ? $indexedFiles[$fileKey] : null)
-                    ?? ($indexedFiles[$index] ?? null);
+                // Bind strictly to the current slide's file key or index
+                $newFile = null;
+                if ($fileKey !== null && isset($keyedFiles[$fileKey])) {
+                    $newFile = $keyedFiles[$fileKey];
+                } elseif (isset($keyedFiles[$index])) {
+                    $newFile = $keyedFiles[$index];
+                } elseif ($fileKey !== null && isset($indexedFiles[$fileKey])) {
+                    $newFile = $indexedFiles[$fileKey];
+                }
 
                 $filePath = $step['filePath'] ?? $step['file_path'] ?? null;
                 $fileUrl = $step['fileUrl'] ?? $step['file_url'] ?? null;
 
-                if (! empty($fileUrl) && ! preg_match('/^https?:\/\//i', (string) $fileUrl)) {
+                // Validate external URLs (allow internal storage URLs e.g. /storage/...)
+                if (! empty($fileUrl) && ! str_starts_with((string) $fileUrl, '/storage/') && ! preg_match('/^https?:\/\//i', (string) $fileUrl)) {
                     throw ValidationException::withMessages([
                         'kegiatan' => 'URL kegiatan harus diawali http:// atau https://.',
                     ]);

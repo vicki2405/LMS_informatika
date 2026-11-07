@@ -12,7 +12,7 @@ const props = defineProps({
   targetMateriId: { type: [Number, String], default: null },
 });
 
-const emit = defineEmits(['change-view', 'switch-siswa', 'start-cbt-with-token']);
+const emit = defineEmits(['change-view', 'switch-siswa', 'start-cbt-with-token', 'materi-completed']);
 
 // 1. Shared Class Account Student Identity Management
 const activeSiswaId = ref(null);
@@ -75,12 +75,54 @@ function getInitialSemester() {
 
 const selectedSemester = ref(getInitialSemester());
 const selectedTipe = ref('Semua');
+const selectedMapel = ref('Semua');
+const selectedStatus = ref('Semua'); // 'Semua', 'belum_baca', 'sedang_membaca', 'selesai'
 const searchQuery = ref('');
+const viewMode = ref('cards'); // 'cards' | 'compact'
 
 watch(selectedSemester, (newVal) => {
   try {
     if (typeof window !== 'undefined') localStorage.setItem('siswa_active_semester', newVal);
   } catch (e) {}
+});
+
+function getStudentReadStatus(materi) {
+  if (!activeSiswaId.value || !materi.reads) return { status: 'belum_baca', progress: 0 };
+  const record = materi.reads.find(r => String(r.siswaId) === String(activeSiswaId.value));
+  if (!record) return { status: 'belum_baca', progress: 0 };
+  return {
+    status: record.status || 'sedang_membaca',
+    progress: record.progressPersen || (record.status === 'selesai' ? 100 : 25),
+  };
+}
+
+// Dynamic List of Available Mapels
+const availableMapels = computed(() => {
+  const mapels = new Set();
+  (props.materiList || []).forEach(m => {
+    if (m.mapel) mapels.add(m.mapel);
+  });
+  return Array.from(mapels);
+});
+
+// Summary Counts for Status Tabs
+const materiCounts = computed(() => {
+  const list = props.materiList || [];
+  let tuntas = 0;
+  let sedang = 0;
+  let belum = 0;
+  list.forEach(m => {
+    const st = getStudentReadStatus(m).status;
+    if (st === 'selesai') tuntas++;
+    else if (st === 'sedang_membaca') sedang++;
+    else belum++;
+  });
+  return {
+    total: list.length,
+    tuntas,
+    sedang,
+    belum,
+  };
 });
 
 const filteredMateri = computed(() => {
@@ -93,22 +135,33 @@ const filteredMateri = computed(() => {
     list = list.filter(m => m.tipe === selectedTipe.value);
   }
 
+  if (selectedMapel.value !== 'Semua') {
+    list = list.filter(m => (m.mapel || '') === selectedMapel.value);
+  }
+
+  if (selectedStatus.value !== 'Semua') {
+    list = list.filter(m => getStudentReadStatus(m).status === selectedStatus.value);
+  }
+
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.toLowerCase();
-    list = list.filter(m => m.judul.toLowerCase().includes(q) || (m.deskripsi && m.deskripsi.toLowerCase().includes(q)) || (m.mapel && m.mapel.toLowerCase().includes(q)));
+    list = list.filter(m => 
+      (m.judul || '').toLowerCase().includes(q) || 
+      (m.deskripsi || '').toLowerCase().includes(q) || 
+      (m.mapel || '').toLowerCase().includes(q) ||
+      (m.tpKode || '').toLowerCase().includes(q)
+    );
   }
 
   return list;
 });
 
-function getStudentReadStatus(materi) {
-  if (!activeSiswaId.value || !materi.reads) return { status: 'belum_baca', progress: 0 };
-  const record = materi.reads.find(r => String(r.siswaId) === String(activeSiswaId.value));
-  if (!record) return { status: 'belum_baca', progress: 0 };
-  return {
-    status: record.status || 'sedang_membaca',
-    progress: record.progressPersen || (record.status === 'selesai' ? 100 : 25),
-  };
+function resetFilters() {
+  selectedSemester.value = 'Semua';
+  selectedTipe.value = 'Semua';
+  selectedMapel.value = 'Semua';
+  selectedStatus.value = 'Semua';
+  searchQuery.value = '';
 }
 
 // 3. Presentation State
@@ -136,7 +189,7 @@ onUnmounted(() => {
   }
 });
 
-// Mobile Swipe Gestures for Slides
+// Mobile Swipe Gestures for Slides (Safe: strictly separates vertical reading from horizontal slide change)
 let touchStartX = 0;
 let touchStartY = 0;
 
@@ -150,7 +203,8 @@ function handleTouchEnd(e) {
   if (!e.changedTouches || e.changedTouches.length === 0) return;
   const deltaX = e.changedTouches[0].clientX - touchStartX;
   const deltaY = e.changedTouches[0].clientY - touchStartY;
-  if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
+  // Require clear horizontal intent (> 60px and twice vertical movement) so reading vertical scroll is never interrupted
+  if (Math.abs(deltaX) > 60 && Math.abs(deltaX) > Math.abs(deltaY) * 2.0) {
     if (deltaX < 0) {
       nextSlide();
     } else {
@@ -418,6 +472,11 @@ async function markCompleted() {
         progressPersen: 100,
       });
     }
+
+    emit('materi-completed', {
+      materiId: activeMateri.value.id,
+      siswaId: activeSiswa.value.id,
+    });
   } catch (err) {
     showToast('Gagal mencatat penyelesaian materi.', 'error');
   } finally {
@@ -489,23 +548,23 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6 pb-12 animate-in fade-in duration-300">
+  <div class="space-y-4 sm:space-y-6 pb-36 animate-in fade-in duration-300">
 
     <!-- Active Student Identity Card (For Shared Class Account) -->
-    <div class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-white/10 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
-      <div class="flex items-center gap-3.5 min-w-0">
-        <div class="w-12 h-12 rounded-2xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center justify-center font-black text-xl shrink-0 shadow-md">
+    <div class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-white/10 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 shadow-xl">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center justify-center font-black text-lg sm:text-xl shrink-0 shadow-md">
           🎓
         </div>
         <div class="min-w-0">
-          <div class="text-[10px] text-cyan-400 font-mono font-bold uppercase tracking-wider">
+          <div class="text-[9px] sm:text-[10px] text-cyan-400 font-mono font-bold uppercase tracking-wider">
             Siswa Pembaca Aktif:
           </div>
-          <div v-if="activeSiswa" class="text-base sm:text-lg font-black text-white truncate flex items-center gap-2">
+          <div v-if="activeSiswa" class="text-sm sm:text-lg font-black text-white truncate flex items-center gap-2">
             <span>{{ activeSiswa.nama }}</span>
-            <span class="text-xs text-gray-400 font-mono font-normal">NIS: {{ activeSiswa.nis || '-' }}</span>
+            <span class="text-[11px] sm:text-xs text-gray-400 font-mono font-normal">NIS: {{ activeSiswa.nis || '-' }}</span>
           </div>
-          <div v-else class="text-sm font-bold text-amber-300">
+          <div v-else class="text-xs sm:text-sm font-bold text-amber-300">
             ⚠️ Belum memilih nama siswa
           </div>
         </div>
@@ -514,106 +573,212 @@ onUnmounted(() => {
       <button
         @click="switchStudent"
         type="button"
-        class="min-h-[44px] px-4 py-2 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold text-xs transition active:scale-95 flex items-center justify-center gap-2 shrink-0 shadow-sm"
+        class="w-full sm:w-auto min-h-[42px] px-4 py-2 rounded-xl sm:rounded-2xl bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold text-xs transition active:scale-95 flex items-center justify-center gap-2 shrink-0 shadow-sm"
       >
         <span>🔄</span>
-        <span>Ganti Siswa</span>
+        <span>Ganti Identitas Siswa</span>
       </button>
     </div>
 
-    <!-- Filter & Search Controls -->
-    <div class="bg-slate-900/80 backdrop-blur-xl rounded-3xl p-5 border border-white/10 shadow-xl">
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div>
-          <label class="block text-[11px] font-bold text-cyan-300 uppercase mb-1.5">📅 Semester</label>
-          <select
-            v-model="selectedSemester"
-            class="w-full bg-slate-800 border border-cyan-500/40 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-cyan-300 font-extrabold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option value="Ganjil">Semester Ganjil (1)</option>
-            <option value="Genap">Semester Genap (2)</option>
-            <option value="Semua">Semua Semester</option>
-          </select>
-        </div>
+    <!-- Interactive Mobile-Optimized Status Tabs & Filters -->
+    <div class="bg-slate-900/80 backdrop-blur-xl rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-white/10 shadow-xl space-y-3.5">
+      
+      <!-- 1. Horizontal Status Pills (Tuntas, Sedang Belajar, Belum Dibaca) -->
+      <div class="flex items-center gap-2 overflow-x-auto pb-1.5 scrollbar-none -mx-1 px-1 text-xs">
+        <button
+          @click="selectedStatus = 'Semua'"
+          type="button"
+          class="px-3.5 py-2 rounded-xl font-extrabold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 min-h-[38px]"
+          :class="selectedStatus === 'Semua' 
+            ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black shadow-md shadow-cyan-500/25 ring-2 ring-cyan-400/40' 
+            : 'bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5'"
+        >
+          <span>Semua Materi</span>
+          <span class="px-1.5 py-0.5 rounded-full text-[10px] font-mono" :class="selectedStatus === 'Semua' ? 'bg-slate-950/30 text-white' : 'bg-white/10 text-gray-400'">
+            {{ materiCounts.total }}
+          </span>
+        </button>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">📦 Format Materi</label>
-          <select
-            v-model="selectedTipe"
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white font-semibold focus:border-cyan-400 outline-none min-h-[44px]"
-          >
-            <option value="Semua">Semua Format</option>
-            <option value="Slider PPT">🖥️ Slider PPT Interaktif</option>
-            <option value="Dokumen PDF/PPT">📄 Dokumen / PDF</option>
-            <option value="Video YouTube">🎥 Video Pembelajaran</option>
-          </select>
-        </div>
+        <button
+          @click="selectedStatus = 'belum_baca'"
+          type="button"
+          class="px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 min-h-[38px]"
+          :class="selectedStatus === 'belum_baca' 
+            ? 'bg-slate-200 text-slate-950 font-black shadow-md ring-2 ring-white/50' 
+            : 'bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5'"
+        >
+          <span>⚪ Belum Dibaca</span>
+          <span class="px-1.5 py-0.5 rounded-full text-[10px] font-mono" :class="selectedStatus === 'belum_baca' ? 'bg-slate-950/30 text-slate-900' : 'bg-white/10 text-gray-400'">
+            {{ materiCounts.belum }}
+          </span>
+        </button>
 
-        <div>
-          <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">🔍 Cari Materi</label>
+        <button
+          @click="selectedStatus = 'sedang_membaca'"
+          type="button"
+          class="px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 min-h-[38px]"
+          :class="selectedStatus === 'sedang_membaca' 
+            ? 'bg-amber-400 text-slate-950 font-black shadow-md shadow-amber-400/25 ring-2 ring-amber-300' 
+            : 'bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5'"
+        >
+          <span>⏳ Sedang Belajar</span>
+          <span class="px-1.5 py-0.5 rounded-full text-[10px] font-mono" :class="selectedStatus === 'sedang_membaca' ? 'bg-slate-950/30 text-slate-900' : 'bg-white/10 text-gray-400'">
+            {{ materiCounts.sedang }}
+          </span>
+        </button>
+
+        <button
+          @click="selectedStatus = 'selesai'"
+          type="button"
+          class="px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 min-h-[38px]"
+          :class="selectedStatus === 'selesai' 
+            ? 'bg-emerald-400 text-slate-950 font-black shadow-md shadow-emerald-400/25 ring-2 ring-emerald-300' 
+            : 'bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5'"
+        >
+          <span>✓ Tuntas</span>
+          <span class="px-1.5 py-0.5 rounded-full text-[10px] font-mono" :class="selectedStatus === 'selesai' ? 'bg-slate-950/30 text-slate-900' : 'bg-white/10 text-gray-400'">
+            {{ materiCounts.tuntas }}
+          </span>
+        </button>
+      </div>
+
+      <!-- 2. Horizontal Mapel Chips (If more than 1 mapel available) -->
+      <div v-if="availableMapels.length > 1" class="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
+        <span class="text-[10px] uppercase font-mono font-bold text-gray-400 mr-1 shrink-0">Mapel:</span>
+        <button
+          @click="selectedMapel = 'Semua'"
+          type="button"
+          class="px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition shrink-0"
+          :class="selectedMapel === 'Semua' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50 font-bold' : 'bg-white/5 text-gray-400 hover:text-white border border-transparent'"
+        >
+          Semua Mapel
+        </button>
+        <button
+          v-for="mpl in availableMapels"
+          :key="mpl"
+          @click="selectedMapel = mpl"
+          type="button"
+          class="px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition shrink-0"
+          :class="selectedMapel === mpl ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50 font-bold' : 'bg-white/5 text-gray-400 hover:text-white border border-transparent'"
+        >
+          {{ mpl }}
+        </button>
+      </div>
+
+      <!-- 3. Search and Dropdown Controls -->
+      <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 pt-1 border-t border-white/5">
+        <!-- Search Input with clear button -->
+        <div class="sm:col-span-6 relative">
+          <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 text-xs">🔍</span>
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Cari judul materi, mapel..."
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-gray-400 focus:border-cyan-400 outline-none min-h-[44px]"
+            placeholder="Cari materi, judul, mapel..."
+            class="w-full pl-9 pr-8 py-2.5 bg-slate-950 border border-white/15 rounded-xl text-xs text-white placeholder-slate-400 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 outline-none transition min-h-[42px]"
           />
+          <button
+            v-if="searchQuery"
+            @click="searchQuery = ''"
+            type="button"
+            class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white text-xs"
+            title="Hapus pencarian"
+          >
+            ✕
+          </button>
         </div>
+
+        <!-- Semester Select -->
+        <div class="sm:col-span-3">
+          <select
+            v-model="selectedSemester"
+            class="w-full bg-slate-950 border border-white/15 rounded-xl px-3 py-2.5 text-xs text-cyan-300 font-bold focus:border-cyan-400 outline-none min-h-[42px]"
+          >
+            <option value="Ganjil">📅 Sem. Ganjil (1)</option>
+            <option value="Genap">📅 Sem. Genap (2)</option>
+            <option value="Semua">📅 Semua Semester</option>
+          </select>
+        </div>
+
+        <!-- Format / Tipe Select -->
+        <div class="sm:col-span-3">
+          <select
+            v-model="selectedTipe"
+            class="w-full bg-slate-950 border border-white/15 rounded-xl px-3 py-2.5 text-xs text-white font-medium focus:border-cyan-400 outline-none min-h-[42px]"
+          >
+            <option value="Semua">📦 Semua Format</option>
+            <option value="Slider PPT">🖥️ Slider PPT</option>
+            <option value="Dokumen PDF/PPT">📄 Dokumen / PDF</option>
+            <option value="Video YouTube">🎥 Video Belajar</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Quick Reset Link if filters applied -->
+      <div v-if="selectedSemester !== 'Semua' || selectedTipe !== 'Semua' || selectedMapel !== 'Semua' || selectedStatus !== 'Semua' || searchQuery" class="flex items-center justify-between text-xs text-slate-400 pt-1">
+        <span>Filter aktif (menampilkan {{ filteredMateri.length }} dari {{ props.materiList.length }} materi)</span>
+        <button
+          @click="resetFilters"
+          type="button"
+          class="text-cyan-400 hover:underline font-bold"
+        >
+          Reset Semua Filter ✕
+        </button>
       </div>
     </div>
 
     <!-- Materi Cards Grid -->
-    <div v-if="filteredMateri.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div v-if="filteredMateri.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
       <div
         v-for="m in filteredMateri"
         :key="m.id"
-        class="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 p-5 flex flex-col justify-between hover:border-cyan-500/50 hover:shadow-2xl hover:shadow-cyan-500/10 transition-all duration-300 group"
+        class="bg-slate-900/85 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-white/10 p-4 sm:p-5 flex flex-col justify-between hover:border-cyan-500/50 hover:shadow-2xl hover:shadow-cyan-500/10 transition-all duration-300 group shadow-lg"
       >
         <div>
           <!-- Card Header & Badges -->
-          <div class="flex items-center justify-between gap-2 mb-3">
+          <div class="flex items-center justify-between gap-2 mb-2.5">
             <div class="flex items-center gap-1.5 flex-wrap">
-              <span class="text-[11px] font-extrabold uppercase px-3 py-1 rounded-full border tracking-wider"
+              <span class="text-[10px] sm:text-[11px] font-black uppercase px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full border tracking-wider"
                 :class="m.tipe === 'Slider PPT' ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300' : (m.tipe === 'Video YouTube' ? 'bg-rose-500/15 border-rose-500/30 text-rose-300' : 'bg-amber-500/15 border-amber-500/30 text-amber-300')"
               >
-                {{ m.tipe === 'Slider PPT' ? '🖥️ Slider PPT' : (m.tipe === 'Video YouTube' ? '🎥 Video' : '📄 Dokumen') }}
+                {{ m.tipe === 'Slider PPT' ? '🖥️ Slide PPT' : (m.tipe === 'Video YouTube' ? '🎥 Video' : '📄 Dokumen') }}
               </span>
-              <span v-if="m.tpKode" class="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-black px-2.5 py-0.5 rounded-full font-mono">
+              <span v-if="m.tpKode" class="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full font-mono">
                 {{ m.tpKode }}
               </span>
             </div>
 
-            <span class="text-xs font-mono font-bold text-gray-400">
-              {{ m.mapel || 'Informatika' }}
+            <span class="text-xs font-mono font-bold text-gray-400 truncate max-w-[130px] text-right">
+              {{ m.mapel || 'Mapel' }}
             </span>
           </div>
 
           <!-- Title -->
-          <h3 class="text-base font-black text-white group-hover:text-cyan-300 transition-colors line-clamp-2 leading-snug mb-2">
+          <h3 class="text-sm sm:text-base font-black text-white group-hover:text-cyan-300 transition-colors line-clamp-2 leading-snug mb-1.5">
             {{ m.judul }}
           </h3>
 
           <!-- Deskripsi -->
-          <p class="text-xs text-gray-400 line-clamp-2 leading-relaxed mb-3">
+          <p class="text-[11px] sm:text-xs text-gray-400 line-clamp-2 leading-relaxed mb-3">
             {{ m.deskripsi || 'Tidak ada deskripsi singkat.' }}
           </p>
 
           <!-- Linked CBT Exam Badge -->
           <div v-if="m.cbtJadwal" class="mb-3">
-            <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-500/35 shadow-sm">
-              <span>🎯 Terhubung CBT:</span>
-              <span class="truncate max-w-[200px]">{{ m.cbtJadwal.judul }}</span>
+            <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] sm:text-[11px] font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-500/35 shadow-sm max-w-full">
+              <span class="shrink-0">🎯 Ujian CBT:</span>
+              <span class="truncate">{{ m.cbtJadwal.judul }}</span>
             </div>
           </div>
 
           <!-- Status Belajar Siswa Aktif -->
-          <div class="bg-slate-950/60 rounded-2xl p-3 border border-white/5 space-y-2 mb-4">
-            <div class="flex items-center justify-between text-[11px]">
+          <div class="bg-slate-950/70 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border border-white/5 space-y-1.5 mb-3.5">
+            <div class="flex items-center justify-between text-[10px] sm:text-[11px]">
               <span class="text-gray-400 font-medium">Status Anda:</span>
               <span
                 class="font-black"
                 :class="getStudentReadStatus(m).status === 'selesai' ? 'text-emerald-400' : (getStudentReadStatus(m).status === 'sedang_membaca' ? 'text-amber-400' : 'text-gray-400')"
               >
-                {{ getStudentReadStatus(m).status === 'selesai' ? '✓ Tuntas' : (getStudentReadStatus(m).status === 'sedang_membaca' ? '⏳ Sedang Belajar' : '⚪ Belum Dibaca') }}
+                {{ getStudentReadStatus(m).status === 'selesai' ? '✓ Tuntas' : (getStudentReadStatus(m).status === 'sedang_membaca' ? '⏳ Sedang Belajar (' + getStudentReadStatus(m).progress + '%)' : '⚪ Belum Dibaca') }}
               </span>
             </div>
 
@@ -621,7 +786,7 @@ onUnmounted(() => {
             <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
               <div
                 class="h-full rounded-full transition-all duration-300"
-                :class="getStudentReadStatus(m).status === 'selesai' ? 'bg-emerald-400' : 'bg-cyan-400'"
+                :class="getStudentReadStatus(m).status === 'selesai' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]'"
                 :style="{ width: getStudentReadStatus(m).progress + '%' }"
               ></div>
             </div>
@@ -632,7 +797,7 @@ onUnmounted(() => {
         <button
           @click="openMateri(m)"
           type="button"
-          class="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-cyan-500 via-teal-600 to-indigo-600 text-white font-black text-xs shadow-lg shadow-cyan-500/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 min-h-[44px]"
+          class="w-full py-2.5 sm:py-3 px-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-cyan-500 via-teal-600 to-indigo-600 text-white font-black text-xs shadow-lg shadow-cyan-500/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 min-h-[44px]"
         >
           <span>Buka Materi Pembelajaran</span>
           <span>➔</span>
@@ -641,12 +806,20 @@ onUnmounted(() => {
     </div>
 
     <!-- Empty State -->
-    <div v-else class="bg-slate-900/60 backdrop-blur-xl rounded-3xl border border-white/10 p-12 text-center space-y-3">
+    <div v-else class="bg-slate-900/60 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-white/10 p-8 sm:p-12 text-center space-y-3">
       <div class="text-4xl">📚</div>
       <h3 class="text-base font-black text-white">Belum Ada Materi Pembelajaran</h3>
       <p class="text-xs text-gray-400 max-w-sm mx-auto">
-        Materi untuk semester {{ selectedSemester }} belum diunggah atau tidak cocok dengan filter pencarian Anda.
+        Materi belum diunggah atau tidak cocok dengan filter pencarian Anda.
       </p>
+      <button
+        v-if="selectedSemester !== 'Semua' || selectedTipe !== 'Semua' || selectedMapel !== 'Semua' || selectedStatus !== 'Semua' || searchQuery"
+        @click="resetFilters"
+        type="button"
+        class="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold text-xs hover:bg-cyan-500/30 transition"
+      >
+        <span>Reset Filter Pencarian</span>
+      </button>
     </div>
 
     <!-- ======================================================== -->
@@ -720,8 +893,8 @@ onUnmounted(() => {
         class="fixed inset-0 w-full h-full z-[9999] flex flex-col overflow-hidden transition-colors duration-300"
         :class="currentThemeClass.bg"
         style="overscroll-behavior: contain; touch-action: pan-y;"
-        @touchstart="handleTouchStart"
-        @touchend="handleTouchEnd"
+        @touchstart.passive="handleTouchStart"
+        @touchend.passive="handleTouchEnd"
       >
       <!-- TOP HUD PRESENTATION BAR -->
       <header
@@ -866,7 +1039,7 @@ onUnmounted(() => {
       </div>
 
       <!-- MAIN READER STAGE -->
-      <main class="flex-1 min-h-0 overflow-y-auto p-2.5 sm:p-6 lg:p-8 pb-32 sm:pb-32 flex flex-col items-center justify-start md:justify-center relative">
+      <main class="flex-1 min-h-0 overflow-y-auto p-2.5 sm:p-6 lg:p-8 pb-40 sm:pb-36 flex flex-col items-center justify-start relative scroll-smooth overscroll-y-contain">
 
         <!-- ============================================== -->
         <!-- 1. SLIDER PPT: EXECUTIVE WIDESCREEN PRESENTATION -->
@@ -880,7 +1053,7 @@ onUnmounted(() => {
             v-if="currentSlides.length > 1 && currentSlideIndex > 0"
             @click="prevSlide"
             type="button"
-            class="flex absolute left-1 sm:left-2 lg:-left-8 top-1/2 -translate-y-1/2 z-20 w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-slate-900/85 hover:bg-slate-800 text-white border border-white/25 items-center justify-center text-xs sm:text-lg font-black shadow-2xl transition-all duration-200 hover:scale-110 active:scale-90 backdrop-blur-md"
+            class="hidden sm:flex absolute left-1 sm:left-2 lg:-left-8 top-1/2 -translate-y-1/2 z-20 w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-slate-900/85 hover:bg-slate-800 text-white border border-white/25 items-center justify-center text-xs sm:text-lg font-black shadow-2xl transition-all duration-200 hover:scale-110 active:scale-90 backdrop-blur-md"
             title="Slide Sebelumnya (◄)"
           >
             ❮
@@ -891,7 +1064,7 @@ onUnmounted(() => {
             v-if="currentSlides.length > 1 && currentSlideIndex < currentSlides.length - 1"
             @click="nextSlide"
             type="button"
-            class="flex absolute right-1 sm:right-2 lg:-right-8 top-1/2 -translate-y-1/2 z-20 w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 items-center justify-center text-xs sm:text-lg font-black shadow-2xl shadow-cyan-500/40 transition-all duration-200 hover:scale-110 active:scale-90"
+            class="hidden sm:flex absolute right-1 sm:right-2 lg:-right-8 top-1/2 -translate-y-1/2 z-20 w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 items-center justify-center text-xs sm:text-lg font-black shadow-2xl shadow-cyan-500/40 transition-all duration-200 hover:scale-110 active:scale-90"
             title="Slide Berikutnya (►)"
           >
             ❯
@@ -899,7 +1072,7 @@ onUnmounted(() => {
 
           <!-- THE 16:9 SLIDE CANVAS CONTAINER -->
           <div
-            class="w-full rounded-2xl sm:rounded-3xl border p-4 sm:p-10 lg:p-12 transition-all duration-300 relative overflow-hidden flex flex-col justify-between min-h-0 sm:min-h-[500px] lg:min-h-[560px]"
+            class="w-full rounded-2xl sm:rounded-3xl border p-3.5 sm:p-10 lg:p-12 transition-all duration-300 relative overflow-visible flex flex-col justify-between min-h-0 sm:min-h-[460px] lg:min-h-[540px]"
             :class="currentThemeClass.card"
           >
             <!-- Ambient Glow Decoration -->
@@ -1364,14 +1537,17 @@ onUnmounted(() => {
   opacity: 0.9;
 }
 
-/* Presentation Table (Styled like financial & tech keynotes) */
+/* Presentation Table (Responsive with touch scroll) */
 .slide-markdown-content table {
   width: 100%;
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border-collapse: separate;
   border-spacing: 0;
-  margin: 1.5rem 0;
-  border-radius: 1.25rem;
-  overflow: hidden;
+  margin: 1.25rem 0;
+  border-radius: 1rem;
   border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(15, 23, 42, 0.65);
   backdrop-filter: blur(12px);
@@ -1498,11 +1674,12 @@ onUnmounted(() => {
   opacity: 0.75;
 }
 
-.slide-markdown-content table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1.25rem 0;
-  font-size: 0.9em;
+.slide-markdown-content pre {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 0.75rem;
+  margin: 1rem 0;
 }
 
 .slide-markdown-content th,

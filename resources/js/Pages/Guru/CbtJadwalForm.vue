@@ -71,23 +71,30 @@ watch(() => form.value.bank_soal_id, (newVal) => {
   }
 });
 
-// Filter target classes directly by mapel of selected Bank Soal
+// Filter target classes directly by mapel of selected Bank Soal based on teaching schedule (tab=jadwal)
 const targetKelasList = computed(() => {
   const list = props.masterKelasList || [];
   const mapelTarget = selectedBankSoalMapel.value?.toLowerCase().trim();
   if (mapelTarget) {
+    const cleanTarget = mapelTarget.replace(/\(.*?\)/g, '').trim();
     const matched = list.filter((k) => {
       if (!k.mapels || k.mapels.length === 0) return false;
       return k.mapels.some((m) => {
-        const mLower = m.toLowerCase();
-        return mLower.includes(mapelTarget) || mapelTarget.includes(mLower);
+        const mLower = m.toLowerCase().trim();
+        const mClean = mLower.replace(/\(.*?\)/g, '').trim();
+        return mLower.includes(mapelTarget) || mapelTarget.includes(mLower) ||
+               (cleanTarget && mClean.includes(cleanTarget)) ||
+               (mClean && cleanTarget.includes(mClean));
       });
     });
-    if (matched.length > 0) {
-      return matched;
-    }
+    return matched;
   }
-  return list;
+  const taughtByGuru = list.filter(k => k.isTaughtByGuru || (k.mapels && k.mapels.length > 0));
+  return taughtByGuru.length > 0 ? taughtByGuru : list;
+});
+
+const selectedKelas = computed(() => {
+  return (props.masterKelasList || []).find(k => String(k.id) === String(form.value.kelas_id));
 });
 
 // Filter materi list relevant to mapel if bank soal selected
@@ -362,22 +369,53 @@ function handleSubmit() {
 
             <!-- Kelas Sasaran -->
             <div>
-              <label class="block text-xs font-semibold text-gray-300 mb-1.5">
-                Kelas Sasaran Ujian
-              </label>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="block text-xs font-semibold text-gray-300">
+                  Kelas Sasaran Ujian <span class="text-rose-400">*</span>
+                </label>
+                <span v-if="targetKelasList.length > 0" class="text-[11px] text-teal-400 font-medium">
+                  {{ targetKelasList.length }} Kelas Terjadwal di Tab Jadwal
+                </span>
+              </div>
               <select
                 v-model="form.kelas_id"
                 @change="onKelasChange"
                 class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/15 focus:border-teal-400 text-white text-xs sm:text-sm font-medium outline-none min-h-[42px]"
               >
-                <option value="">-- Semua Kelas --</option>
+                <option value="">
+                  {{ targetKelasList.length > 0 ? `-- Semua Kelas Ampuan Mapel Ini (${targetKelasList.map(k => k.namaKelas).join(', ')}) --` : '-- Semua Kelas --' }}
+                </option>
                 <option v-for="k in targetKelasList" :key="k.id" :value="k.id">
-                  {{ k.namaKelas }}
+                  {{ k.namaKelas }} {{ k.jurusan ? `(${k.jurusan})` : (k.jurusanKode ? `(${k.jurusanKode})` : '') }}
                 </option>
               </select>
-              <p class="text-[11px] text-gray-400 mt-1.5">
-                Pilih rombel kelas yang dituju (misal: <strong>X TKR 1</strong>) atau pilih <strong>Semua Kelas</strong>.
-              </p>
+
+              <!-- Helpful Dynamic Preview & Context Helper -->
+              <div class="mt-2.5 space-y-1.5">
+                <div v-if="!form.kelas_id && targetKelasList.length > 0" class="p-3 rounded-xl bg-teal-500/10 border border-teal-500/25 text-teal-300 text-xs flex items-start gap-2">
+                  <span class="text-base shrink-0">📌</span>
+                  <div>
+                    <strong class="font-bold">Otomatis Terdistribusi ke Kelas Terjadwal:</strong>
+                    Ujian ini akan otomatis muncul pada siswa di kelas ampuan Anda untuk mapel <strong>{{ selectedBankSoalMapel || 'terpilih' }}</strong>: <em>{{ targetKelasList.map(k => k.namaKelas).join(', ') }}</em>. Kelas lain yang tidak memiliki jadwal mapel ini tidak akan melihat sesi ujian ini di dashboard siswa.
+                  </div>
+                </div>
+
+                <div v-else-if="form.kelas_id && selectedKelas" class="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/25 text-cyan-300 text-xs flex items-start gap-2">
+                  <span class="text-base shrink-0">🎯</span>
+                  <div>
+                    <strong class="font-bold">Sasaran Eksklusif:</strong>
+                    Ujian ini hanya akan muncul khusus bagi siswa di kelas <strong>{{ selectedKelas.namaKelas }}</strong>.
+                  </div>
+                </div>
+
+                <div v-else-if="targetKelasList.length === 0 && selectedBankSoal" class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2">
+                  <span class="text-base shrink-0">⚠️</span>
+                  <div>
+                    <strong class="font-bold">Belum Ada Kelas di Tab Jadwal:</strong>
+                    Belum ditemukan kelas dengan jadwal mengajar untuk mapel <strong>{{ selectedBankSoalMapel }}</strong> di menu <em>Jadwal Pelajaran</em>. Pastikan jadwal mengajar sudah diinput di tab Jadwal agar ujian dapat diarahkan ke kelas yang tepat.
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Pengaturan Rentang Akses Ujian & Durasi Pengerjaan -->

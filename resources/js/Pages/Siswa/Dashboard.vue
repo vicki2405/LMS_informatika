@@ -80,8 +80,14 @@ const showIdentityModal = ref(false);
 const studentSearchText = ref('');
 
 const activeSiswa = computed(() => {
-  if (!activeSiswaId.value) return null;
-  return props.siswaListProp?.find(s => String(s.id) === String(activeSiswaId.value)) || null;
+  if (activeSiswaId.value) {
+    const match = props.siswaListProp?.find(s => String(s.id) === String(activeSiswaId.value));
+    if (match) return match;
+  }
+  if (props.siswaObjProp?.id && !isAkunKelas.value) {
+    return props.siswaObjProp;
+  }
+  return null;
 });
 
 // Portal lock screen: all menus are locked until student explicitly selects their identity
@@ -90,7 +96,9 @@ const isLocked = computed(() => isAkunKelas.value && hasSiswaList.value && !acti
 onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener('popstate', handlePopState);
-    if (isAkunKelas.value && hasSiswaList.value) {
+    if (props.siswaObjProp?.id && !isAkunKelas.value) {
+      activeSiswaId.value = Number(props.siswaObjProp.id);
+    } else if (isAkunKelas.value && hasSiswaList.value) {
       try {
         const savedId = localStorage.getItem('siswacloud_active_siswa_id');
         if (savedId && props.siswaListProp.some(s => String(s.id) === String(savedId))) {
@@ -171,6 +179,28 @@ function handleOpenMateri(materiId) {
   activeView.value = 'materi';
 }
 
+function handleMateriCompleted({ materiId, siswaId }) {
+  // 1. Locally update cbtJadwalListProp so CBT tab immediately unlocks without requiring manual refresh
+  const targetCbt = props.cbtJadwalListProp?.find(j => j.linkedMateri && Number(j.linkedMateri.id) === Number(materiId));
+  if (targetCbt && targetCbt.linkedMateri) {
+    if (!targetCbt.linkedMateri.reads) targetCbt.linkedMateri.reads = [];
+    const rec = targetCbt.linkedMateri.reads.find(r => String(r.siswaId ?? r.siswa_id) === String(siswaId));
+    if (rec) {
+      rec.status = 'selesai';
+      rec.progressPersen = 100;
+    } else {
+      targetCbt.linkedMateri.reads.push({
+        siswaId: Number(siswaId),
+        status: 'selesai',
+        progressPersen: 100,
+      });
+    }
+  }
+
+  // 2. Refresh props from server in background
+  router.reload({ only: ['cbtJadwalListProp', 'materiListProp'], preserveScroll: true });
+}
+
 function handleStartCbtWithToken(payload) {
   autoStartCbtPayload.value = payload;
   activeView.value = 'cbt';
@@ -208,7 +238,7 @@ function handleStartCbtWithToken(payload) {
         :kelasSiswa="kelasSiswa"
       />
       
-      <main class="flex-1 min-w-0 max-w-full min-h-[calc(100vh-4rem)] p-3.5 sm:p-6 lg:p-8 pb-28 sm:pb-32 lg:pb-8">
+      <main class="flex-1 min-w-0 max-w-full min-h-[calc(100dvh-4rem)] p-3 sm:p-6 lg:p-8 pb-36 sm:pb-36 lg:pb-8">
 
         <!-- 1. DASHBOARD UTAMA OVERVIEW -->
         <DashboardOverview
@@ -234,6 +264,7 @@ function handleStartCbtWithToken(payload) {
           @change-view="v => activeView = v"
           @switch-siswa="switchStudent"
           @start-cbt-with-token="handleStartCbtWithToken"
+          @materi-completed="handleMateriCompleted"
         />
 
         <!-- 3. CBT (UJIAN ONLINE) VIEW -->

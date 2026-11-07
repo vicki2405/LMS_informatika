@@ -249,7 +249,8 @@ function goToMonitoring(j) {
                 </span>
                 <div class="text-[11px] text-gray-300 flex items-center gap-1 font-semibold">
                   <span>🏫</span>
-                  <span>{{ j.kelasNama || 'Semua Kelas' }}</span>
+                  <span v-if="j.kelasId && j.kelasNama">{{ j.kelasNama }}</span>
+                  <span v-else class="text-teal-300">Semua Kelas ({{ j.mapelNama }})</span>
                 </div>
                 <p class="text-[10px] text-gray-400">⏱️ {{ j.durasiMenit }} Menit</p>
               </div>
@@ -336,7 +337,7 @@ function goToMonitoring(j) {
         <div class="grid grid-cols-2 gap-2 text-[11px] text-gray-300 bg-white/5 p-2.5 rounded-xl font-mono">
           <div>
             <span class="text-gray-400 block text-[10px] uppercase font-sans">Jurusan &amp; Kelas:</span>
-            <span class="font-bold text-cyan-300 truncate block">🏢 {{ j.jurusanKode || 'ALL' }} - {{ j.kelasNama }}</span>
+            <span class="font-bold text-cyan-300 truncate block">🏢 {{ j.jurusanKode || 'ALL' }} - {{ j.kelasId && j.kelasNama ? j.kelasNama : ('Semua Kelas (' + j.mapelNama + ')') }}</span>
           </div>
           <div>
             <span class="text-gray-400 block text-[10px] uppercase font-sans">Durasi Ujian:</span>

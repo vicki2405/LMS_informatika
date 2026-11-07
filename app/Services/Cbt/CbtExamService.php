@@ -6,6 +6,7 @@ use App\Models\CbtJadwal;
 use App\Models\CbtSesi;
 use App\Models\Siswa;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 
 class CbtExamService
@@ -18,6 +19,45 @@ class CbtExamService
 
         if ($jadwal->kelas_id !== null && (int) $jadwal->kelas_id !== (int) $siswa->kelas_id) {
             $this->fail('Anda tidak terdaftar pada kelas ujian ini.');
+        }
+
+        if ($jadwal->kelas_id === null && $siswa->kelas_id !== null) {
+            $jadwal->loadMissing(['bankSoal.mataPelajaran', 'bankSoal.guru']);
+            $mapelName = $jadwal->bankSoal?->mataPelajaran?->nama;
+            $mapelKode = $jadwal->bankSoal?->mataPelajaran?->kode;
+
+            if ($mapelName) {
+                $cleanMapel = strtolower(trim(preg_replace('/\(.*?\)/', '', $mapelName)));
+                $hasScheduledMapel = \App\Models\Jadwal::where('kelas_id', $siswa->kelas_id)
+                    ->whereNotNull('mata_pelajaran')
+                    ->where(function ($q) use ($mapelName, $mapelKode, $cleanMapel) {
+                        $q->whereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [strtolower(trim($mapelName))])
+                          ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) LIKE ?', ['%' . $cleanMapel . '%']);
+                        if ($mapelKode) {
+                            $q->orWhereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [strtolower(trim($mapelKode))]);
+                        }
+                    })
+                    ->exists();
+
+                $bankGuruId = $jadwal->guru_id ?? $jadwal->bankSoal?->guru_id;
+                if (! $hasScheduledMapel && $bankGuruId) {
+                    $hasGuruKelasAmpuan = \Illuminate\Support\Facades\DB::table('guru_kelas')
+                        ->where('guru_id', $bankGuruId)
+                        ->where('kelas_id', $siswa->kelas_id)
+                        ->exists();
+
+                    if ($hasGuruKelasAmpuan) {
+                        $hasScheduledMapel = true;
+                    }
+                }
+
+                $classHasAnySchedule = \App\Models\Jadwal::where('kelas_id', $siswa->kelas_id)->exists()
+                    || \Illuminate\Support\Facades\DB::table('guru_kelas')->where('kelas_id', $siswa->kelas_id)->exists();
+
+                if ($classHasAnySchedule && ! $hasScheduledMapel) {
+                    $this->fail('Mata pelajaran ujian ini tidak ada dalam jadwal pelajaran kelas Anda.');
+                }
+            }
         }
 
         if ($jadwal->jurusan_id !== null) {
@@ -42,12 +82,21 @@ class CbtExamService
     {
         $this->assertJadwalEligible($jadwal, $siswa);
 
+        $throttleKey = 'cbt_token_fail:' . ($siswa->id ?? 0) . ':' . $jadwal->id . ':' . $request->ip();
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+            $this->fail("Terlalu banyak percobaan token salah. Tunggu {$seconds} detik sebelum mencoba lagi.");
+        }
+
         $expectedToken = strtoupper(trim((string) $jadwal->token));
         $submittedToken = strtoupper(trim($token));
 
         if ($expectedToken === '' || ! hash_equals($expectedToken, $submittedToken)) {
+            RateLimiter::hit($throttleKey, 60);
             $this->fail('Token ujian tidak valid.');
         }
+
+        RateLimiter::clear($throttleKey);
 
         $sesi = CbtSesi::firstOrCreate(
             [
@@ -173,46 +222,33 @@ class CbtExamService
                         'pasanganKiri' => $pasanganKiri,
                         'pilihanKanan' => $pilihanKanan,
                     ];
-                    if ($isGameMode) {
-                        $safeInteractiveData['kunciJawaban'] = $kunciMatch;
-                    }
                 } elseif ($s->tipe_soal === 'reorder' && is_array($rawInteractive)) {
                     $items = [];
-                    $kunciReorder = [];
                     foreach ($rawInteractive as $idx => $item) {
                         $itemId = (string) ($item['id'] ?? ($idx + 1));
                         $items[] = [
                             'id' => $itemId,
                             'teks' => $item['teks'] ?? '',
                         ];
-                        $kunciReorder[] = $itemId;
                     }
                     shuffle($items);
                     $safeInteractiveData = ['items' => $items];
-                    if ($isGameMode) {
-                        $safeInteractiveData['kunciJawaban'] = $kunciReorder;
-                    }
                 } elseif ($s->tipe_soal === 'categorize' && is_array($rawInteractive)) {
                     $categories = $rawInteractive['kategori'] ?? [];
                     $rawItems = $rawInteractive['items'] ?? [];
                     $items = [];
-                    $kunciCategorize = [];
                     foreach ($rawItems as $idx => $item) {
                         $itemId = (string) ($item['id'] ?? ($idx + 1));
                         $items[] = [
                             'id' => $itemId,
                             'teks' => $item['teks'] ?? '',
                         ];
-                        $kunciCategorize[$itemId] = trim($item['kategori'] ?? '');
                     }
                     shuffle($items);
                     $safeInteractiveData = [
                         'kategori' => $categories,
                         'items' => $items,
                     ];
-                    if ($isGameMode) {
-                        $safeInteractiveData['kunciJawaban'] = $kunciCategorize;
-                    }
                 }
 
                 $soalPayload = [
@@ -237,10 +273,6 @@ class CbtExamService
                     'gambarOpsiD' => $s->gambar_opsi_d ? ('/storage/'.ltrim($s->gambar_opsi_d, '/')) : null,
                     'gambarOpsiE' => $s->gambar_opsi_e ? ('/storage/'.ltrim($s->gambar_opsi_e, '/')) : null,
                 ];
-
-                if ($isGameMode && (! $s->tipe_soal || $s->tipe_soal === 'pilihan_ganda')) {
-                    $soalPayload['kunciJawaban'] = strtoupper((string) $s->kunci_jawaban);
-                }
 
                 return $soalPayload;
             })

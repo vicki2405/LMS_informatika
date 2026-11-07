@@ -150,6 +150,63 @@ class StudentSecurityTest extends TestCase
             ->assertSessionHasErrors('name');
     }
 
+    public function test_linked_materi_cbt_flow_from_reading_to_exam_start(): void
+    {
+        [$jadwal] = $this->makeCbtExam();
+
+        $materi = \App\Models\Materi::create([
+            'judul' => 'Materi Prasyarat CBT',
+            'tipe' => 'Slider PPT',
+            'kelas_id' => $this->kelas->id,
+            'cbt_jadwal_id' => $jadwal->id,
+            'is_published' => true,
+            'semester' => 'Ganjil',
+        ]);
+
+        // 1. Before reading materi: joining waiting room should be rejected (403)
+        $this->actingAs($this->studentUser)
+            ->postJson(route('siswa.cbt.gabung-ruang-tunggu'), [
+                'jadwal_id' => $jadwal->id,
+                'siswa_id' => $this->student->id,
+            ])
+            ->assertStatus(403)
+            ->assertJsonPath('success', false);
+
+        // 2. Student completes reading the materi
+        $this->actingAs($this->studentUser)
+            ->postJson(route('siswa.materi.track-complete', $materi->id), [
+                'siswa_id' => $this->student->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('status', 'selesai');
+
+        $this->assertDatabaseHas('materi_reads', [
+            'materi_id' => $materi->id,
+            'siswa_id' => $this->student->id,
+            'status' => 'selesai',
+        ]);
+
+        // 3. After completing materi: joining waiting room must now SUCCEED (200)
+        $this->actingAs($this->studentUser)
+            ->postJson(route('siswa.cbt.gabung-ruang-tunggu'), [
+                'jadwal_id' => $jadwal->id,
+                'siswa_id' => $this->student->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        // 4. Starting CBT with valid token starts exam and returns questions
+        $this->actingAs($this->studentUser)
+            ->postJson(route('siswa.cbt.start'), [
+                'jadwal_id' => $jadwal->id,
+                'siswa_id' => $this->student->id,
+                'token' => 'ABC123',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonCount(1, 'soals');
+    }
+
     private function makeCbtExam(): array
     {
         $bank = CbtBankSoal::create([

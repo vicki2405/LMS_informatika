@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from
 import { Head, router, usePage } from '@inertiajs/vue3';
 import Swal, { showToast } from '@/Utils/sweetalert';
 import AutoTextarea from '@/Components/AutoTextarea.vue';
+import SlideWysiwygEditor from '@/Components/Guru/SlideWysiwygEditor.vue';
 import { renderFormulaContent, SCIENCE_PRESETS } from '@/Utils/formulaRenderer';
 
 const props = defineProps({
@@ -129,7 +130,7 @@ const availableMapelFromJadwal = computed(() => {
   
   // Ambil seluruh nama mata pelajaran unik yang aktif diset guru di tab jadwal
   const uniqueMapelNamesInJadwal = Array.from(new Set(
-    jadwals.map(j => (j.mataPelajaran || '').trim()).filter(Boolean)
+    jadwals.map(j => (j.mataPelajaran || j.mapel || '').trim()).filter(Boolean)
   ));
 
   // Jika guru memiliki jadwal mengajar di tab=jadwal
@@ -143,8 +144,8 @@ const availableMapelFromJadwal = computed(() => {
         return nLower === mLower || kLower === mLower || nLower.includes(mLower) || mLower.includes(nLower);
       });
 
-      const matchingJadwals = jadwals.filter(j => (j.mataPelajaran || '').trim().toLowerCase() === mLower);
-      const uniqueKelasCount = new Set(matchingJadwals.map(j => j.kelasId).filter(Boolean)).size;
+      const matchingJadwals = jadwals.filter(j => (j.mataPelajaran || j.mapel || '').trim().toLowerCase() === mLower);
+      const uniqueKelasCount = new Set(matchingJadwals.map(j => j.kelasId || j.kelas_id).filter(Boolean)).size;
 
       list.push({
         id: masterObj ? masterObj.id : (props.mapelListProp[idx]?.id || mapelName),
@@ -199,8 +200,9 @@ const schedulesForSelectedMapel = computed(() => {
   const mapelKodeLower = (currentMapel.kode || '').trim().toLowerCase();
 
   return jadwals.filter(j => {
-    if (!j.mataPelajaran) return false;
-    const jMapelLower = j.mataPelajaran.trim().toLowerCase();
+    const rawMapel = (j.mataPelajaran || j.mapel || '').trim();
+    if (!rawMapel) return false;
+    const jMapelLower = rawMapel.toLowerCase();
     return jMapelLower === mapelNamaLower ||
            jMapelLower === mapelKodeLower ||
            mapelNamaLower.includes(jMapelLower) ||
@@ -214,9 +216,9 @@ const availableKelasFromJadwal = computed(() => {
   const map = new Map();
 
   schedules.forEach(j => {
-    if (!j.kelasId) return;
-    const kId = Number(j.kelasId);
-    const rawName = String(j.kelas || j.namaKelas || `Kelas #${kId}`).trim();
+    if (!j.kelasId && !j.kelas_id) return;
+    const kId = Number(j.kelasId || j.kelas_id);
+    const rawName = String(j.nama_kelas || j.namaKelas || j.kelas || j.nama || `Kelas ${kId}`).trim();
     const cleanName = rawName.replace(/^kelas\s+/i, '');
 
     if (!map.has(kId)) {
@@ -263,7 +265,7 @@ const availableKelasFromJadwal = computed(() => {
     : (props.masterKelasListProp || []);
 
   return fallbackList.map(k => {
-    const rawName = String(k.nama || k.namaKelas || `Kelas #${k.id}`).trim();
+    const rawName = String(k.nama_kelas || k.namaKelas || k.nama || `Kelas ${k.id}`).trim();
     const cleanName = rawName.replace(/^kelas\s+/i, '');
     return {
       id: k.id,
@@ -356,11 +358,6 @@ function handleClickOutside(event) {
   if (container && !container.contains(event.target)) {
     isTpDropdownOpen.value = false;
   }
-  const formulaBox = document.getElementById('formula-drawer-box');
-  const formulaBtn = document.getElementById('formula-toggle-btn');
-  if (isFormulaDrawerOpen.value && formulaBox && !formulaBox.contains(event.target) && formulaBtn && !formulaBtn.contains(event.target)) {
-    isFormulaDrawerOpen.value = false;
-  }
 }
 
 onMounted(() => {
@@ -377,9 +374,6 @@ const kegiatanImagePreviews = ref([]);
 const selectedFile = ref(null);
 const saving = ref(false);
 const activeSlideIndex = ref(0);
-const activeFormulaCategory = ref('matematika');
-const isFormulaDrawerOpen = ref(false);
-const slideTextareaRef = ref(null);
 
 function createDefaultSlide(urutan = 1) {
   return {
@@ -460,12 +454,61 @@ function moveSlide(idx, dir) {
   activeSlideIndex.value = target;
 }
 
-function onSlideImageSelected(idx, event) {
-  const file = event.target.files[0] || null;
-  kegiatanFiles.value[idx] = file;
-  if (file) {
-    kegiatanImagePreviews.value[idx] = URL.createObjectURL(file);
+// Helper untuk kompresi gambar otomatis di browser agar upload cepat & hemat kuota hosting
+async function compressImageFile(file, maxWidth = 1600, quality = 0.8) {
+  if (!file || !file.type.startsWith('image/') || file.type === 'image/gif') {
+    return file;
   }
+
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+            const cleanName = file.name.replace(/\.[^/.]+$/, "") + ".webp";
+            const compressed = new File([blob], cleanName, { type: 'image/webp' });
+            resolve(compressed);
+          },
+          'image/webp',
+          quality
+        );
+      };
+      img.onerror = () => resolve(file);
+      img.src = e.target.result;
+    };
+    reader.onerror = () => resolve(file);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function onSlideImageSelected(idx, event) {
+  const rawFile = event.target.files[0] || null;
+  if (!rawFile) return;
+
+  const file = await compressImageFile(rawFile);
+  kegiatanFiles.value[idx] = file;
+  kegiatanImagePreviews.value[idx] = URL.createObjectURL(file);
 }
 
 function removeSlideImage(idx) {
@@ -476,158 +519,8 @@ function removeSlideImage(idx) {
 }
 
 // =========================================================================
-// TEXT FORMATTING TOOLBAR ENGINE (Rich Text / Markdown / Alignment / Lists)
+// YOUTUBE & MEDIA PREVIEW HELPERS
 // =========================================================================
-function applyFormat(type, payload = null) {
-  const current = form.kegiatan[activeSlideIndex.value];
-  if (!current) return;
-
-  const textarea = slideTextareaRef.value?.el || slideTextareaRef.value;
-  let text = current.konten || '';
-  let start = 0;
-  let end = 0;
-
-  if (textarea && typeof textarea.selectionStart === 'number') {
-    start = textarea.selectionStart;
-    end = textarea.selectionEnd;
-  } else {
-    start = text.length;
-    end = text.length;
-  }
-
-  const selectedText = text.substring(start, end);
-  let replacement = '';
-  let cursorOffset = 0;
-
-  switch (type) {
-    case 'font_size': {
-      const size = payload || '16px';
-      replacement = `<span style="font-size: ${size}; line-height: 1.3;">${selectedText || 'Teks'}</span>`;
-      cursorOffset = selectedText ? replacement.length : (`<span style="font-size: ${size}; line-height: 1.3;">`).length;
-      break;
-    }
-    case 'bold':
-      replacement = `**${selectedText || 'Teks Tebal'}**`;
-      cursorOffset = selectedText ? replacement.length : 2;
-      break;
-    case 'italic':
-      replacement = `*${selectedText || 'Teks Miring'}*`;
-      cursorOffset = selectedText ? replacement.length : 1;
-      break;
-    case 'underline':
-      replacement = `<u>${selectedText || 'Teks Bergaris Bawah'}</u>`;
-      cursorOffset = selectedText ? replacement.length : 3;
-      break;
-    case 'strikethrough':
-      replacement = `~~${selectedText || 'Teks Dicoret'}~~`;
-      cursorOffset = selectedText ? replacement.length : 2;
-      break;
-    case 'h1':
-      replacement = `\n# ${selectedText || 'Judul Utama'}\n`;
-      cursorOffset = replacement.length;
-      break;
-    case 'h2':
-      replacement = `\n## ${selectedText || 'Sub-Judul'}\n`;
-      cursorOffset = replacement.length;
-      break;
-    case 'align_left':
-      replacement = `\n<div style="text-align: left;">\n\n${selectedText || 'Teks rata kiri'}\n\n</div>\n`;
-      cursorOffset = replacement.length;
-      break;
-    case 'align_center':
-      replacement = `\n<div style="text-align: center;">\n\n${selectedText || 'Teks rata tengah'}\n\n</div>\n`;
-      cursorOffset = replacement.length;
-      break;
-    case 'align_right':
-      replacement = `\n<div style="text-align: right;">\n\n${selectedText || 'Teks rata kanan'}\n\n</div>\n`;
-      cursorOffset = replacement.length;
-      break;
-    case 'align_justify':
-      replacement = `\n<div style="text-align: justify;">\n\n${selectedText || 'Teks rata kanan kiri yang rapi dan tertata dengan baik.'}\n\n</div>\n`;
-      cursorOffset = replacement.length;
-      break;
-    case 'bullet_list':
-      if (selectedText) {
-        replacement = selectedText.split('\n').map(l => `- ${l}`).join('\n');
-      } else {
-        replacement = '\n- Poin pertama\n- Poin kedua\n- Poin ketiga\n';
-      }
-      cursorOffset = replacement.length;
-      break;
-    case 'numbered_list':
-      if (selectedText) {
-        replacement = selectedText.split('\n').map((l, i) => `${i + 1}. ${l}`).join('\n');
-      } else {
-        replacement = '\n1. Langkah kesatu\n2. Langkah kedua\n3. Langkah ketiga\n';
-      }
-      cursorOffset = replacement.length;
-      break;
-    case 'alpha_list':
-      if (selectedText) {
-        const lines = selectedText.split('\n').map(l => `  <li>${l}</li>`).join('\n');
-        replacement = `\n<ol type="a">\n${lines}\n</ol>\n`;
-      } else {
-        replacement = '\n<ol type="a">\n  <li>Poin a</li>\n  <li>Poin b</li>\n  <li>Poin c</li>\n</ol>\n';
-      }
-      cursorOffset = replacement.length;
-      break;
-    case 'checklist':
-      if (selectedText) {
-        replacement = selectedText.split('\n').map(l => `- [ ] ${l}`).join('\n');
-      } else {
-        replacement = '\n- [ ] Tugas evaluasi 1\n- [ ] Tugas evaluasi 2\n';
-      }
-      cursorOffset = replacement.length;
-      break;
-    case 'quote':
-      if (selectedText) {
-        replacement = selectedText.split('\n').map(l => `> ${l}`).join('\n');
-      } else {
-        replacement = '\n> Catatan penting / kesimpulan materi...\n';
-      }
-      cursorOffset = replacement.length;
-      break;
-    case 'table':
-      replacement = '\n| No | Konsep / Materi | Keterangan |\n|---|---|---|\n| 1 | Poin Pertama | Penjelasan materi... |\n| 2 | Poin Kedua | Penjelasan materi... |\n';
-      cursorOffset = replacement.length;
-      break;
-    case 'divider':
-      replacement = '\n\n---\n\n';
-      cursorOffset = replacement.length;
-      break;
-    case 'formula':
-      replacement = payload ? ` ${payload} ` : ' $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$ ';
-      cursorOffset = replacement.length;
-      isFormulaDrawerOpen.value = false;
-      break;
-    default:
-      break;
-  }
-
-  current.konten = text.substring(0, start) + replacement + text.substring(end);
-
-  nextTick(() => {
-    if (textarea) {
-      textarea.focus();
-      const newPos = start + cursorOffset;
-      if (typeof textarea.setSelectionRange === 'function') {
-        textarea.setSelectionRange(newPos, newPos);
-      }
-      if (slideTextareaRef.value?.resize) {
-        slideTextareaRef.value.resize();
-      }
-    }
-  });
-}
-
-function onFontSizeChange(e) {
-  const size = e?.target?.value;
-  if (!size) return;
-  applyFormat('font_size', size);
-  if (e?.target) {
-    e.target.value = '';
-  }
-}
 
 // YouTube Preview Helper
 const youtubeEmbedUrl = computed(() => {
@@ -751,7 +644,6 @@ function submit() {
   kegiatanFiles.value.forEach((f, i) => {
     if (f) {
       fd.append(`kegiatan_files[${i}]`, f);
-      fd.append('kegiatan_file[]', f);
     }
   });
 
@@ -760,9 +652,10 @@ function submit() {
     onSuccess: () => {
       showToast('Materi pembelajaran berhasil disimpan!', 'success');
     },
-    onError: () => {
+    onError: (errors) => {
       saving.value = false;
-      showToast('Gagal menyimpan materi. Periksa kembali formulir.', 'error');
+      const errorMsg = Object.values(errors || {})[0] || 'Gagal menyimpan materi. Periksa kembali formulir.';
+      showToast(errorMsg, 'error');
     },
     onFinish: () => {
       saving.value = false;
@@ -1445,330 +1338,18 @@ function submit() {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
               <!-- ============================================== -->
-              <!-- KOLOM KIRI: EDITOR NASKAH + TOOLBAR INTERAKTIF -->
+              <!-- KOLOM KIRI: WYSIWYG SLIDE EDITOR INTERAKTIF -->
               <!-- ============================================== -->
               <div class="space-y-3" :class="mobileViewMode === 'editor' ? 'block' : 'hidden lg:block'">
-
-                <!-- RICH TEXT & ALIGNMENT TOOLBAR -->
-                <div class="bg-slate-950 border border-white/15 rounded-2xl p-2.5 shadow-sm space-y-2">
-                  <div class="flex items-center flex-wrap gap-1.5">
-
-                    <!-- GAYA TEKS -->
-                    <div class="flex items-center bg-white/5 rounded-xl p-0.5 border border-white/10">
-                      <button
-                        type="button"
-                        @click="applyFormat('bold')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white font-black text-xs transition flex items-center justify-center active:scale-95"
-                        title="Tebal (Bold: **teks**)"
-                      >
-                        B
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('italic')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white italic font-serif text-xs transition flex items-center justify-center active:scale-95"
-                        title="Miring (Italic: *teks*)"
-                      >
-                        I
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('underline')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white underline text-xs transition flex items-center justify-center active:scale-95"
-                        title="Garis Bawah (Underline)"
-                      >
-                        U
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('strikethrough')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white line-through text-xs transition flex items-center justify-center active:scale-95"
-                        title="Coret (Strikethrough)"
-                      >
-                        S
-                      </button>
-                    </div>
-
-                    <!-- UKURAN TEKS (FONT SIZE) -->
-                    <div class="flex items-center bg-white/5 rounded-xl px-2 h-8 border border-white/10 hover:border-cyan-500/40 transition">
-                      <select
-                        @change="onFontSizeChange($event)"
-                        class="bg-transparent text-slate-200 text-xs font-semibold focus:outline-none cursor-pointer border-none py-0 pl-0 pr-4 appearance-auto"
-                        title="Size"
-                      >
-                        <option value="" disabled selected class="bg-slate-900 text-slate-400">Size</option>
-                        <option value="12px" class="bg-slate-900 text-slate-200">12</option>
-                        <option value="14px" class="bg-slate-900 text-slate-200">14</option>
-                        <option value="16px" class="bg-slate-900 text-slate-200">16</option>
-                        <option value="18px" class="bg-slate-900 text-slate-200">18</option>
-                        <option value="20px" class="bg-slate-900 text-slate-200">20</option>
-                        <option value="24px" class="bg-slate-900 text-slate-200">24</option>
-                        <option value="28px" class="bg-slate-900 text-slate-200">28</option>
-                        <option value="32px" class="bg-slate-900 text-slate-200">32</option>
-                      </select>
-                    </div>
-
-                    <!-- HEADING -->
-                    <div class="flex items-center bg-white/5 rounded-xl p-0.5 border border-white/10">
-                      <button
-                        type="button"
-                        @click="applyFormat('h1')"
-                        class="px-2.5 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white font-black text-xs transition flex items-center justify-center active:scale-95"
-                        title="Judul Besar (Heading 1)"
-                      >
-                        H1
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('h2')"
-                        class="px-2.5 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white font-bold text-xs transition flex items-center justify-center active:scale-95"
-                        title="Sub-Judul (Heading 2)"
-                      >
-                        H2
-                      </button>
-                    </div>
-
-                    <!-- PERATAAN TEKS (ALIGNMENT) -->
-                    <div class="flex items-center bg-white/5 rounded-xl p-0.5 border border-white/10">
-                      <button
-                        type="button"
-                        @click="applyFormat('align_left')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs transition flex items-center justify-center active:scale-95"
-                        title="Rata Kiri"
-                      >
-                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M3 5h18v2H3V5zm0 4h12v2H3V9zm0 4h18v2H3v-2zm0 4h12v2H3v-2z"/>
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('align_center')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs transition flex items-center justify-center active:scale-95"
-                        title="Rata Tengah"
-                      >
-                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M3 5h18v2H3V5zm3 4h12v2H6V9zm-3 4h18v2H3v-2zm3 4h12v2H6v-2z"/>
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('align_right')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs transition flex items-center justify-center active:scale-95"
-                        title="Rata Kanan"
-                      >
-                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M3 5h18v2H3V5zm6 4h12v2H9V9zm-6 4h18v2H3v-2zm6 4h12v2H9v-2z"/>
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('align_justify')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs transition flex items-center justify-center active:scale-95"
-                        title="Rata Kanan Kiri (Justify)"
-                      >
-                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M3 5h18v2H3V5zm0 4h18v2H3V9zm0 4h18v2H3v-2zm0 4h18v2H3v-2z"/>
-                        </svg>
-                      </button>
-                    </div>
-
-                    <!-- DAFTAR & LIST -->
-                    <div class="flex items-center bg-white/5 rounded-xl p-0.5 border border-white/10">
-                      <button
-                        type="button"
-                        @click="applyFormat('bullet_list')"
-                        class="px-2 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-1 active:scale-95"
-                        title="List Simbol (Bullet •)"
-                      >
-                        •
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('numbered_list')"
-                        class="px-2 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-1 active:scale-95"
-                        title="List Angka (1, 2, 3)"
-                      >
-                        1.
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('alpha_list')"
-                        class="px-2 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-1 active:scale-95"
-                        title="List Huruf (a, b, c)"
-                      >
-                        a.
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('checklist')"
-                        class="px-2 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-1 active:scale-95"
-                        title="Checklist / Kotak Centang"
-                      >
-                        ☑
-                      </button>
-                    </div>
-
-                    <!-- ELEMEN TAMBAHAN -->
-                    <div class="flex items-center bg-white/5 rounded-xl p-0.5 border border-white/10">
-                      <button
-                        type="button"
-                        @click="applyFormat('quote')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center active:scale-95"
-                        title="Kutipan / Blok Catatan"
-                      >
-                        ”
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('table')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center active:scale-95"
-                        title="Sisipkan Tabel"
-                      >
-                        ⊞
-                      </button>
-                      <button
-                        type="button"
-                        @click="applyFormat('divider')"
-                        class="w-8 h-8 rounded-lg hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold transition flex items-center justify-center active:scale-95"
-                        title="Garis Pemisah"
-                      >
-                        ―
-                      </button>
-                    </div>
-
-                    <!-- SISIPKAN RUMUS ILMIAH (TOGGLE) -->
-                    <button
-                      id="formula-toggle-btn"
-                      type="button"
-                      @click="isFormulaDrawerOpen = !isFormulaDrawerOpen"
-                      class="px-3 h-8 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 active:scale-95 shadow-sm"
-                      :class="isFormulaDrawerOpen
-                        ? 'bg-cyan-500 text-white border-cyan-400'
-                        : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30'"
-                      title="Buka / Tutup Pilihan Rumus Ilmiah"
-                    >
-                      <span>📐</span>
-                      <span>Rumus</span>
-                    </button>
-
-                    <!-- SISIPKAN GAMBAR SLIDE -->
-                    <input
-                      type="file"
-                      :id="'slide-img-' + activeSlideIndex"
-                      @change="onSlideImageSelected(activeSlideIndex, $event)"
-                      accept="image/*"
-                      class="hidden"
-                    />
-                    <label
-                      :for="'slide-img-' + activeSlideIndex"
-                      class="px-3 h-8 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 text-teal-300 text-xs font-bold cursor-pointer transition flex items-center gap-1.5 active:scale-95 shadow-sm"
-                      title="Tambahkan foto atau ilustrasi pada slide ini"
-                    >
-                      <span>📷</span>
-                      <span>{{ kegiatanImagePreviews[activeSlideIndex] ? 'Ganti Foto' : 'Foto' }}</span>
-                    </label>
-
-                  </div>
-
-                  <!-- POPUP / DRAWER RUMUS ILMIAH -->
-                  <div
-                    v-if="isFormulaDrawerOpen"
-                    id="formula-drawer-box"
-                    class="p-3 bg-slate-900 border border-cyan-500/40 rounded-2xl space-y-2.5 shadow-2xl animate-in fade-in duration-150"
-                  >
-                    <div class="flex items-center justify-between">
-                      <div class="inline-flex rounded-xl bg-slate-950 p-1 border border-white/10">
-                        <button
-                          type="button"
-                          @click="activeFormulaCategory = 'matematika'"
-                          class="px-2.5 py-1 rounded-lg text-xs font-bold transition"
-                          :class="activeFormulaCategory === 'matematika' ? 'bg-cyan-500 text-white shadow' : 'text-slate-400 hover:text-white'"
-                        >
-                          Matematika
-                        </button>
-                        <button
-                          type="button"
-                          @click="activeFormulaCategory = 'fisika'"
-                          class="px-2.5 py-1 rounded-lg text-xs font-bold transition"
-                          :class="activeFormulaCategory === 'fisika' ? 'bg-cyan-500 text-white shadow' : 'text-slate-400 hover:text-white'"
-                        >
-                          Fisika
-                        </button>
-                        <button
-                          type="button"
-                          @click="activeFormulaCategory = 'kimia'"
-                          class="px-2.5 py-1 rounded-lg text-xs font-bold transition"
-                          :class="activeFormulaCategory === 'kimia' ? 'bg-cyan-500 text-white shadow' : 'text-slate-400 hover:text-white'"
-                        >
-                          Kimia
-                        </button>
-                      </div>
-
-                      <button
-                        type="button"
-                        @click="isFormulaDrawerOpen = false"
-                        class="text-xs text-slate-400 hover:text-white px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10"
-                      >
-                        ✕ Tutup
-                      </button>
-                    </div>
-
-                    <div class="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
-                      <button
-                        v-for="item in SCIENCE_PRESETS[activeFormulaCategory]"
-                        :key="item.label"
-                        type="button"
-                        @click="applyFormat('formula', item.latex)"
-                        class="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-400/40 text-xs text-cyan-200 transition active:scale-95 shadow-sm flex items-center gap-1.5"
-                        :title="item.label"
-                      >
-                        <span class="text-slate-400 text-[11px]">{{ item.label }}:</span>
-                        <span class="text-cyan-300 font-mono font-bold">{{ item.symbol }}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                </div>
-
-                <!-- Preview Gambar Slide Mini (Jika Ada) -->
-                <div
-                  v-if="kegiatanImagePreviews[activeSlideIndex]"
-                  class="p-3 rounded-2xl bg-slate-950/80 border border-cyan-500/30 flex items-center justify-between gap-3 shadow-md"
-                >
-                  <div class="flex items-center gap-3 min-w-0">
-                    <div class="w-14 h-14 rounded-xl overflow-hidden border border-white/10 bg-black shrink-0">
-                      <img :src="kegiatanImagePreviews[activeSlideIndex]" class="w-full h-full object-cover" />
-                    </div>
-                    <div class="min-w-0">
-                      <p class="text-xs font-bold text-slate-200 truncate">Foto Slide Terlampir</p>
-                      <p class="text-[11px] text-slate-400">Layout: {{ form.kegiatan[activeSlideIndex].layout }}</p>
-                    </div>
-                  </div>
-                  <div class="flex items-center gap-1.5 shrink-0">
-                    <label
-                      :for="'slide-img-' + activeSlideIndex"
-                      class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-slate-300 cursor-pointer border border-white/10"
-                    >
-                      Ganti
-                    </label>
-                    <button
-                      type="button"
-                      @click="removeSlideImage(activeSlideIndex)"
-                      class="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-xs font-bold transition"
-                    >
-                      Hapus
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Textarea Editor Naskah Full Height -->
-                <AutoTextarea
-                  ref="slideTextareaRef"
+                <SlideWysiwygEditor
+                  v-if="form.kegiatan[activeSlideIndex]"
                   v-model="form.kegiatan[activeSlideIndex].konten"
-                  placeholder="Ketik penjelasan naskah materi di sini. Gunakan tombol toolbar di atas untuk menebalkan, membuat daftar poin, perataan teks, atau menyisipkan rumus..."
-                  class="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/30 rounded-2xl p-4 text-xs font-sans text-white leading-relaxed placeholder-slate-600 min-h-[380px]"
+                  :active-slide-index="activeSlideIndex"
+                  :slide-layout="form.kegiatan[activeSlideIndex]?.layout || 'classic'"
+                  :image-preview="kegiatanImagePreviews[activeSlideIndex]"
+                  @image-selected="onSlideImageSelected(activeSlideIndex, $event)"
+                  @remove-image="removeSlideImage(activeSlideIndex)"
                 />
-
               </div>
 
               <!-- ============================================== -->

@@ -90,14 +90,21 @@ class WaliKelasApiController extends Controller
         $user = $request->user();
         $kelas = $this->getHomeroomKelas($request);
 
-        if ($kelas && ! $user->hasRole('admin')) {
+        if (! $user->hasRole('admin')) {
+            if (! $kelas) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak: Anda belum ditugaskan sebagai wali kelas untuk kelas mana pun.',
+                ], 403);
+            }
+
             $siswa = Siswa::find($validated['siswa_id']);
-            if (! $siswa || $siswa->kelas_id !== $kelas->id) {
+            if (! $siswa || (int) $siswa->kelas_id !== (int) $kelas->id) {
                 return response()->json(['success' => false, 'message' => 'Akses ditolak: Siswa ini bukan anggota kelas binaan Anda'], 403);
             }
             if (! empty($validated['id'])) {
                 $existingKasus = KasusSiswa::with('siswa')->find($validated['id']);
-                if ($existingKasus && $existingKasus->siswa && $existingKasus->siswa->kelas_id !== $kelas->id) {
+                if ($existingKasus && $existingKasus->siswa && (int) $existingKasus->siswa->kelas_id !== (int) $kelas->id) {
                     return response()->json(['success' => false, 'message' => 'Akses ditolak: Kasus ini bukan milik siswa kelas binaan Anda'], 403);
                 }
             }
@@ -118,8 +125,14 @@ class WaliKelasApiController extends Controller
 
         $kasus = KasusSiswa::with('siswa')->find($id);
         if ($kasus) {
-            if ($kelas && ! $user->hasRole('admin')) {
-                if ($kasus->siswa && $kasus->siswa->kelas_id !== $kelas->id) {
+            if (! $user->hasRole('admin')) {
+                if (! $kelas) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Akses ditolak: Anda belum ditugaskan sebagai wali kelas untuk kelas mana pun.',
+                    ], 403);
+                }
+                if ($kasus->siswa && (int) $kasus->siswa->kelas_id !== (int) $kelas->id) {
                     return response()->json(['success' => false, 'message' => 'Akses ditolak: Kasus ini bukan milik siswa kelas binaan Anda'], 403);
                 }
             }

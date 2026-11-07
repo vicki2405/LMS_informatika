@@ -22,7 +22,7 @@ function getMateriLockStatus(jadwal) {
   if (!jadwal || !jadwal.linkedMateri) {
     return { isLocked: false, linkedMateri: null, isCompleted: false };
   }
-  const currentSiswaId = props.activeSiswa?.id || selectedSiswaId.value;
+  const currentSiswaId = props.activeSiswa?.id || selectedSiswaId.value || activeStudent.value?.id || props.siswaObj?.id;
   if (!currentSiswaId) {
     // If no active student is selected yet, the linked material is considered not completed
     return { isLocked: true, linkedMateri: jadwal.linkedMateri, isCompleted: false };
@@ -42,12 +42,23 @@ watch(() => props.autoStartExam, (payload) => {
   if (!payload || !payload.jadwalId) return;
   const targetJadwal = props.cbtJadwalList.find(j => Number(j.id) === Number(payload.jadwalId));
   if (targetJadwal) {
-    const lock = getMateriLockStatus(targetJadwal);
-    if (!lock.isLocked) {
+    if (payload.token) {
+      inputToken.value = payload.token;
+    }
+    const student = props.activeSiswa || (props.siswaObj?.id ? props.siswaObj : null);
+    if (student) {
+      selectedJadwal.value = targetJadwal;
+      activeStudent.value = student;
+      selectedSiswaId.value = student.id;
+      currentMode.value = 'waiting_room';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      // Asynchronously join waiting room in backend
+      axios.post(route('siswa.cbt.gabung-ruang-tunggu'), {
+        jadwal_id: targetJadwal.id,
+        siswa_id: student.id,
+      }).catch(err => console.error('Peringatan gabung ruang tunggu:', err));
+    } else {
       promptSelectIdentity(targetJadwal);
-      if (payload.token) {
-        inputToken.value = payload.token;
-      }
     }
   }
 }, { immediate: true });
@@ -988,21 +999,26 @@ function promptSelectIdentity(jadwal) {
   }
 
   selectedJadwal.value = jadwal;
-  selectedSiswaId.value = '';
   studentSearchText.value = '';
   isDropdownOpen.value = false;
   inputToken.value = '';
   tokenError.value = '';
 
-  try {
-    const savedId = localStorage.getItem('siswacloud_active_siswa_id');
-    if (savedId) {
-      const match = props.siswaList.find((s) => String(s.id) === String(savedId));
-      if (match) {
-        selectStudent(match);
+  const active = props.activeSiswa || (props.siswaObj?.id ? props.siswaObj : null);
+  if (active) {
+    selectStudent(active);
+  } else {
+    selectedSiswaId.value = '';
+    try {
+      const savedId = localStorage.getItem('siswacloud_active_siswa_id');
+      if (savedId) {
+        const match = props.siswaList.find((s) => String(s.id) === String(savedId));
+        if (match) {
+          selectStudent(match);
+        }
       }
-    }
-  } catch (e) {}
+    } catch (e) {}
+  }
 
   showIdentityModal.value = true;
 }

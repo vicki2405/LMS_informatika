@@ -55,7 +55,8 @@ export function renderFormulaContent(rawText) {
   // 4. Sanitize markdown HTML with DOMPurify to prevent Stored XSS
   if (typeof DOMPurify !== 'undefined' && DOMPurify.sanitize) {
     html = DOMPurify.sanitize(html, {
-      ADD_ATTR: ['target', 'rel', 'class', 'style'],
+      ADD_ATTR: ['target', 'rel', 'class', 'style', 'align', 'color', 'size', 'face', 'type', 'checked'],
+      ADD_TAGS: ['center', 'font', 'mark', 'u', 's', 'strike', 'input'],
     });
   }
 

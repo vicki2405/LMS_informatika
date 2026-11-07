@@ -284,6 +284,7 @@ class SiswaDashboardController extends Controller
 
     /**
      * Get active CBT exam schedules for this class / jurusan.
+     * Synchronized strictly with the class's scheduled subjects (tab=jadwal).
      */
     private function getCbtJadwals(?int $kelasId, ?int $jurusanId): array
     {
@@ -296,10 +297,36 @@ class SiswaDashboardController extends Controller
             })
             ->get(['id', 'jadwal_id', 'siswa_id', 'nilai', 'status']);
 
+        $kelasMapelNames = $kelasId ? Jadwal::query()
+            ->where('kelas_id', $kelasId)
+            ->whereNotNull('mata_pelajaran')
+            ->pluck('mata_pelajaran')
+            ->map(fn ($m) => mb_strtolower(trim($m)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray() : [];
+
+        if ($kelasId) {
+            $ampuanMapels = DB::table('guru_kelas')
+                ->join('gurus', 'gurus.id', '=', 'guru_kelas.guru_id')
+                ->where('guru_kelas.kelas_id', $kelasId)
+                ->whereNotNull('gurus.mapel_utama')
+                ->pluck('gurus.mapel_utama')
+                ->flatMap(fn ($m) => explode(',', (string) $m))
+                ->map(fn ($m) => mb_strtolower(trim($m)))
+                ->filter()
+                ->unique()
+                ->values()
+                ->toArray();
+
+            $kelasMapelNames = array_values(array_unique(array_merge($kelasMapelNames, $ampuanMapels)));
+        }
+
         return CbtJadwal::query()
             ->with([
                 'bankSoal' => fn ($q) => $q->select(['id', 'judul', 'mata_pelajaran_id'])->withCount('soals'),
-                'bankSoal.mataPelajaran:id,nama',
+                'bankSoal.mataPelajaran:id,nama,kode',
                 'guru:id,nama',
                 'jurusan:id,nama,kode',
                 'kelas:id,nama_kelas',
@@ -310,10 +337,34 @@ class SiswaDashboardController extends Controller
                 },
             ])
             ->where('status', 'aktif')
-            ->where(function ($q) use ($kelasId) {
-                $q->whereNull('kelas_id');
+            ->where(function ($q) use ($kelasId, $kelasMapelNames) {
+                // 1. Ditujukan spesifik untuk kelas siswa ini
                 if ($kelasId) {
-                    $q->orWhere('kelas_id', $kelasId);
+                    $q->where('kelas_id', '=', $kelasId);
+                }
+
+                // 2. ATAU ditujukan untuk semua kelas (kelas_id null),
+                // TAPI HANYA JIKA kelas siswa ini memang memiliki mapel tersebut dalam jadwal pelajarannya (tab=jadwal)!
+                if (! empty($kelasMapelNames)) {
+                    $q->orWhere(function ($sub) use ($kelasMapelNames) {
+                        $sub->whereNull('kelas_id')
+                            ->where(function ($mQuery) use ($kelasMapelNames) {
+                                $mQuery->whereHas('bankSoal.mataPelajaran', function ($mq) use ($kelasMapelNames) {
+                                    $mq->where(function ($subMq) use ($kelasMapelNames) {
+                                        $subMq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
+                                              ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
+                                        foreach ($kelasMapelNames as $km) {
+                                            $clean = trim(preg_replace('/\(.*?\)/', '', $km));
+                                            if (strlen($clean) >= 3) {
+                                                $subMq->orWhereRaw('LOWER(TRIM(nama)) LIKE ?', ['%' . strtolower($clean) . '%']);
+                                            }
+                                        }
+                                    });
+                                })->orWhereDoesntHave('bankSoal.mataPelajaran');
+                            });
+                    });
+                } elseif (! $kelasId) {
+                    $q->orWhereNull('kelas_id');
                 }
             })
             ->where(function ($q) use ($jurusanId) {
@@ -504,7 +555,19 @@ class SiswaDashboardController extends Controller
             return null;
         }
 
+        // Admin has universal authorized access
+        if ($user->hasRole('admin')) {
+            if ($requestedSiswaId) {
+                return Siswa::query()->find($requestedSiswaId);
+            }
+            return $user->siswa ?: Siswa::query()->first();
+        }
+
+        // 1. Direct relationship: user->siswa (Strict IDOR prevention)
         if ($user->siswa) {
+            if ($requestedSiswaId && (int) $requestedSiswaId !== (int) $user->siswa->id) {
+                return null; // Reject attempt to act as another student
+            }
             return $user->siswa;
         }
 
@@ -523,17 +586,25 @@ class SiswaDashboardController extends Controller
             ->first();
 
         if ($personalSiswa) {
+            if ($requestedSiswaId && (int) $requestedSiswaId !== (int) $personalSiswa->id) {
+                return null; // Reject attempt to act as another student
+            }
             return $personalSiswa;
         }
 
+        // Shared classroom account (Akun Kelas Bersama): allow active students belonging to this class
         if ($requestedSiswaId) {
             return Siswa::query()
                 ->where('id', $requestedSiswaId)
                 ->where('kelas_id', $user->kelas_id)
+                ->where('status', 'Aktif')
                 ->first();
         }
 
-        return Siswa::query()->where('kelas_id', $user->kelas_id)->first();
+        return Siswa::query()
+            ->where('kelas_id', $user->kelas_id)
+            ->where('status', 'Aktif')
+            ->first();
     }
 
     /**

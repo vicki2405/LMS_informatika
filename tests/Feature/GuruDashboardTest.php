@@ -234,4 +234,50 @@ class GuruDashboardTest extends TestCase
             'kktp' => 76,
         ]);
     }
+
+    public function test_slide_image_upload_only_attaches_to_specified_slide_index(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        /** @var User $user */
+        $user = User::factory()->create();
+        $user->assignRole('guru');
+        Guru::create([
+            'user_id' => $user->id,
+            'nama' => 'Guru Multimedia',
+            'nip' => '199001012015011001',
+            'mapel_utama' => 'Informatika',
+        ]);
+
+        $uploadedImage = \Illuminate\Http\UploadedFile::fake()->image('diagram.png', 400, 300);
+
+        // Slide 1 has no image, Slide 2 has an image, Slide 3 has no image
+        $kegiatan = [
+            ['label' => 'Konsep 1', 'judul' => 'Slide Pertama', 'konten' => 'Teks tanpa gambar'],
+            ['label' => 'Konsep 2', 'judul' => 'Slide Kedua', 'konten' => 'Teks dengan gambar', '_fileKey' => 1],
+            ['label' => 'Konsep 3', 'judul' => 'Slide Ketiga', 'konten' => 'Teks tanpa gambar lagi'],
+        ];
+
+        $response = $this->actingAs($user)->post('/guru/materi/store', [
+            'judul' => 'Modul Jaringan Komputer',
+            'tipe' => 'Slider PPT',
+            'semester' => 'Ganjil',
+            'theme' => 'dark',
+            'kegiatan' => json_encode($kegiatan),
+            'kegiatan_files' => [
+                1 => $uploadedImage,
+            ],
+        ]);
+
+        $response->assertRedirect();
+
+        $materi = \App\Models\Materi::where('judul', 'Modul Jaringan Komputer')->firstOrFail();
+        $slides = $materi->kegiatans()->orderBy('urutan', 'asc')->get();
+
+        $this->assertCount(3, $slides);
+        $this->assertNull($slides[0]->file_path, 'Slide 1 should NOT have an image.');
+        $this->assertNotNull($slides[1]->file_path, 'Slide 2 MUST have the uploaded image.');
+        $this->assertNull($slides[2]->file_path, 'Slide 3 should NOT have an image.');
+    }
 }

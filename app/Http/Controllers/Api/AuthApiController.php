@@ -29,8 +29,15 @@ class AuthApiController extends Controller
             ], 401);
         }
 
+        $role = $user->roles->first()?->name;
+        if (! $role) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Akun Anda belum memiliki peran aktif dalam sistem. Hubungi administrator.',
+            ], 403);
+        }
+
         $token = $user->createToken('auth-token')->plainTextToken;
-        $role = $user->roles->first()?->name ?? 'guru';
 
         return response()->json([
             'success' => true,
@@ -54,7 +61,14 @@ class AuthApiController extends Controller
     public function me(Request $request): JsonResponse
     {
         $user = $request->user()->loadMissing('roles');
-        $role = $user->roles->first()?->name ?? 'guru';
+        $role = $user->roles->first()?->name;
+
+        if (! $role) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Akun tidak memiliki peran aktif.',
+            ], 403);
+        }
 
         return response()->json([
             'success' => true,

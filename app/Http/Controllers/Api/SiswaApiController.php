@@ -15,6 +15,7 @@ use App\Models\Tugas;
 use App\Services\Cbt\CbtExamService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class SiswaApiController extends Controller
@@ -47,7 +48,19 @@ class SiswaApiController extends Controller
             return null;
         }
 
+        // Admin has universal authorized access
+        if ($user->hasRole('admin')) {
+            if ($requestedSiswaId) {
+                return Siswa::find($requestedSiswaId);
+            }
+            return $user->siswa ?: Siswa::first();
+        }
+
+        // 1. Direct relationship: user->siswa (Strict IDOR prevention)
         if ($user->siswa) {
+            if ($requestedSiswaId && (int) $requestedSiswaId !== (int) $user->siswa->id) {
+                return null; // Reject attempt to act as another student
+            }
             return $user->siswa;
         }
 
@@ -65,16 +78,23 @@ class SiswaApiController extends Controller
             ->first();
 
         if ($personalSiswa) {
+            if ($requestedSiswaId && (int) $requestedSiswaId !== (int) $personalSiswa->id) {
+                return null; // Reject attempt to act as another student
+            }
             return $personalSiswa;
         }
 
+        // Shared classroom account (Akun Kelas Bersama): allow active students belonging to this class
         if ($requestedSiswaId) {
             return Siswa::where('id', $requestedSiswaId)
                 ->where('kelas_id', $user->kelas_id)
+                ->where('status', 'Aktif')
                 ->first();
         }
 
-        return Siswa::where('kelas_id', $user->kelas_id)->first();
+        return Siswa::where('kelas_id', $user->kelas_id)
+            ->where('status', 'Aktif')
+            ->first();
     }
 
     public function getNilai(Request $request): JsonResponse
@@ -117,11 +137,60 @@ class SiswaApiController extends Controller
         $siswa = $this->resolveSiswa($user);
         $kelasId = $siswa?->kelas_id;
 
+        $kelasMapelNames = $kelasId ? Jadwal::query()
+            ->where('kelas_id', $kelasId)
+            ->whereNotNull('mata_pelajaran')
+            ->pluck('mata_pelajaran')
+            ->map(fn ($m) => mb_strtolower(trim($m)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray() : [];
+
+        if ($kelasId) {
+            $ampuanMapels = DB::table('guru_kelas')
+                ->join('gurus', 'gurus.id', '=', 'guru_kelas.guru_id')
+                ->where('guru_kelas.kelas_id', $kelasId)
+                ->whereNotNull('gurus.mapel_utama')
+                ->pluck('gurus.mapel_utama')
+                ->flatMap(fn ($m) => explode(',', (string) $m))
+                ->map(fn ($m) => mb_strtolower(trim($m)))
+                ->filter()
+                ->unique()
+                ->values()
+                ->toArray();
+
+            $kelasMapelNames = array_values(array_unique(array_merge($kelasMapelNames, $ampuanMapels)));
+        }
+
         $jadwals = CbtJadwal::with(['bankSoal.mataPelajaran', 'bankSoal.soals:id,bank_soal_id', 'guru', 'kelas'])
             ->where('status', 'aktif')
-            ->where(function ($q) use ($kelasId) {
-                $q->whereNull('kelas_id');
-                if ($kelasId) $q->orWhere('kelas_id', $kelasId);
+            ->where(function ($q) use ($kelasId, $kelasMapelNames) {
+                if ($kelasId) {
+                    $q->where('kelas_id', '=', $kelasId);
+                }
+
+                if (! empty($kelasMapelNames)) {
+                    $q->orWhere(function ($sub) use ($kelasMapelNames) {
+                        $sub->whereNull('kelas_id')
+                            ->where(function ($mQuery) use ($kelasMapelNames) {
+                                $mQuery->whereHas('bankSoal.mataPelajaran', function ($mq) use ($kelasMapelNames) {
+                                    $mq->where(function ($subMq) use ($kelasMapelNames) {
+                                        $subMq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
+                                              ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
+                                        foreach ($kelasMapelNames as $km) {
+                                            $clean = trim(preg_replace('/\(.*?\)/', '', $km));
+                                            if (strlen($clean) >= 3) {
+                                                $subMq->orWhereRaw('LOWER(TRIM(nama)) LIKE ?', ['%' . strtolower($clean) . '%']);
+                                            }
+                                        }
+                                    });
+                                })->orWhereDoesntHave('bankSoal.mataPelajaran');
+                            });
+                    });
+                } elseif (! $kelasId) {
+                    $q->orWhereNull('kelas_id');
+                }
             })
             ->orderBy('id', 'desc')
             ->get()

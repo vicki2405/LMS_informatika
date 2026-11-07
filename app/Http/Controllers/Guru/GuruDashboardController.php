@@ -609,7 +609,13 @@ class GuruDashboardController extends Controller
         $siswaIds = collect($validated['scores'])->pluck('siswaId')->filter()->unique()->values();
         $teacherKelasIds = $this->getTeacherKelasIds($guruId);
 
-        if (! empty($teacherKelasIds)) {
+        if (! TeacherAccessService::isAdmin($request->user())) {
+            if (empty($teacherKelasIds)) {
+                throw ValidationException::withMessages([
+                    'scores' => 'Akses ditolak: Anda belum memiliki kelas ampuan untuk menginput nilai.',
+                ]);
+            }
+
             $validSiswaIds = Siswa::query()
                 ->whereIn('id', $siswaIds, 'and', false)
                 ->whereIn('kelas_id', $teacherKelasIds, 'and', false)
