@@ -310,20 +310,18 @@ class SiswaDashboardController extends Controller
             ->values()
             ->toArray() : [];
 
-        if ($kelasId) {
-            $ampuanMapels = DB::table('guru_kelas')
-                ->join('gurus', 'gurus.id', '=', 'guru_kelas.guru_id')
-                ->where('guru_kelas.kelas_id', $kelasId)
-                ->whereNotNull('gurus.mapel_utama')
-                ->pluck('gurus.mapel_utama')
-                ->flatMap(fn ($m) => explode(',', (string) $m))
+        // Fallback hanya jika jadwal pelajaran resmi (tab=jadwal) belum diisi sama sekali
+        if ($kelasId && empty($kelasMapelNames)) {
+            $kelasMapelNames = TujuanPembelajaran::query()
+                ->whereHas('nilaiTps.siswa', fn ($q) => $q->where('kelas_id', $kelasId))
+                ->whereNotNull('mapel')
+                ->distinct()
+                ->pluck('mapel')
                 ->map(fn ($m) => mb_strtolower(trim($m)))
                 ->filter()
                 ->unique()
                 ->values()
                 ->toArray();
-
-            $kelasMapelNames = array_values(array_unique(array_merge($kelasMapelNames, $ampuanMapels)));
         }
 
         return CbtJadwal::query()
@@ -351,23 +349,39 @@ class SiswaDashboardController extends Controller
                 if (! empty($kelasMapelNames)) {
                     $q->orWhere(function ($sub) use ($kelasMapelNames) {
                         $sub->whereNull('kelas_id')
-                            ->where(function ($mQuery) use ($kelasMapelNames) {
-                                $mQuery->whereHas('bankSoal.mataPelajaran', function ($mq) use ($kelasMapelNames) {
-                                    $mq->where(function ($subMq) use ($kelasMapelNames) {
-                                        $subMq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
-                                              ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
-                                        foreach ($kelasMapelNames as $km) {
-                                            $clean = trim(preg_replace('/\(.*?\)/', '', $km));
-                                            if (strlen($clean) >= 3) {
-                                                $subMq->orWhereRaw('LOWER(TRIM(nama)) LIKE ?', ['%' . strtolower($clean) . '%']);
-                                            }
+                            ->whereHas('bankSoal.mataPelajaran', function ($mq) use ($kelasMapelNames) {
+                                $mq->where(function ($subMq) use ($kelasMapelNames) {
+                                    $subMq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
+                                          ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
+                                    foreach ($kelasMapelNames as $km) {
+                                        $clean = trim(preg_replace('/\(.*?\)/', '', $km));
+                                        if (strlen($clean) >= 3) {
+                                            $subMq->orWhereRaw('LOWER(TRIM(nama)) LIKE ?', ['%' . strtolower($clean) . '%']);
                                         }
-                                    });
-                                })->orWhereDoesntHave('bankSoal.mataPelajaran');
+                                    }
+                                });
                             });
                     });
                 } elseif (! $kelasId) {
                     $q->orWhereNull('kelas_id');
+                }
+            })
+            // Jaminan konsistensi: jika kelas siswa memiliki jadwal mapel resmi, maka soal yang muncul
+            // tidak boleh berasal dari mata pelajaran yang tidak diajarkan di kelas tersebut
+            ->where(function ($q) use ($kelasId, $kelasMapelNames) {
+                if ($kelasId && ! empty($kelasMapelNames)) {
+                    $q->whereHas('bankSoal.mataPelajaran', function ($mq) use ($kelasMapelNames) {
+                        $mq->where(function ($subMq) use ($kelasMapelNames) {
+                            $subMq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
+                                  ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
+                            foreach ($kelasMapelNames as $km) {
+                                $clean = trim(preg_replace('/\(.*?\)/', '', $km));
+                                if (strlen($clean) >= 3) {
+                                    $subMq->orWhereRaw('LOWER(TRIM(nama)) LIKE ?', ['%' . strtolower($clean) . '%']);
+                                }
+                            }
+                        });
+                    });
                 }
             })
             ->where(function ($q) use ($jurusanId) {

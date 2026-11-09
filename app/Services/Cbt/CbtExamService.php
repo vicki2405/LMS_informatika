@@ -21,7 +21,7 @@ class CbtExamService
             $this->fail('Anda tidak terdaftar pada kelas ujian ini.');
         }
 
-        if ($jadwal->kelas_id === null && $siswa->kelas_id !== null) {
+        if ($siswa->kelas_id !== null) {
             $jadwal->loadMissing(['bankSoal.mataPelajaran', 'bankSoal.guru']);
             $mapelName = $jadwal->bankSoal?->mataPelajaran?->nama;
             $mapelKode = $jadwal->bankSoal?->mataPelajaran?->kode;
@@ -39,20 +39,7 @@ class CbtExamService
                     })
                     ->exists();
 
-                $bankGuruId = $jadwal->guru_id ?? $jadwal->bankSoal?->guru_id;
-                if (! $hasScheduledMapel && $bankGuruId) {
-                    $hasGuruKelasAmpuan = \Illuminate\Support\Facades\DB::table('guru_kelas')
-                        ->where('guru_id', $bankGuruId)
-                        ->where('kelas_id', $siswa->kelas_id)
-                        ->exists();
-
-                    if ($hasGuruKelasAmpuan) {
-                        $hasScheduledMapel = true;
-                    }
-                }
-
-                $classHasAnySchedule = \App\Models\Jadwal::where('kelas_id', $siswa->kelas_id)->exists()
-                    || \Illuminate\Support\Facades\DB::table('guru_kelas')->where('kelas_id', $siswa->kelas_id)->exists();
+                $classHasAnySchedule = \App\Models\Jadwal::where('kelas_id', $siswa->kelas_id)->exists();
 
                 if ($classHasAnySchedule && ! $hasScheduledMapel) {
                     $this->fail('Mata pelajaran ujian ini tidak ada dalam jadwal pelajaran kelas Anda.');

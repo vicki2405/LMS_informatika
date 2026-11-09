@@ -261,6 +261,16 @@ class SecurityHardeningTest extends TestCase
             'jam_ke' => 1,
         ]);
 
+        // Teacher whose profile mapel_utama is Informatika, but teaches KKA in Kelas B (X TSM 3)
+        $guru = Guru::create([
+            'nama' => 'Guru Informatika & KKA',
+            'mapel_utama' => 'Informatika',
+        ]);
+        \Illuminate\Support\Facades\DB::table('guru_kelas')->insert([
+            'guru_id' => $guru->id,
+            'kelas_id' => $kelasB->id,
+        ]);
+
         // Student A in class A (Informatika)
         $studentA = Siswa::create([
             'nama' => 'Siswa TKR 2',
@@ -319,10 +329,16 @@ class SecurityHardeningTest extends TestCase
         $this->assertCount(1, $resA->json('data'));
         $this->assertEquals($jadwal->id, $resA->json('data.0.id'));
 
-        // Student B (class with KKA only) MUST NOT see the exam
+        // Student B (class with KKA only) MUST NOT see the exam via API
         $resB = $this->actingAs($userB, 'sanctum')->getJson('/api/v1/siswa/cbt/jadwal');
         $resB->assertOk();
         $this->assertCount(0, $resB->json('data'));
+
+        // Student B MUST NOT see the exam via Web Inertia Dashboard
+        $webResB = $this->actingAs($userB)->get('/siswa/dashboard?tab=cbt');
+        $webResB->assertOk();
+        $webCbtList = $webResB->inertiaProps('cbtJadwalListProp');
+        $this->assertCount(0, $webCbtList);
 
         // Student B attempting to start exam MUST be rejected
         $this->actingAs($userB, 'sanctum')
