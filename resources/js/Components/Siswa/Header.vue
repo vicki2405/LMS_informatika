@@ -67,19 +67,19 @@ function navigateTo(view) {
       <div class="flex items-center justify-between h-16 gap-4">
         
         <!-- Left: Brand Logo & Desktop Sidebar Collapse Toggle -->
-        <div class="flex items-center gap-3.5 shrink-0">
-          <button @click="$emit('toggle-sidebar')" title="Sembunyikan / Tampilkan Sidebar" class="hidden lg:flex p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all">
+        <div class="flex items-center gap-2 sm:gap-3.5 min-w-0 flex-1">
+          <button @click="$emit('toggle-sidebar')" title="Sembunyikan / Tampilkan Sidebar" class="hidden lg:flex p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all shrink-0">
             <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
 
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2 sm:gap-3 min-w-0">
             <!-- Glowing Badge Logo -->
-            <div class="w-10 h-10 bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-600 rounded-xl flex items-center justify-center font-black text-white text-base shadow-lg shadow-cyan-500/30 ring-2 ring-cyan-400/30 font-mono tracking-tighter shrink-0">
+            <div class="w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-600 rounded-xl flex items-center justify-center font-black text-white text-xs sm:text-base shadow-lg shadow-cyan-500/30 ring-2 ring-cyan-400/30 font-mono tracking-tighter shrink-0">
               SIS
             </div>
-            <div class="flex flex-col min-w-0 max-w-[170px] sm:max-w-none">
+            <div class="flex flex-col min-w-0">
               <span class="font-black text-white text-xs sm:text-base tracking-tight leading-tight flex items-center gap-1.5 truncate">
-                <span class="sm:hidden text-cyan-300">SMK MUHA 2 GENTENG</span>
+                <span class="sm:hidden text-cyan-300 truncate">SMK MUHA 2</span>
                 <span class="hidden sm:inline">SMKS MUHAMMADIYAH 2<span class="text-cyan-400"> GENTENG</span></span>
                 <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>
               </span>
@@ -87,15 +87,15 @@ function navigateTo(view) {
             </div>
           </div>
 
-          <span class="hidden md:inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500/15 to-blue-500/15 text-cyan-300 text-xs font-bold px-3.5 py-1 rounded-full border border-cyan-500/30 shadow-inner ml-1">
+          <span class="hidden md:inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500/15 to-blue-500/15 text-cyan-300 text-xs font-bold px-3.5 py-1 rounded-full border border-cyan-500/30 shadow-inner ml-1 shrink-0">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
             KELAS {{ kelasSiswa }}
           </span>
 
-          <!-- Active Student Badge -->
+          <!-- Active Student Badge (Desktop & Tablet) -->
           <div
             v-if="activeSiswa"
-            class="flex items-center gap-2 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-400/40 px-2.5 sm:px-3 py-1 rounded-xl shadow-inner ml-1"
+            class="hidden sm:flex items-center gap-2 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-400/40 px-2.5 sm:px-3 py-1 rounded-xl shadow-inner ml-1 shrink-0"
           >
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
             <div class="flex flex-col text-left">
@@ -111,6 +111,17 @@ function navigateTo(view) {
               <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
             </button>
           </div>
+
+          <!-- Active Student Compact Pill (Mobile) -->
+          <button
+            v-if="activeSiswa"
+            @click="$emit('switch-siswa')"
+            class="sm:hidden flex items-center gap-1.5 px-2 py-1 rounded-xl bg-cyan-500/15 border border-cyan-400/30 text-[11px] font-bold text-cyan-300 shrink-0 truncate max-w-[110px]"
+            title="Ketuk untuk Ganti Siswa"
+          >
+            <span class="text-xs">👤</span>
+            <span class="truncate">{{ activeSiswa.nama?.split(' ')[0] }}</span>
+          </button>
         </div>
 
         <!-- Center: Search Input Bar -->

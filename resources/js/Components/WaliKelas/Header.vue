@@ -71,19 +71,19 @@ function navigateTo(view) {
       <div class="flex items-center justify-between h-16 gap-4">
         
         <!-- Left: Brand Logo & Desktop/Mobile Sidebar Toggle -->
-        <div class="flex items-center gap-3.5 shrink-0">
-          <button @click="$emit('toggle-sidebar')" title="Toggle Sidebar Menu" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all active:scale-95">
+        <div class="flex items-center gap-2 sm:gap-3.5 min-w-0 flex-1">
+          <button @click="$emit('toggle-sidebar')" title="Toggle Sidebar Menu" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all active:scale-95 shrink-0">
             <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
 
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2 sm:gap-3 min-w-0">
             <!-- Glowing Badge Logo -->
-            <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 via-purple-600 to-cyan-400 rounded-xl flex items-center justify-center font-black text-white text-base shadow-lg shadow-indigo-500/30 ring-2 ring-indigo-400/30 font-mono tracking-tighter shrink-0">
+            <div class="w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-indigo-500 via-purple-600 to-cyan-400 rounded-xl flex items-center justify-center font-black text-white text-xs sm:text-base shadow-lg shadow-indigo-500/30 ring-2 ring-indigo-400/30 font-mono tracking-tighter shrink-0">
               WK
             </div>
-            <div class="flex flex-col min-w-0 max-w-[170px] sm:max-w-none">
+            <div class="flex flex-col min-w-0">
               <span class="font-black text-white text-xs sm:text-base tracking-tight leading-tight flex items-center gap-1.5 truncate">
-                <span class="sm:hidden text-indigo-300">SMK MUHA 2 GENTENG</span>
+                <span class="sm:hidden text-indigo-300 truncate">SMK MUHA 2</span>
                 <span class="hidden sm:inline">SMKS MUHAMMADIYAH 2<span class="text-indigo-400"> GENTENG</span></span>
                 <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse shrink-0"></span>
               </span>
@@ -91,7 +91,7 @@ function navigateTo(view) {
             </div>
           </div>
 
-          <span class="hidden md:inline-flex items-center gap-2 bg-indigo-500/20 text-indigo-300 text-xs font-black px-3.5 py-1 rounded-full border border-indigo-500/30 shadow-inner ml-1">
+          <span class="hidden md:inline-flex items-center gap-2 bg-indigo-500/20 text-indigo-300 text-xs font-black px-3.5 py-1 rounded-full border border-indigo-500/30 shadow-inner ml-1 shrink-0">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
             WALI KELAS {{ kelasBinaan }} • TA {{ $page.props.activeTahunAjaran?.kode || '2025/2026' }}
           </span>
@@ -100,7 +100,7 @@ function navigateTo(view) {
           <a
             v-if="hasMultipleTeacherRoles"
             href="/guru/dashboard"
-            class="inline-flex items-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-500/40 text-cyan-300 hover:text-white font-extrabold text-[10px] sm:text-xs transition-all duration-200 shadow-md shadow-cyan-950/40 hover:scale-105 active:scale-95 ml-1.5"
+            class="hidden sm:inline-flex items-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-500/40 text-cyan-300 hover:text-white font-extrabold text-[10px] sm:text-xs transition-all duration-200 shadow-md shadow-cyan-950/40 hover:scale-105 active:scale-95 ml-1.5 shrink-0"
             title="Beralih ke Portal Guru Mapel tanpa Logout"
           >
             <span class="text-xs sm:text-sm">🔄</span>

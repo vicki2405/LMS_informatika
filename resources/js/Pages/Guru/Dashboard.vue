@@ -621,7 +621,7 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
 <template>
   <Head title="Dashboard Guru — SMKS Muhammadiyah 2 Genteng" />
 
-  <div class="min-h-screen bg-slate-900 text-white font-sans">
+  <div class="min-h-screen bg-slate-900 text-white font-sans w-full max-w-full overflow-x-hidden">
     
     <!-- Top Header Component -->
     <Header
@@ -635,7 +635,7 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
       @mark-read="markAllNotifRead"
     />
 
-    <div class="flex">
+    <div class="flex w-full max-w-full overflow-x-hidden">
       
       <!-- Sidebar Component -->
       <Sidebar

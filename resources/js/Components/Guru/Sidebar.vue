@@ -39,7 +39,7 @@ function selectView(view) {
     <aside
       :class="[
         'fixed lg:sticky top-16 left-0 h-[calc(100vh-8rem)] lg:h-[calc(100vh-4rem)] w-72 bg-slate-900/95 border-r border-white/10 z-40 transition-all duration-300 overflow-y-auto shrink-0 shadow-2xl lg:shadow-none backdrop-blur-2xl custom-scrollbar',
-        sidebarOpen ? 'translate-x-0 ml-0' : '-translate-x-full -ml-72'
+        sidebarOpen ? 'translate-x-0 lg:ml-0' : '-translate-x-full lg:-ml-72'
       ]"
     >
       <div class="p-5 sm:p-6 space-y-6">

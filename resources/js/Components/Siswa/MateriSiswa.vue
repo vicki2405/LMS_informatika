@@ -898,41 +898,41 @@ onUnmounted(() => {
       >
       <!-- TOP HUD PRESENTATION BAR -->
       <header
-        class="border-b px-4 sm:px-8 py-3 flex items-center justify-between gap-4 backdrop-blur-xl shrink-0 z-30"
+        class="border-b px-3 sm:px-8 py-2 sm:py-3 flex items-center justify-between gap-2 sm:gap-4 backdrop-blur-xl shrink-0 z-30"
         :class="currentThemeClass.header"
       >
         <!-- Left: Exit, Title, Identity -->
-        <div class="flex items-center gap-3 sm:gap-4 min-w-0">
+        <div class="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
           <button
             @click="closeReader"
             type="button"
-            class="px-3.5 py-2 rounded-2xl bg-white/10 hover:bg-white/20 text-xs font-black transition flex items-center gap-2 active:scale-95 text-white shadow-sm"
+            class="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl bg-white/10 hover:bg-white/20 text-xs font-black transition flex items-center gap-1.5 active:scale-95 text-white shadow-sm shrink-0"
             title="Tutup Reader & Kembali ke Dashboard"
           >
             <span>✕</span>
             <span class="hidden sm:inline">Keluar</span>
           </button>
 
-          <div class="min-w-0">
-            <h2 class="text-xs sm:text-base font-black truncate leading-tight flex items-center gap-2">
-              <span class="hidden md:inline-block px-2 py-0.5 rounded-lg text-[10px] uppercase font-mono font-bold tracking-wider" :class="currentThemeClass.badge">
+          <div class="min-w-0 flex-1">
+            <h2 class="text-xs sm:text-base font-black truncate leading-tight flex items-center gap-1.5 sm:gap-2">
+              <span class="hidden md:inline-block px-2 py-0.5 rounded-lg text-[10px] uppercase font-mono font-bold tracking-wider shrink-0" :class="currentThemeClass.badge">
                 {{ activeMateri.tipe }}
               </span>
-              <span>{{ activeMateri.judul }}</span>
+              <span class="truncate">{{ activeMateri.judul }}</span>
             </h2>
-            <div class="text-[11px] text-slate-400 truncate flex items-center gap-2 mt-0.5">
-              <span v-if="activeSiswa" class="font-bold text-cyan-400">
+            <div class="text-[10px] sm:text-[11px] text-slate-400 truncate flex items-center gap-2 mt-0.5">
+              <span v-if="activeSiswa" class="font-bold text-cyan-400 truncate">
                 👤 {{ activeSiswa.nama }}
               </span>
-              <span v-if="activeMateri.tipe === 'Slider PPT'" class="font-mono text-gray-400">
-                · Slide {{ currentSlideIndex + 1 }} dari {{ currentSlides.length }}
+              <span v-if="activeMateri.tipe === 'Slider PPT'" class="font-mono text-gray-400 shrink-0">
+                · {{ currentSlideIndex + 1 }}/{{ currentSlides.length }}
               </span>
             </div>
           </div>
         </div>
 
         <!-- Right: Theme Picker, Fullscreen Toggle, Complete / CBT -->
-        <div class="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        <div class="flex items-center gap-1 sm:gap-2.5 shrink-0">
           <!-- Mobile Quick Slide Pager -->
           <div v-if="activeMateri.tipe === 'Slider PPT' && currentSlides.length > 1" class="flex sm:hidden items-center gap-0.5 bg-white/10 p-0.5 rounded-xl border border-white/15 shrink-0">
             <button
@@ -957,6 +957,7 @@ onUnmounted(() => {
               ▶
             </button>
           </div>
+
           <!-- Live Theme Switcher for Slider PPT -->
           <div v-if="activeMateri.tipe === 'Slider PPT'" class="hidden md:flex items-center gap-1 bg-white/5 p-1 rounded-2xl border border-white/10">
             <button
@@ -977,7 +978,7 @@ onUnmounted(() => {
             v-if="activeMateri.tipe === 'Slider PPT' && currentSlides.length > 1"
             @click="toggleAutoPlay"
             type="button"
-            class="px-2.5 py-1.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 active:scale-95 border"
+            class="hidden sm:flex px-2.5 py-1.5 rounded-2xl text-xs font-bold transition items-center gap-1.5 active:scale-95 border"
             :class="isAutoPlaying
               ? 'bg-cyan-400 text-slate-950 border-cyan-300 shadow-md font-black ring-2 ring-cyan-300'
               : 'bg-white/10 hover:bg-white/20 text-white border-white/10'"
@@ -991,7 +992,7 @@ onUnmounted(() => {
           <button
             @click="toggleBrowserFullscreen"
             type="button"
-            class="w-9 h-9 rounded-2xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-sm transition active:scale-95"
+            class="hidden sm:flex w-9 h-9 rounded-2xl bg-white/10 hover:bg-white/20 text-white items-center justify-center text-sm transition active:scale-95"
             title="Layar Penuh (F)"
           >
             {{ isFullscreenMode ? '🗗' : '⛶' }}
@@ -1003,17 +1004,17 @@ onUnmounted(() => {
             @click="markCompleted"
             :disabled="isMarkingComplete"
             type="button"
-            class="px-3.5 py-2 rounded-2xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition active:scale-95 shadow-md flex items-center gap-1.5 disabled:opacity-50"
+            class="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition active:scale-95 shadow-md flex items-center gap-1 sm:gap-1.5 disabled:opacity-50 shrink-0"
           >
             <span>✓</span>
             <span class="hidden sm:inline">Tandai Selesai</span>
           </button>
           <span
             v-else
-            class="px-3.5 py-2 rounded-2xl text-[11px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5"
+            class="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 sm:gap-1.5 shrink-0"
           >
             <span>✓</span>
-            <span>Tuntas Dibaca</span>
+            <span class="hidden sm:inline">Tuntas Dibaca</span>
           </span>
 
           <!-- Linked CBT Exam Button -->
@@ -1021,7 +1022,7 @@ onUnmounted(() => {
             v-if="activeMateri.cbtJadwal"
             @click="jumpToCbt"
             type="button"
-            class="px-4 py-2 rounded-2xl text-xs font-black bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 transition hover:scale-105 active:scale-95 flex items-center gap-1.5"
+            class="hidden sm:flex px-4 py-2 rounded-2xl text-xs font-black bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 transition hover:scale-105 active:scale-95 items-center gap-1.5 shrink-0"
             title="Lanjut ke Ujian CBT"
           >
             <span>🎯</span>
@@ -1039,14 +1040,14 @@ onUnmounted(() => {
       </div>
 
       <!-- MAIN READER STAGE -->
-      <main class="flex-1 min-h-0 overflow-y-auto p-2.5 sm:p-6 lg:p-8 pb-40 sm:pb-36 flex flex-col items-center justify-start relative scroll-smooth overscroll-y-contain">
+      <main class="flex-1 min-h-0 overflow-y-auto p-2.5 sm:p-6 lg:p-8 pb-40 sm:pb-36 flex flex-col items-center justify-start relative scroll-smooth overscroll-y-contain w-full max-w-full overflow-x-hidden">
 
         <!-- ============================================== -->
         <!-- 1. SLIDER PPT: EXECUTIVE WIDESCREEN PRESENTATION -->
         <!-- ============================================== -->
         <div
           v-if="activeMateri.tipe === 'Slider PPT' && currentSlide"
-          class="w-full max-w-6xl mx-auto flex items-center justify-center relative py-1 sm:py-2"
+          class="w-full max-w-6xl mx-auto flex flex-col items-center justify-center relative py-1 sm:py-2"
         >
           <!-- Floating Left Arrow Button -->
           <button
@@ -1072,7 +1073,7 @@ onUnmounted(() => {
 
           <!-- THE 16:9 SLIDE CANVAS CONTAINER -->
           <div
-            class="w-full rounded-2xl sm:rounded-3xl border p-3.5 sm:p-10 lg:p-12 transition-all duration-300 relative overflow-visible flex flex-col justify-between min-h-0 sm:min-h-[460px] lg:min-h-[540px]"
+            class="w-full max-w-full rounded-2xl sm:rounded-3xl border p-3.5 sm:p-8 lg:p-12 transition-all duration-300 relative overflow-hidden flex flex-col justify-between min-h-0 sm:min-h-[460px] lg:min-h-[540px]"
             :class="currentThemeClass.card"
           >
             <!-- Ambient Glow Decoration -->
@@ -1250,6 +1251,31 @@ onUnmounted(() => {
               <span class="hidden sm:inline font-mono">Gunakan tombol ◄ ► atau Spasi untuk berpindah slide</span>
               <span class="font-mono">TP: {{ activeMateri.tp?.judul ? activeMateri.tp.judul.substring(0, 35) + '...' : 'Kurikulum Merdeka' }}</span>
             </div>
+          </div>
+
+          <!-- Mobile Bottom Slide Nav Toolbar (Thumb Friendly) -->
+          <div v-if="currentSlides.length > 1" class="sm:hidden flex items-center justify-between gap-2.5 w-full mt-3 px-1 shrink-0">
+            <button
+              @click="prevSlide"
+              :disabled="currentSlideIndex === 0"
+              type="button"
+              class="flex-1 py-3 px-3 rounded-2xl bg-white/10 hover:bg-white/20 disabled:opacity-20 text-white font-bold text-xs border border-white/15 flex items-center justify-center gap-1.5 active:scale-95 transition min-h-[44px]"
+            >
+              <span>❮</span>
+              <span>Sebelumnya</span>
+            </button>
+            <span class="text-xs font-mono font-black text-cyan-300 px-3 py-2 rounded-xl bg-slate-900 border border-white/10 shrink-0">
+              {{ currentSlideIndex + 1 }} / {{ currentSlides.length }}
+            </span>
+            <button
+              @click="nextSlide"
+              :disabled="currentSlideIndex === currentSlides.length - 1"
+              type="button"
+              class="flex-1 py-3 px-3 rounded-2xl bg-gradient-to-r from-cyan-500 to-teal-500 text-slate-950 font-black text-xs shadow-lg shadow-cyan-500/25 active:scale-95 transition min-h-[44px] flex items-center justify-center gap-1.5"
+            >
+              <span>Selanjutnya</span>
+              <span>❯</span>
+            </button>
           </div>
         </div>
 
@@ -1520,11 +1546,16 @@ onUnmounted(() => {
    ======================================================== */
 .slide-markdown-content {
   color: inherit;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
 }
 
 .slide-markdown-content p {
   margin-bottom: 1.25rem;
   line-height: 1.75;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .slide-markdown-content strong {
@@ -1601,7 +1632,23 @@ onUnmounted(() => {
   border: 1px solid rgba(56, 189, 248, 0.35);
   box-shadow: inset 0 -2px 0 0 rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2);
   display: inline-block;
-  white-space: nowrap;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.slide-markdown-content img {
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.slide-markdown-content .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Headings inside slide */

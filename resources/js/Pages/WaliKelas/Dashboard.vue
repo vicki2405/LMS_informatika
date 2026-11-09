@@ -230,7 +230,7 @@ function onDeleteKasus(id) {
 <template>
   <Head title="Dashboard Wali Kelas — SMKS Muhammadiyah 2 Genteng" />
 
-  <div class="min-h-screen bg-slate-900 text-white font-sans">
+  <div class="min-h-screen bg-slate-900 text-white font-sans w-full max-w-full overflow-x-hidden">
     
     <Header
       :user="user"
@@ -244,7 +244,7 @@ function onDeleteKasus(id) {
       @mark-read="markAllNotifRead"
     />
 
-    <div class="flex">
+    <div class="flex w-full max-w-full overflow-x-hidden">
       
       <Sidebar
         v-model:activeView="activeView"

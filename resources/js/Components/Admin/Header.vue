@@ -59,7 +59,7 @@ function navigateTo(view) {
       <div class="flex items-center justify-between h-16 gap-4">
         
         <!-- Left: Sidebar Toggle Button & Glowing School Brand Logo -->
-        <div class="flex items-center gap-3.5 shrink-0">
+        <div class="flex items-center gap-2 sm:gap-3.5 min-w-0 flex-1 sm:flex-initial">
           <button
             @click="$emit('toggle-sidebar')"
             title="Toggle Sidebar"
@@ -70,18 +70,18 @@ function navigateTo(view) {
             </svg>
           </button>
 
-          <div class="flex items-center gap-3 cursor-pointer" @click="navigateTo('dashboard')">
+          <div class="flex items-center gap-2 sm:gap-3 cursor-pointer min-w-0" @click="navigateTo('dashboard')">
             <!-- Glowing Badge Logo -->
-            <div class="w-10 h-10 bg-gradient-to-br from-purple-500 via-indigo-500 to-cyan-400 rounded-2xl flex items-center justify-center font-black text-white text-sm shadow-lg shadow-purple-500/40 ring-2 ring-purple-400/30 font-mono tracking-tighter shrink-0 hover:scale-105 transition-transform duration-200">
+            <div class="w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-purple-500 via-indigo-500 to-cyan-400 rounded-2xl flex items-center justify-center font-black text-white text-xs sm:text-sm shadow-lg shadow-purple-500/40 ring-2 ring-purple-400/30 font-mono tracking-tighter shrink-0 hover:scale-105 transition-transform duration-200">
               ADM
             </div>
-            <div class="flex flex-col min-w-0 max-w-[170px] sm:max-w-none">
+            <div class="flex flex-col min-w-0">
               <span class="font-black text-white text-xs sm:text-base tracking-tight leading-tight flex items-center gap-1.5 truncate">
-                <span class="sm:hidden text-purple-300">SMK MUHA 2 GENTENG</span>
+                <span class="sm:hidden text-purple-300">SMK MUHA 2</span>
                 <span class="hidden sm:inline">SMKS MUHAMMADIYAH 2<span class="text-purple-400"> GENTENG</span></span>
                 <span class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 animate-ping shrink-0"></span>
               </span>
-              <span class="text-[9px] sm:text-[10px] text-purple-400 font-bold tracking-wider uppercase truncate">PORTAL ADMIN SEKOLAH</span>
+              <span class="text-[9px] sm:text-[10px] text-purple-400 font-bold tracking-wider uppercase truncate">PORTAL ADMIN</span>
             </div>
           </div>
 

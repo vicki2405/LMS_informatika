@@ -3,8 +3,9 @@
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply bg-surface text-gray-800 antialiased;
+  html, body {
+    @apply bg-slate-900 text-gray-100 antialiased;
+    overflow-x: hidden;
   }
 }
 

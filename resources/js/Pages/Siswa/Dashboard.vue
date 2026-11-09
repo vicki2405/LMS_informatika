@@ -233,7 +233,7 @@ function handleStartCbtWithToken(payload) {
 <template>
   <Head title="Dashboard Siswa — SMKS Muhammadiyah 2 Genteng" />
 
-  <div class="min-h-screen bg-slate-900 text-white font-sans relative">
+  <div class="min-h-screen bg-slate-900 text-white font-sans relative w-full max-w-full overflow-x-hidden">
     
     <!-- Top Header Component -->
     <Header
@@ -252,7 +252,7 @@ function handleStartCbtWithToken(payload) {
 
     <!-- Main Container: BLURRED and LOCKED if isLocked is true -->
     <div
-      class="flex transition-all duration-300"
+      class="flex transition-all duration-300 w-full max-w-full overflow-x-hidden"
       :class="isLocked ? 'pointer-events-none select-none filter blur-sm opacity-40' : ''"
     >
       <Sidebar

@@ -35,7 +35,7 @@ function selectView(view) {
     <div v-if="sidebarOpen" @click="$emit('update:sidebarOpen', false)" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-40 lg:hidden"></div>
 
     <!-- Sidebar Navigation -->
-    <aside :class="['fixed lg:sticky top-16 left-0 h-[calc(100vh-8rem)] lg:h-[calc(100vh-4rem)] w-72 bg-slate-900/95 backdrop-blur-2xl border-r border-white/10 z-40 transition-all duration-300 overflow-y-auto shrink-0 custom-scrollbar', sidebarOpen ? 'translate-x-0 ml-0' : '-translate-x-full -ml-72']">
+    <aside :class="['fixed lg:sticky top-16 left-0 h-[calc(100vh-8rem)] lg:h-[calc(100vh-4rem)] w-72 bg-slate-900/95 backdrop-blur-2xl border-r border-white/10 z-40 transition-all duration-300 overflow-y-auto shrink-0 custom-scrollbar', sidebarOpen ? 'translate-x-0 lg:ml-0' : '-translate-x-full lg:-ml-72']">
       <div class="p-6 space-y-6">
         
         <!-- Header Info -->

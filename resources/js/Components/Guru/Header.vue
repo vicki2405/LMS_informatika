@@ -67,24 +67,24 @@ function navigateTo(view) {
       <div class="flex items-center justify-between h-16 gap-4">
         
         <!-- Left: Brand Logo & Sidebar Toggle -->
-        <div class="flex items-center gap-3.5 shrink-0">
+        <div class="flex items-center gap-2 sm:gap-3.5 min-w-0 flex-1">
           <button
             @click="$emit('toggle-sidebar')"
             title="Toggle Sidebar"
-            class="p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all duration-200 active:scale-95 group focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+            class="p-2 sm:p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all duration-200 active:scale-95 group focus:outline-none focus:ring-2 focus:ring-cyan-500/40 shrink-0"
           >
             <svg class="w-5 h-5 text-cyan-400 group-hover:rotate-180 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
             </svg>
           </button>
 
-          <div class="flex items-center gap-3 cursor-pointer" @click="navigateTo('dashboard')">
-            <div class="w-10 h-10 bg-gradient-to-br from-cyan-400 via-teal-500 to-indigo-600 rounded-2xl flex items-center justify-center font-black text-slate-950 text-sm shadow-lg shadow-cyan-500/30 ring-2 ring-cyan-400/30 font-mono tracking-tighter shrink-0 hover:scale-105 transition-transform duration-200">
+          <div class="flex items-center gap-2 sm:gap-3 cursor-pointer min-w-0" @click="navigateTo('dashboard')">
+            <div class="w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-cyan-400 via-teal-500 to-indigo-600 rounded-2xl flex items-center justify-center font-black text-slate-950 text-xs sm:text-sm shadow-lg shadow-cyan-500/30 ring-2 ring-cyan-400/30 font-mono tracking-tighter shrink-0 hover:scale-105 transition-transform duration-200">
               GURU
             </div>
-            <div class="flex flex-col min-w-0 max-w-[170px] sm:max-w-none">
+            <div class="flex flex-col min-w-0">
               <span class="font-black text-white text-xs sm:text-base tracking-tight leading-tight flex items-center gap-1.5 truncate">
-                <span class="sm:hidden text-cyan-300">SMK MUHA 2 GENTENG</span>
+                <span class="sm:hidden text-cyan-300 truncate">SMK MUHA 2</span>
                 <span class="hidden sm:inline">SMKS MUHAMMADIYAH 2<span class="text-cyan-400"> GENTENG</span></span>
                 <span class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 animate-ping shrink-0"></span>
               </span>
@@ -92,7 +92,7 @@ function navigateTo(view) {
             </div>
           </div>
 
-          <span class="hidden md:inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500/15 via-teal-500/15 to-indigo-500/15 text-cyan-300 text-xs font-extrabold px-3.5 py-1 rounded-full border border-cyan-500/30 shadow-inner ml-2">
+          <span class="hidden md:inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500/15 via-teal-500/15 to-indigo-500/15 text-cyan-300 text-xs font-extrabold px-3.5 py-1 rounded-full border border-cyan-500/30 shadow-inner ml-2 shrink-0">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             PANEL GURU • TA {{ $page.props.activeTahunAjaran?.kode || '2025/2026' }}
           </span>
@@ -101,7 +101,7 @@ function navigateTo(view) {
           <a
             v-if="hasMultipleTeacherRoles"
             href="/wali-kelas/dashboard"
-            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-indigo-500/25 via-purple-500/25 to-indigo-500/25 hover:from-indigo-500/40 hover:to-purple-500/40 text-indigo-300 border border-indigo-500/40 text-xs font-extrabold shadow-lg shadow-indigo-950/40 hover:scale-105 active:scale-95 transition-all duration-200 ml-2"
+            class="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-indigo-500/25 via-purple-500/25 to-indigo-500/25 hover:from-indigo-500/40 hover:to-purple-500/40 text-indigo-300 border border-indigo-500/40 text-xs font-extrabold shadow-lg shadow-indigo-950/40 hover:scale-105 active:scale-95 transition-all duration-200 ml-2 shrink-0"
             title="Beralih ke Dashboard Wali Kelas"
           >
             <span class="text-sm">🔄</span>

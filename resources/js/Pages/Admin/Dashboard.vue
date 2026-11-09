@@ -328,7 +328,7 @@ function onDeleteUser(id) {
 <template>
   <Head title="Dashboard Admin — SMKS Muhammadiyah 2 Genteng" />
 
-  <div class="min-h-screen bg-slate-900 text-white font-sans">
+  <div class="min-h-screen bg-slate-900 text-white font-sans w-full max-w-full overflow-x-hidden">
     
     <!-- Top Header Component -->
     <Header
@@ -342,7 +342,7 @@ function onDeleteUser(id) {
       @mark-read="markAllNotifRead"
     />
 
-    <div class="flex">
+    <div class="flex w-full max-w-full overflow-x-hidden">
       
       <!-- Sidebar Component -->
       <Sidebar
