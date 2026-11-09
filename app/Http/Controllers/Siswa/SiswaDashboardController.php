@@ -953,15 +953,25 @@ class SiswaDashboardController extends Controller
         }
 
         if ($jadwal->materi) {
-            $isReadCompleted = MateriRead::where('materi_id', $jadwal->materi->id)
+            $readRecord = MateriRead::where('materi_id', $jadwal->materi->id)
                 ->where('siswa_id', $siswa->id)
-                ->where('status', 'selesai')
-                ->exists();
+                ->first();
+
+            $isReadCompleted = $readRecord && ($readRecord->status === 'selesai' || (int) $readRecord->progress_persen >= 90);
+
             if (! $isReadCompleted) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Akses ditolak: Anda wajib menyelesaikan materi pembelajaran "' . $jadwal->materi->judul . '" terlebih dahulu untuk mendapatkan token ujian!',
                 ], 403);
+            }
+
+            // Pastikan status tersimpan sebagai selesai jika progres sudah 90%+
+            if ($readRecord && $readRecord->status !== 'selesai') {
+                $readRecord->status = 'selesai';
+                $readRecord->progress_persen = 100;
+                $readRecord->completed_at = now();
+                $readRecord->save();
             }
         }
 

@@ -56,12 +56,13 @@ class CbtExamService
 
         $now = now();
 
-        if ($jadwal->waktu_mulai && $now->lt($jadwal->waktu_mulai)) {
-            $this->fail('Ujian belum dimulai.');
+        // Toleransi clock-skew 5 menit agar perbedaan detik/menit antara jam client dan server tidak memblokir siswa
+        if ($jadwal->waktu_mulai && $now->copy()->addMinutes(5)->lt($jadwal->waktu_mulai)) {
+            $this->fail('Ujian belum dimulai. Sesi ujian dijadwalkan pada ' . $jadwal->waktu_mulai->format('d M Y H:i') . ' WIB.');
         }
 
         if ($jadwal->waktu_selesai && $now->gt($jadwal->waktu_selesai)) {
-            $this->fail('Waktu ujian telah berakhir.');
+            $this->fail('Waktu ujian telah berakhir pada ' . $jadwal->waktu_selesai->format('d M Y H:i') . ' WIB.');
         }
     }
 

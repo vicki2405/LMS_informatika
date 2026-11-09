@@ -28,7 +28,8 @@ function getMateriLockStatus(jadwal) {
     return { isLocked: true, linkedMateri: jadwal.linkedMateri, isCompleted: false };
   }
   const hasCompleted = (jadwal.linkedMateri.reads || []).some(
-    (r) => Number(r.siswaId ?? r.siswa_id) === Number(currentSiswaId) && r.status === 'selesai'
+    (r) => Number(r.siswaId ?? r.siswa_id) === Number(currentSiswaId) &&
+           (r.status === 'selesai' || Number(r.progressPersen ?? r.progress_persen ?? 0) >= 90)
   );
   return {
     isLocked: !hasCompleted,
@@ -56,7 +57,22 @@ watch(() => props.autoStartExam, (payload) => {
       axios.post(route('siswa.cbt.gabung-ruang-tunggu'), {
         jadwal_id: targetJadwal.id,
         siswa_id: student.id,
-      }).catch(err => console.error('Peringatan gabung ruang tunggu:', err));
+      }).catch(err => {
+        if (err.response?.status === 403) {
+          currentMode.value = 'list';
+          activeStudent.value = null;
+          const msg = err.response?.data?.message || 'Akses ujian tidak diizinkan.';
+          const isMateri = msg.toLowerCase().includes('materi') || msg.toLowerCase().includes('prasyarat') || msg.toLowerCase().includes('membaca');
+          Swal.fire({
+            title: isMateri ? 'Prasyarat Materi Terkait' : 'Informasi Akses Ujian',
+            text: msg,
+            icon: isMateri ? 'warning' : 'info',
+            confirmButtonColor: '#f59e0b',
+          });
+          return;
+        }
+        console.error('Peringatan gabung ruang tunggu:', err);
+      });
     } else {
       promptSelectIdentity(targetJadwal);
     }
@@ -1062,10 +1078,12 @@ async function confirmEnterWaitingRoom() {
     if (err.response?.status === 403) {
       currentMode.value = 'list';
       activeStudent.value = null;
+      const msg = err.response?.data?.message || 'Anda belum menyelesaikan materi prasyarat untuk ujian ini.';
+      const isMateri = msg.toLowerCase().includes('materi') || msg.toLowerCase().includes('prasyarat') || msg.toLowerCase().includes('membaca');
       Swal.fire({
-        title: 'Prasyarat Materi Belum Selesai',
-        text: err.response?.data?.message || 'Anda belum menyelesaikan materi prasyarat untuk ujian ini.',
-        icon: 'warning',
+        title: isMateri ? 'Prasyarat Materi Terkait' : 'Informasi Akses Ujian',
+        text: msg,
+        icon: isMateri ? 'warning' : 'info',
         confirmButtonColor: '#f59e0b',
       });
       return;

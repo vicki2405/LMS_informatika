@@ -225,6 +225,24 @@ function handleMateriCompleted({ materiId, siswaId }) {
 }
 
 function handleStartCbtWithToken(payload) {
+  // Ensure local CBT unlock state for active student
+  if (payload?.jadwalId && activeSiswaId.value) {
+    const targetCbt = props.cbtJadwalListProp?.find(j => Number(j.id) === Number(payload.jadwalId));
+    if (targetCbt && targetCbt.linkedMateri) {
+      if (!targetCbt.linkedMateri.reads) targetCbt.linkedMateri.reads = [];
+      const rec = targetCbt.linkedMateri.reads.find(r => String(r.siswaId ?? r.siswa_id) === String(activeSiswaId.value));
+      if (rec) {
+        rec.status = 'selesai';
+        rec.progressPersen = 100;
+      } else {
+        targetCbt.linkedMateri.reads.push({
+          siswaId: Number(activeSiswaId.value),
+          status: 'selesai',
+          progressPersen: 100,
+        });
+      }
+    }
+  }
   autoStartCbtPayload.value = payload;
   activeView.value = 'cbt';
 }

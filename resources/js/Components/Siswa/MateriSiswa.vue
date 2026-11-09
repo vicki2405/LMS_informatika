@@ -414,6 +414,10 @@ function nextSlide() {
     slideTransition.value = 'slide-left';
     currentSlideIndex.value++;
     updateReadingProgress();
+    // Otomatis tandai selesai jika siswa telah mencapai slide terakhir
+    if (currentSlideIndex.value === currentSlides.value.length - 1 && !isCompletedForActiveSiswa.value) {
+      markCompleted();
+    }
   } else if (isAutoPlaying.value) {
     // Loop back to start in autoplay mode
     slideTransition.value = 'slide-left';
@@ -434,6 +438,9 @@ function goToSlide(idx) {
     slideTransition.value = idx > currentSlideIndex.value ? 'slide-left' : 'slide-right';
     currentSlideIndex.value = idx;
     updateReadingProgress();
+    if (idx === currentSlides.value.length - 1 && !isCompletedForActiveSiswa.value) {
+      markCompleted();
+    }
   }
 }
 
@@ -496,7 +503,10 @@ function copyToken(token) {
   }
 }
 
-function jumpToCbtWithToken(cbtJadwal) {
+async function jumpToCbtWithToken(cbtJadwal) {
+  if (!isCompletedForActiveSiswa.value) {
+    await markCompleted();
+  }
   closeReader();
   emit('start-cbt-with-token', {
     jadwalId: cbtJadwal.id,
@@ -504,10 +514,13 @@ function jumpToCbtWithToken(cbtJadwal) {
   });
 }
 
-function jumpToCbt() {
+async function jumpToCbt() {
   if (activeMateri.value?.cbtJadwal) {
-    jumpToCbtWithToken(activeMateri.value.cbtJadwal);
+    await jumpToCbtWithToken(activeMateri.value.cbtJadwal);
   } else {
+    if (!isCompletedForActiveSiswa.value) {
+      await markCompleted();
+    }
     closeReader();
     emit('change-view', 'cbt');
   }
