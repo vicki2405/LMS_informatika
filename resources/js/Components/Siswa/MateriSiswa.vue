@@ -561,7 +561,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="space-y-4 sm:space-y-6 pb-36 animate-in fade-in duration-300">
+  <div class="space-y-4 sm:space-y-6 pb-36 animate-in fade-in duration-300 w-full max-w-full overflow-x-hidden">
 
     <!-- Active Student Identity Card (For Shared Class Account) -->
     <div class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-white/10 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 shadow-xl">

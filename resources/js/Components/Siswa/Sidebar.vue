@@ -19,14 +19,13 @@ function selectView(view) {
 </script>
 
 <template>
-  <div>
-    <!-- Desktop Navigation Sidebar (Mobile menggunakan Bottom Navigation Bar) -->
-    <aside
-      :class="[
-        'hidden lg:block sticky top-16 left-0 h-[calc(100vh-4rem)] w-72 bg-slate-900/95 backdrop-blur-2xl border-r border-white/10 z-40 transition-all duration-300 overflow-y-auto shrink-0 shadow-2xl',
-        sidebarOpen ? 'translate-x-0 ml-0' : '-translate-x-full -ml-72'
-      ]"
-    >
+  <!-- Desktop Navigation Sidebar (Mobile menggunakan Bottom Navigation Bar) -->
+  <aside
+    :class="[
+      'hidden lg:block sticky top-16 left-0 h-[calc(100vh-4rem)] w-72 bg-slate-900/95 backdrop-blur-2xl border-r border-white/10 z-40 transition-all duration-300 overflow-y-auto shrink-0 shadow-2xl',
+      sidebarOpen ? 'translate-x-0 ml-0' : '-translate-x-full -ml-72'
+    ]"
+  >
       <div class="p-5 flex flex-col justify-between min-h-full">
         <div>
           <!-- Header Inside Sidebar -->
@@ -158,5 +157,4 @@ function selectView(view) {
         </div>
       </div>
     </aside>
-  </div>
 </template>

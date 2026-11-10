@@ -242,7 +242,7 @@ function getPredikat(finalScore, isComplete) {
 </script>
 
 <template>
-  <div class="space-y-6 animate-in fade-in duration-200">
+  <div class="space-y-6 animate-in fade-in duration-200 w-full max-w-full overflow-x-hidden">
     
     <!-- Top Header: Judul Menu & Periode Akademik -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

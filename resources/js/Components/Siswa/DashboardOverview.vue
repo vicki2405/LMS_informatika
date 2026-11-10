@@ -71,7 +71,7 @@ const latestNilai = computed(() => {
 </script>
 
 <template>
-  <div class="space-y-8">
+  <div class="space-y-8 w-full max-w-full overflow-x-hidden">
     <!-- Hero Banner Card (Akun Bersama Kelas) -->
     <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-cyan-900/50 via-blue-900/40 to-slate-900 border border-cyan-500/25 p-6 sm:p-8 shadow-2xl">
       <div class="absolute -top-24 -right-24 w-72 h-72 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none"></div>

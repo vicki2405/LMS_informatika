@@ -44,7 +44,7 @@ function handleKumpulTugas() {
 </script>
 
 <template>
-  <div>
+  <div class="space-y-6 w-full max-w-full overflow-x-hidden">
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
       <div>
         <h1 class="text-2xl sm:text-3xl font-extrabold text-white">Tugas & Upload Penugasan</h1>
