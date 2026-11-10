@@ -68,6 +68,15 @@ watch(() => props.autoStartExam, (payload) => {
             text: msg,
             icon: isMateri ? 'warning' : 'info',
             confirmButtonColor: '#f59e0b',
+            confirmButtonText: 'Mengerti',
+            background: '#0f172a',
+            color: '#f8fafc',
+            customClass: {
+              popup: 'rounded-3xl border border-white/10 shadow-2xl backdrop-blur-xl',
+              title: 'text-lg font-black text-white',
+              htmlContainer: 'text-xs text-gray-300 font-medium',
+              confirmButton: 'rounded-2xl px-6 py-2.5 text-xs font-extrabold shadow-lg shadow-amber-500/30'
+            }
           });
           return;
         }
@@ -1006,6 +1015,16 @@ function promptSelectIdentity(jadwal) {
       confirmButtonText: '📖 Buka Materi & Ambil Token',
       cancelButtonText: 'Tutup',
       confirmButtonColor: '#f59e0b',
+      cancelButtonColor: '#475569',
+      background: '#0f172a',
+      color: '#f8fafc',
+      customClass: {
+        popup: 'rounded-3xl border border-amber-500/30 shadow-2xl backdrop-blur-xl',
+        title: 'text-lg font-black text-white',
+        htmlContainer: 'text-xs text-gray-300 font-medium',
+        confirmButton: 'rounded-2xl px-5 py-2.5 text-xs font-bold shadow-lg shadow-amber-500/30',
+        cancelButton: 'rounded-2xl px-5 py-2.5 text-xs font-bold'
+      }
     }).then((res) => {
       if (res.isConfirmed) {
         emit('open-materi', lock.linkedMateri.id);
@@ -1085,6 +1104,15 @@ async function confirmEnterWaitingRoom() {
         text: msg,
         icon: isMateri ? 'warning' : 'info',
         confirmButtonColor: '#f59e0b',
+        confirmButtonText: 'Mengerti',
+        background: '#0f172a',
+        color: '#f8fafc',
+        customClass: {
+          popup: 'rounded-3xl border border-white/10 shadow-2xl backdrop-blur-xl',
+          title: 'text-lg font-black text-white',
+          htmlContainer: 'text-xs text-gray-300 font-medium',
+          confirmButton: 'rounded-2xl px-6 py-2.5 text-xs font-extrabold shadow-lg shadow-amber-500/30'
+        }
       });
       return;
     }
@@ -1621,12 +1649,12 @@ function submitExam(force = false) {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-6 w-full max-w-full overflow-x-hidden">
 
     <!-- ======================================================================= -->
     <!-- MODE 1: DAFTAR JADWAL UJIAN & RIWAYAT (LIST VIEW)                       -->
     <!-- ======================================================================= -->
-    <div v-if="currentMode === 'list'" class="space-y-6">
+    <div v-if="currentMode === 'list'" class="space-y-6 w-full max-w-full overflow-x-hidden">
       
       <!-- Hero Banner Card -->
       <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-cyan-950/80 via-slate-900 to-teal-950/70 border border-cyan-500/30 p-6 sm:p-8 shadow-2xl backdrop-blur-xl">
@@ -2029,7 +2057,7 @@ function submitExam(force = false) {
     <!-- ======================================================================= -->
     <!-- MODE 2: TERMINAL RUANG TUNGGU CBT (WAITING ROOM TERMINAL)                -->
     <!-- ======================================================================= -->
-    <div v-else-if="currentMode === 'waiting_room' && selectedJadwal && activeStudent" class="space-y-6">
+    <div v-else-if="currentMode === 'waiting_room' && selectedJadwal && activeStudent" class="space-y-6 w-full max-w-full overflow-x-hidden">
       
       <!-- Top Status Banner -->
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-5 rounded-3xl bg-slate-900/90 border border-cyan-500/40 shadow-2xl backdrop-blur-2xl">
@@ -2234,7 +2262,7 @@ function submitExam(force = false) {
     <!-- ======================================================================= -->
     <!-- MODE 3: RUANG UJIAN CBT LIVE (EXAM ROOM)                                 -->
     <!-- ======================================================================= -->
-    <div v-else-if="currentMode === 'exam_room' && activeExam" class="space-y-6 select-none exam-room-container">
+    <div v-else-if="currentMode === 'exam_room' && activeExam" class="space-y-6 select-none exam-room-container w-full max-w-full overflow-x-hidden">
       
       <!-- Top Exam Sticky Header -->
       <div class="sticky top-16 z-30 p-4 sm:p-5 rounded-3xl bg-slate-900/95 border border-cyan-500/40 shadow-2xl backdrop-blur-2xl space-y-3">

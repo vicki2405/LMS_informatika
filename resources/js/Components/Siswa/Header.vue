@@ -63,8 +63,8 @@ function navigateTo(view) {
     <!-- Top Accent Bar -->
     <div class="h-[3px] w-full bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500"></div>
 
-    <div class="w-full px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-16 gap-4">
+    <div class="w-full max-w-full overflow-x-hidden px-3 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16 gap-2 sm:gap-4">
         
         <!-- Left: Brand Logo & Desktop Sidebar Collapse Toggle -->
         <div class="flex items-center gap-2 sm:gap-3.5 min-w-0 flex-1">

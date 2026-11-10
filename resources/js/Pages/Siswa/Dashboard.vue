@@ -279,7 +279,7 @@ function handleStartCbtWithToken(payload) {
         :kelasSiswa="kelasSiswa"
       />
       
-      <main class="flex-1 min-w-0 max-w-full min-h-[calc(100dvh-4rem)] p-3 sm:p-6 lg:p-8 pb-36 sm:pb-36 lg:pb-8">
+      <main class="flex-1 min-w-0 w-full max-w-full overflow-x-hidden min-h-[calc(100dvh-4rem)] p-3 sm:p-6 lg:p-8 pb-36 sm:pb-36 lg:pb-8">
 
         <!-- 1. DASHBOARD UTAMA OVERVIEW -->
         <DashboardOverview

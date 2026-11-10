@@ -27,7 +27,7 @@ function selectView(view) {
   <!-- FIXED ULTRA-MODERN 5-TAB FLOATING BOTTOM NAVIGATION BAR       -->
   <!-- ============================================================ -->
   <nav
-    class="fixed bottom-0 left-0 right-0 z-40 lg:hidden bg-slate-950/95 backdrop-blur-2xl border-t border-white/10 shadow-[0_-8px_30px_rgba(0,0,0,0.8)] pb-[calc(env(safe-area-inset-bottom,0px)+6px)] pt-1 px-3 select-none"
+    class="fixed bottom-0 left-0 right-0 z-40 lg:hidden w-full max-w-full overflow-hidden bg-slate-950/95 backdrop-blur-2xl border-t border-white/10 shadow-[0_-8px_30px_rgba(0,0,0,0.8)] pb-[calc(env(safe-area-inset-bottom,0px)+6px)] pt-1 px-3 select-none"
   >
     <!-- Top Neon Highlight Line -->
     <div class="absolute -top-[1px] inset-x-0 h-[1.5px] bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500 opacity-80"></div>
