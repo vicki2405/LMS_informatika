@@ -366,24 +366,6 @@ class SiswaDashboardController extends Controller
                     $q->orWhereNull('kelas_id');
                 }
             })
-            // Jaminan konsistensi: jika kelas siswa memiliki jadwal mapel resmi, maka soal yang muncul
-            // tidak boleh berasal dari mata pelajaran yang tidak diajarkan di kelas tersebut
-            ->where(function ($q) use ($kelasId, $kelasMapelNames) {
-                if ($kelasId && ! empty($kelasMapelNames)) {
-                    $q->whereHas('bankSoal.mataPelajaran', function ($mq) use ($kelasMapelNames) {
-                        $mq->where(function ($subMq) use ($kelasMapelNames) {
-                            $subMq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
-                                  ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
-                            foreach ($kelasMapelNames as $km) {
-                                $clean = trim(preg_replace('/\(.*?\)/', '', $km));
-                                if (strlen($clean) >= 3) {
-                                    $subMq->orWhereRaw('LOWER(TRIM(nama)) LIKE ?', ['%' . strtolower($clean) . '%']);
-                                }
-                            }
-                        });
-                    });
-                }
-            })
             ->where(function ($q) use ($jurusanId) {
                 $q->whereNull('jurusan_id');
                 if ($jurusanId) {
@@ -618,13 +600,17 @@ class SiswaDashboardController extends Controller
             return Siswa::query()
                 ->where('id', $requestedSiswaId)
                 ->where('kelas_id', $user->kelas_id)
-                ->where('status', 'Aktif')
+                ->where(function ($q) {
+                    $q->where('status', 'Aktif')->orWhereNull('status');
+                })
                 ->first();
         }
 
         return Siswa::query()
             ->where('kelas_id', $user->kelas_id)
-            ->where('status', 'Aktif')
+            ->where(function ($q) {
+                $q->where('status', 'Aktif')->orWhereNull('status');
+            })
             ->first();
     }
 
@@ -944,7 +930,7 @@ class SiswaDashboardController extends Controller
         $jadwal = CbtJadwal::with('materi')->findOrFail($validated['jadwal_id']);
 
         try {
-            app(CbtExamService::class)->assertJadwalEligible($jadwal, $siswa);
+            app(CbtExamService::class)->assertJadwalEligible($jadwal, $siswa, true);
         } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,

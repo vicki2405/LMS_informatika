@@ -17,7 +17,7 @@ function selectNav(view) {
 </script>
 
 <template>
-  <div class="fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-slate-900/95 backdrop-blur-2xl border-t border-white/10 shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.5)]">
+  <div class="fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-slate-900/95 backdrop-blur-2xl border-t border-white/10 shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.5)] pb-[calc(env(safe-area-inset-bottom,0px)+6px)]">
     <!-- Top Accent Glow Line -->
     <div class="h-[2px] w-full bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400"></div>
 

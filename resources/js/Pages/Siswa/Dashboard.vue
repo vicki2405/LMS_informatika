@@ -251,7 +251,7 @@ function handleStartCbtWithToken(payload) {
 <template>
   <Head title="Dashboard Siswa — SMKS Muhammadiyah 2 Genteng" />
 
-  <div class="min-h-screen bg-slate-900 text-white font-sans relative w-full max-w-full overflow-x-hidden">
+  <div class="min-h-screen bg-slate-900 text-white font-sans relative">
     
     <!-- Top Header Component -->
     <Header
@@ -345,9 +345,8 @@ function handleStartCbtWithToken(payload) {
       </main>
     </div>
 
-    <!-- Mobile Bottom Navigation Bar (5-Tab Modern Floating Dock & Drawer) -->
+    <!-- Mobile Bottom Navigation Bar (Selalu aktif saat login berhasil) -->
     <MobileBottomNav
-      v-if="!isLocked"
       v-model:activeView="activeView"
       v-model:sidebarOpen="sidebarOpen"
       :kelasSiswa="kelasSiswa"

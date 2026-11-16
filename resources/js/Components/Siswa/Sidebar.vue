@@ -19,13 +19,21 @@ function selectView(view) {
 </script>
 
 <template>
-  <!-- Desktop Navigation Sidebar (Mobile menggunakan Bottom Navigation Bar) -->
-  <aside
-    :class="[
-      'hidden lg:block sticky top-16 left-0 h-[calc(100vh-4rem)] w-72 bg-slate-900/95 backdrop-blur-2xl border-r border-white/10 z-40 transition-all duration-300 overflow-y-auto shrink-0 shadow-2xl',
-      sidebarOpen ? 'translate-x-0 ml-0' : '-translate-x-full -ml-72'
-    ]"
-  >
+  <div>
+    <!-- Sidebar Backdrop Overlay for Mobile -->
+    <div
+      v-if="sidebarOpen"
+      @click="$emit('update:sidebarOpen', false)"
+      class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-40 lg:hidden transition-opacity duration-300"
+    ></div>
+
+    <!-- Sidebar Navigation Drawer (Desktop & Mobile Slide-over) -->
+    <aside
+      :class="[
+        'fixed lg:sticky top-16 left-0 h-[calc(100vh-4rem)] w-72 bg-slate-900/95 backdrop-blur-2xl border-r border-white/10 z-40 transition-all duration-300 overflow-y-auto shrink-0 shadow-2xl lg:shadow-none',
+        sidebarOpen ? 'translate-x-0 lg:ml-0' : '-translate-x-full lg:-ml-72'
+      ]"
+    >
       <div class="p-5 flex flex-col justify-between min-h-full">
         <div>
           <!-- Header Inside Sidebar -->
@@ -42,7 +50,7 @@ function selectView(view) {
             <button
               @click="$emit('update:sidebarOpen', false)"
               title="Tutup Menu"
-              class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+              class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all active:scale-95 shrink-0 min-h-[36px] min-w-[36px] flex items-center justify-center"
             >
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
@@ -157,4 +165,5 @@ function selectView(view) {
         </div>
       </div>
     </aside>
+  </div>
 </template>

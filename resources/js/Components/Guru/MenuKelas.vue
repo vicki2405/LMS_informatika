@@ -581,7 +581,8 @@ function handleSaveJurusan() {
 
     <!-- TAB 2: DATA JURUSAN (ADMIN ONLY) -->
     <div v-if="isAdmin && activeKelasTab === 'jurusan'" class="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
-      <div class="overflow-x-auto">
+      <!-- Desktop Table View -->
+      <div class="hidden md:block overflow-x-auto">
         <table class="w-full text-left text-xs sm:text-sm text-gray-300">
           <thead class="bg-slate-950/60 text-gray-400 uppercase text-[11px] font-extrabold tracking-wider border-b border-white/10">
             <tr>
@@ -595,14 +596,57 @@ function handleSaveJurusan() {
             <tr v-for="j in jurusanList" :key="j.id" class="hover:bg-white/5 transition-colors duration-150">
               <td class="px-6 py-4 font-mono font-black text-purple-300 text-sm">{{ j.kode }}</td>
               <td class="px-6 py-4 font-extrabold text-white">{{ j.nama }}</td>
-              <td class="px-6 py-4 text-xs text-gray-400 max-w-xs leading-relaxed">{{ j.deskripsi }}</td>
+              <td class="px-6 py-4 text-xs text-gray-400 max-w-xs leading-relaxed">{{ j.deskripsi || '-' }}</td>
               <td class="px-6 py-4 text-right space-x-2">
                 <button @click="openEditJurusan(j)" class="text-cyan-300 hover:text-white font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-3.5 py-1.5 rounded-xl border border-cyan-500/30 active:scale-95 transition-all">✏️ Edit</button>
                 <button @click="$emit('delete-jurusan', j.id)" class="text-red-400 hover:text-red-300 font-bold text-xs bg-red-500/15 hover:bg-red-500/30 px-3.5 py-1.5 rounded-xl border border-red-500/30 active:scale-95 transition-all">🗑️ Hapus</button>
               </td>
             </tr>
+            <tr v-if="!jurusanList || jurusanList.length === 0">
+              <td colspan="4" class="px-6 py-12 text-center text-gray-500 text-xs">
+                Belum ada data jurusan yang ditambahkan.
+              </td>
+            </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Mobile Card List View -->
+      <div class="block md:hidden p-4 space-y-3">
+        <div v-if="!jurusanList || jurusanList.length === 0" class="text-center py-10 text-gray-500 text-xs bg-white/5 rounded-2xl border border-white/5">
+          Belum ada data jurusan yang ditambahkan.
+        </div>
+        <div
+          v-for="j in jurusanList"
+          :key="j.id"
+          class="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3 hover:border-white/20 transition-all"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="inline-block px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-mono font-black mb-1.5">
+                {{ j.kode }}
+              </span>
+              <h4 class="text-sm font-black text-white leading-snug">{{ j.nama }}</h4>
+            </div>
+          </div>
+          <p v-if="j.deskripsi" class="text-xs text-gray-400 leading-relaxed bg-black/20 p-2.5 rounded-xl border border-white/5">
+            {{ j.deskripsi }}
+          </p>
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
+            <button
+              @click="openEditJurusan(j)"
+              class="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-cyan-300 font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-3 py-2 rounded-xl border border-cyan-500/30 active:scale-95 transition-all"
+            >
+              ✏️ Edit
+            </button>
+            <button
+              @click="$emit('delete-jurusan', j.id)"
+              class="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-red-400 font-bold text-xs bg-red-500/15 hover:bg-red-500/30 px-3 py-2 rounded-xl border border-red-500/30 active:scale-95 transition-all"
+            >
+              🗑️ Hapus
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 

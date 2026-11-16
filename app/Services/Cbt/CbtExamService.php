@@ -11,17 +11,20 @@ use Illuminate\Validation\ValidationException;
 
 class CbtExamService
 {
-    public function assertJadwalEligible(CbtJadwal $jadwal, Siswa $siswa): void
+    public function assertJadwalEligible(CbtJadwal $jadwal, Siswa $siswa, bool $isEnteringWaitingRoom = false): void
     {
         if ($jadwal->status !== 'aktif') {
-            $this->fail('Jadwal ujian tidak aktif.');
+            $this->fail('Jadwal ujian saat ini sedang tidak aktif.');
         }
 
         if ($jadwal->kelas_id !== null && (int) $jadwal->kelas_id !== (int) $siswa->kelas_id) {
             $this->fail('Anda tidak terdaftar pada kelas ujian ini.');
         }
 
-        if ($siswa->kelas_id !== null) {
+        // Pengecekan kesesuaian mapel kelas hanya berlaku untuk jadwal umum (kelas_id null).
+        // Jika jadwal ditugaskan spesifik ke kelas siswa (kelas_id !== null), guru sudah secara eksplisit
+        // menentukan bahwa kelas ini berhak mengikuti ujian tersebut.
+        if ($siswa->kelas_id !== null && $jadwal->kelas_id === null) {
             $jadwal->loadMissing(['bankSoal.mataPelajaran', 'bankSoal.guru']);
             $mapelName = $jadwal->bankSoal?->mataPelajaran?->nama;
             $mapelKode = $jadwal->bankSoal?->mataPelajaran?->kode;
@@ -56,9 +59,14 @@ class CbtExamService
 
         $now = now();
 
-        // Toleransi clock-skew 5 menit agar perbedaan detik/menit antara jam client dan server tidak memblokir siswa
-        if ($jadwal->waktu_mulai && $now->copy()->addMinutes(5)->lt($jadwal->waktu_mulai)) {
-            $this->fail('Ujian belum dimulai. Sesi ujian dijadwalkan pada ' . $jadwal->waktu_mulai->format('d M Y H:i') . ' WIB.');
+        // Saat siswa memasuki Ruang Tunggu (Waiting Room), jangan blokir berdasarkan waktu_mulai.
+        // Ruang tunggu dirancang agar siswa bisa berkumpul dan bersiap sebelum ujian dibuka.
+        // Waktu mulai hanya divalidasi ketika siswa menekan tombol "Mulai Mengerjakan" (start).
+        if (! $isEnteringWaitingRoom) {
+            // Toleransi clock-skew 15 menit agar perbedaan jam client dan server hosting tidak memblokir siswa
+            if ($jadwal->waktu_mulai && $now->copy()->addMinutes(15)->lt($jadwal->waktu_mulai)) {
+                $this->fail('Ujian belum dimulai. Sesi ujian dijadwalkan pada ' . $jadwal->waktu_mulai->format('d M Y H:i') . ' WIB.');
+            }
         }
 
         if ($jadwal->waktu_selesai && $now->gt($jadwal->waktu_selesai)) {

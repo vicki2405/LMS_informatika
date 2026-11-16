@@ -63,13 +63,19 @@ function navigateTo(view) {
     <!-- Top Accent Bar -->
     <div class="h-[3px] w-full bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500"></div>
 
-    <div class="w-full max-w-full overflow-x-hidden px-3 sm:px-6 lg:px-8">
+    <div class="w-full px-3 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-16 gap-2 sm:gap-4">
         
-        <!-- Left: Brand Logo & Desktop Sidebar Collapse Toggle -->
+        <!-- Left: Brand Logo & Mobile/Desktop Sidebar Toggle -->
         <div class="flex items-center gap-2 sm:gap-3.5 min-w-0 flex-1">
-          <button @click="$emit('toggle-sidebar')" title="Sembunyikan / Tampilkan Sidebar" class="hidden lg:flex p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all shrink-0">
-            <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          <button
+            @click="$emit('toggle-sidebar')"
+            title="Buka Menu Sidebar Belajar"
+            class="flex items-center justify-center p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all duration-200 active:scale-95 group focus:outline-none focus:ring-2 focus:ring-cyan-500/40 shrink-0 min-h-[40px] min-w-[40px]"
+          >
+            <svg class="w-5 h-5 text-cyan-400 group-hover:rotate-180 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+            </svg>
           </button>
 
           <div class="flex items-center gap-2 sm:gap-3 min-w-0">

@@ -63,10 +63,11 @@ watch(() => props.autoStartExam, (payload) => {
           activeStudent.value = null;
           const msg = err.response?.data?.message || 'Akses ujian tidak diizinkan.';
           const isMateri = msg.toLowerCase().includes('materi') || msg.toLowerCase().includes('prasyarat') || msg.toLowerCase().includes('membaca');
+          const isTime = msg.toLowerCase().includes('belum dimulai') || msg.toLowerCase().includes('berakhir') || msg.toLowerCase().includes('waktu');
           Swal.fire({
-            title: isMateri ? 'Prasyarat Materi Terkait' : 'Informasi Akses Ujian',
+            title: isMateri ? 'Prasyarat Materi Terkait' : (isTime ? 'Jadwal Waktu Ujian' : 'Informasi Akses Ujian'),
             text: msg,
-            icon: isMateri ? 'warning' : 'info',
+            icon: isMateri ? 'warning' : (isTime ? 'info' : 'warning'),
             confirmButtonColor: '#f59e0b',
             confirmButtonText: 'Mengerti',
             background: '#0f172a',
@@ -1099,10 +1100,11 @@ async function confirmEnterWaitingRoom() {
       activeStudent.value = null;
       const msg = err.response?.data?.message || 'Anda belum menyelesaikan materi prasyarat untuk ujian ini.';
       const isMateri = msg.toLowerCase().includes('materi') || msg.toLowerCase().includes('prasyarat') || msg.toLowerCase().includes('membaca');
+      const isTime = msg.toLowerCase().includes('belum dimulai') || msg.toLowerCase().includes('berakhir') || msg.toLowerCase().includes('waktu');
       Swal.fire({
-        title: isMateri ? 'Prasyarat Materi Terkait' : 'Informasi Akses Ujian',
+        title: isMateri ? 'Prasyarat Materi Terkait' : (isTime ? 'Jadwal Waktu Ujian' : 'Informasi Akses Ujian'),
         text: msg,
-        icon: isMateri ? 'warning' : 'info',
+        icon: isMateri ? 'warning' : (isTime ? 'info' : 'warning'),
         confirmButtonColor: '#f59e0b',
         confirmButtonText: 'Mengerti',
         background: '#0f172a',
@@ -1225,9 +1227,14 @@ async function startExamFromWaitingRoom() {
     };
   });
 
-  // Set timer based on duration
+  // Set timer based on duration or server remaining seconds if resumed
   const durasiMenit = activeExam.value.durasiMenit || 60;
-  remainingSeconds.value = durasiMenit * 60;
+  const serverRemaining = started?.sesi?.sisaWaktuDetik;
+  if (serverRemaining !== undefined && serverRemaining !== null && Number(serverRemaining) > 0) {
+    remainingSeconds.value = Number(serverRemaining);
+  } else {
+    remainingSeconds.value = durasiMenit * 60;
+  }
 
   startTimer();
   startHeartbeat();

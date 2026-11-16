@@ -851,7 +851,7 @@ class GuruCbtController extends Controller
         $durasiMenit = $validated['durasi_menit'] ?? 60;
         $waktuSelesai = !empty($validated['waktu_selesai'])
             ? Carbon::parse($validated['waktu_selesai'])
-            : ($waktuMulai ? $waktuMulai->copy()->addMinutes($durasiMenit) : null);
+            : ($waktuMulai ? $waktuMulai->copy()->endOfDay() : null);
 
         if ($waktuMulai && $waktuSelesai && $waktuSelesai->lt($waktuMulai)) {
             return back()->withErrors(['waktu_selesai' => 'Batas akhir akses ujian tidak boleh lebih awal dari waktu mulai.']);
@@ -907,7 +907,20 @@ class GuruCbtController extends Controller
         $jadwal = CbtJadwal::findOrFail($id);
         $this->ensureJadwalAccess(request(), $jadwal);
         $newStatus = $jadwal->status === 'aktif' ? 'nonaktif' : 'aktif';
-        $jadwal->update(['status' => $newStatus]);
+        
+        $updateData = ['status' => $newStatus];
+        if ($newStatus === 'aktif') {
+            // Ketika guru mengaktifkan jadwal ujian, pastikan waktu mulai tidak menghalangi siswa masuk
+            if ($jadwal->waktu_mulai && now()->lt($jadwal->waktu_mulai)) {
+                $updateData['waktu_mulai'] = now();
+            }
+            // Jika batas waktu selesai ujian telah terlewat, perpanjang otomatis hingga akhir hari ini
+            if ($jadwal->waktu_selesai && now()->gt($jadwal->waktu_selesai)) {
+                $updateData['waktu_selesai'] = now()->endOfDay();
+            }
+        }
+
+        $jadwal->update($updateData);
 
         $statusText = $newStatus === 'aktif' ? 'Diaktifkan (Siswa dapat mengerjakan)' : 'Dinonaktifkan';
 
