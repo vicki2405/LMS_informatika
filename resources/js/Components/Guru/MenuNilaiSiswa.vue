@@ -567,8 +567,8 @@ function handleSaveSingleScore() {
 
 
 // Export CSV Ledger Nilai (Format Universal dengan UTF-8 BOM)
-// AKSI KOSONGKAN / HAPUS SELURUH NILAI SATU KOLOM TP
-function confirmClearKolom(tp) {
+// KELOLA / HAPUS KOLOM TP DARI MENU NILAI (HAPUS PERMANEN ATAU KOSONGKAN NILAI KELAS)
+function openTpActionMenu(tp) {
   if (!tp || !tp.id) return;
   const currentKelas = selectedKelasFilter.value;
   const filledCount = (filteredSiswa.value || []).filter(s => {
@@ -577,49 +577,94 @@ function confirmClearKolom(tp) {
   }).length;
 
   Swal.fire({
-    title: '<span class="text-rose-400 font-black">Kosongkan Nilai Kolom TP?</span>',
+    title: `<span class="text-white font-black text-base">Kelola Kolom: <span class="text-cyan-400">${tp.kode}</span></span>`,
     html: `
-      <div class="text-xs text-slate-300 text-left space-y-2.5 bg-slate-900/90 p-4 rounded-2xl border border-white/10">
-        <p>Anda akan menghapus dan mengosongkan seluruh nilai pada:</p>
+      <div class="text-xs text-slate-300 text-left space-y-3 bg-slate-900/90 p-4 rounded-2xl border border-white/10">
         <div class="p-3 rounded-xl bg-white/5 border border-white/10 font-mono text-[11px] space-y-1">
           <div><strong class="text-white">TP:</strong> <span class="text-cyan-300 font-bold">${tp.kode}</span> - ${tp.judul}</div>
-          <div><strong class="text-white">Kelas:</strong> <span class="text-emerald-300 font-bold">${currentKelas}</span></div>
           <div><strong class="text-white">Mapel:</strong> <span class="text-white font-bold">${selectedMapelFilter.value}</span></div>
-          <div><strong class="text-white">Terisi Saat Ini:</strong> <span class="text-amber-300 font-bold">${filledCount} Siswa</span></div>
+          <div><strong class="text-white">Kelas Aktif:</strong> <span class="text-emerald-300 font-bold">${currentKelas}</span> (${filledCount} Nilai Terisi)</div>
         </div>
-        <p class="text-rose-300/90 font-medium">⚠️ Semua nilai siswa pada kolom TP ini akan dikosongkan. Tindakan ini tidak dapat dibatalkan!</p>
+        <p class="text-slate-300 text-[11px] font-medium">Pilih tindakan yang ingin Anda lakukan terhadap Tujuan Pembelajaran (TP) ini:</p>
+        <div class="space-y-2 pt-1">
+          <button id="swal-btn-delete-tp" type="button" class="w-full text-left px-3.5 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200 transition-all flex items-start gap-2.5 cursor-pointer">
+            <span class="text-base shrink-0">🗑️</span>
+            <div>
+              <div class="font-extrabold text-xs text-rose-300">Hapus TP Permanen (Hapus Kolom)</div>
+              <div class="text-[10px] text-rose-300/80 mt-0.5">Hapus TP ini dari database secara permanen. Kolom TP dan nilainya akan dihapus dari seluruh kelas.</div>
+            </div>
+          </button>
+          <button id="swal-btn-clear-nilai" type="button" class="w-full text-left px-3.5 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 transition-all flex items-start gap-2.5 cursor-pointer">
+            <span class="text-base shrink-0">🧹</span>
+            <div>
+              <div class="font-extrabold text-xs text-amber-300">Kosongkan Nilai Saja (Kelas ${currentKelas})</div>
+              <div class="text-[10px] text-amber-300/80 mt-0.5">Hanya mengosongkan nilai siswa di kelas ini. Kolom TP tetap tersimpan di database.</div>
+            </div>
+          </button>
+        </div>
       </div>
     `,
-    icon: 'warning',
-    iconColor: '#f43f5e',
+    showConfirmButton: false,
     showCancelButton: true,
-    confirmButtonColor: '#e11d48',
+    cancelButtonText: 'Tutup',
     cancelButtonColor: '#475569',
-    confirmButtonText: '<span class="font-extrabold px-2">Ya, Kosongkan Nilai!</span>',
-    cancelButtonText: 'Batal',
     background: '#0f172a',
     color: '#fff',
     customClass: {
       popup: 'rounded-3xl border border-white/15 shadow-2xl backdrop-blur-xl'
-    }
-  }).then((result) => {
-    if (result.isConfirmed) {
-      router.post(route('guru.nilai.clear-kolom'), {
-        tpId: tp.id,
-        kelas: currentKelas
-      }, {
-        preserveScroll: true,
-        onSuccess: () => {
-          showToast(`Seluruh nilai kolom ${tp.kode} kelas ${currentKelas} berhasil dikosongkan!`, 'success');
-          initBatchRows();
-        },
-        onError: (err) => {
-          const firstErr = Object.values(err)[0] || 'Gagal mengosongkan nilai kolom TP.';
-          showToast(firstErr, 'error');
-        }
-      });
+    },
+    didOpen: () => {
+      const deleteBtn = document.getElementById('swal-btn-delete-tp');
+      const clearBtn = document.getElementById('swal-btn-clear-nilai');
+
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', () => {
+          Swal.close();
+          confirmDeletePermanentTp(tp);
+        });
+      }
+      if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+          Swal.close();
+          executeClearKolom(tp);
+        });
+      }
     }
   });
+}
+
+function confirmDeletePermanentTp(tp) {
+  confirmDelete({
+    title: `Hapus Permanen ${tp.kode}?`,
+    text: `Anda yakin ingin menghapus Tujuan Pembelajaran "${tp.judul}"? Kolom TP dan seluruh riwayat nilainya di semua kelas akan dihapus dari database!`,
+    confirmButtonText: 'Ya, Hapus TP Sekarang'
+  }).then((res) => {
+    if (res.isConfirmed) {
+      emit('delete-tp', tp.id, true);
+    }
+  });
+}
+
+function executeClearKolom(tp) {
+  const currentKelas = selectedKelasFilter.value;
+  router.post(route('guru.nilai.clear-kolom'), {
+    tpId: tp.id,
+    kelas: currentKelas
+  }, {
+    preserveScroll: true,
+    onSuccess: () => {
+      showToast(`Seluruh nilai kolom ${tp.kode} kelas ${currentKelas} berhasil dikosongkan!`, 'success');
+      initBatchRows();
+    },
+    onError: (err) => {
+      const firstErr = Object.values(err)[0] || 'Gagal mengosongkan nilai kolom TP.';
+      showToast(firstErr, 'error');
+    }
+  });
+}
+
+function confirmClearKolom(tp) {
+  openTpActionMenu(tp);
 }
 
 // MODAL TUKAR / PINDAH NILAI ANTAR-TP STATE & LOGIC
@@ -984,12 +1029,12 @@ function exportCsv() {
                   <span class="text-cyan-300 font-black text-xs cursor-help">
                     {{ tp.kode }}
                   </span>
-                  <!-- Tombol Hapus Seluruh Nilai TP Ini untuk Kelas Ini -->
+                  <!-- Tombol Hapus / Kelola Kolom TP Ini -->
                   <button
                     type="button"
-                    @click.stop="confirmClearKolom(tp)"
-                    class="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-rose-400 hover:bg-rose-500/20 transition-all opacity-30 group-hover:opacity-100"
-                    title="Kosongkan seluruh nilai kolom TP ini untuk kelas terpilih"
+                    @click.stop="openTpActionMenu(tp)"
+                    class="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-rose-400 hover:bg-rose-500/20 transition-all opacity-40 group-hover:opacity-100 cursor-pointer"
+                    title="Opsi Hapus / Kelola Kolom TP Ini"
                   >
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1065,6 +1110,35 @@ function exportCsv() {
 
       <!-- Mobile Smartphone Card List View -->
       <div class="block md:hidden p-4 space-y-4">
+        <!-- Quick Active TP List on Mobile with Delete / Manage Button -->
+        <div v-if="activeTpList.length > 0" class="p-3.5 rounded-2xl bg-slate-950/60 border border-white/10 space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-extrabold text-white flex items-center gap-1.5">
+              <span>🎯</span> Sasaran TP Aktif ({{ activeTpList.length }})
+            </span>
+            <span class="text-[10px] text-gray-400">Klik 🗑️ untuk opsi hapus</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <div
+              v-for="tp in activeTpList"
+              :key="tp.id"
+              class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-xs min-h-[36px]"
+            >
+              <span class="font-black text-cyan-300">{{ tp.kode }}</span>
+              <button
+                type="button"
+                @click.stop="openTpActionMenu(tp)"
+                class="w-6 h-6 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/25 flex items-center justify-center transition-all cursor-pointer"
+                title="Hapus / Kelola Kolom TP"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div v-for="(siswa, index) in filteredSiswa" :key="siswa.id" class="bg-slate-950/40 rounded-2xl p-4 border border-white/10 space-y-3 shadow-md">
           <div class="flex items-center justify-between">
             <span class="font-black text-xs text-white">{{ index + 1 }}. {{ siswa.nama }}</span>

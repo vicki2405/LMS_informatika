@@ -1081,6 +1081,57 @@ class SiswaDashboardController extends Controller
     }
 
     /**
+     * In-place refresh of CBT exam questions and session status without leaving fullscreen.
+     */
+    public function refreshCbtExam(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'jadwal_id' => 'required|integer|exists:cbt_jadwals,id',
+            'siswa_id' => 'nullable|integer|exists:siswas,id',
+        ]);
+
+        $siswa = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
+        if (! $siswa) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak: identitas siswa tidak valid.'], 403);
+        }
+
+        $jadwal = CbtJadwal::with(['bankSoal.soals'])->findOrFail($validated['jadwal_id']);
+        $service = app(CbtExamService::class);
+
+        $sesi = CbtSesi::where('jadwal_id', $jadwal->id)
+            ->where('siswa_id', $siswa->id)
+            ->first();
+
+        if (! $sesi) {
+            return response()->json(['success' => false, 'message' => 'Sesi ujian belum dimulai.'], 404);
+        }
+
+        if ($sesi->status === 'selesai') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ujian ini telah selesai dikerjakan.',
+                'is_completed' => true,
+            ], 403);
+        }
+
+        $remainingSeconds = $service->remainingSeconds($jadwal, $sesi);
+        $sesi->update([
+            'last_heartbeat' => now(),
+            'sisa_waktu_detik' => $remainingSeconds,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Data ujian berhasil disinkronkan.',
+            'soals' => $service->serializeQuestions($jadwal),
+            'durasiMenit' => $jadwal->durasi_menit ?? 60,
+            'sisaWaktuDetik' => $remainingSeconds,
+            'is_locked' => $sesi->status === 'terkunci',
+            'status' => $sesi->status,
+        ]);
+    }
+
+    /**
      * Heartbeat ping to keep session alive and synchronize answers / timer / status.
      */
     public function heartbeatSesi(Request $request): JsonResponse

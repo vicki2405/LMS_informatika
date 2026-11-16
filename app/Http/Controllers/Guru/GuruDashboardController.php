@@ -1242,9 +1242,14 @@ HTML;
     {
         $tp = TujuanPembelajaran::findOrFail($id);
         $this->ensureTpAccess(request(), $tp);
-        $tp->delete();
 
-        return redirect()->back()->with('message', 'Tujuan Pembelajaran berhasil dihapus!');
+        DB::transaction(function () use ($tp) {
+            NilaiTp::where('tp_id', $tp->id)->delete();
+            Materi::where('tp_id', $tp->id)->update(['tp_id' => null]);
+            $tp->delete();
+        });
+
+        return redirect()->back()->with('message', 'Tujuan Pembelajaran beserta seluruh nilai terkait berhasil dihapus!');
     }
 
     /**

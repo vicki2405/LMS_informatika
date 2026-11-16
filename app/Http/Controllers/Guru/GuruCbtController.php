@@ -928,7 +928,8 @@ class GuruCbtController extends Controller
     }
 
     /**
-     * Automatically synchronize a CBT score into TujuanPembelajaran (NilaiTp).
+     * Synchronize a CBT score into TujuanPembelajaran (NilaiTp) ONLY IF explicitly linked.
+     * Ujian CBT TIDAK PERNAH membuat Tujuan Pembelajaran (TP) baru secara otomatis.
      */
     public static function syncCbtNilaiToTp(CbtNilai $cbtNilai, ?CbtJadwal $jadwal = null): void
     {
@@ -936,40 +937,36 @@ class GuruCbtController extends Controller
             $jadwal = $cbtNilai->jadwal()->withTrashed()->with(['bankSoal.mataPelajaran'])->first();
         }
 
-        $mapel = $jadwal?->bankSoal?->mataPelajaran?->nama 
-            ?? $cbtNilai->bankSoal?->mataPelajaran?->nama 
-            ?? 'Informatika';
+        $tp = null;
 
-        $activeTa = TahunAjaran::getActive();
-        $taId = $activeTa?->id ?? 1;
-        $semester = 'Ganjil';
-
-        $rawTitle = $jadwal?->judul_ujian ?? $cbtNilai->bankSoal?->judul ?? 'Ujian CBT';
-        $tpTitle = str_starts_with($rawTitle, 'CBT:') ? $rawTitle : ('CBT: ' . $rawTitle);
-
-        $tp = TujuanPembelajaran::where('judul', $tpTitle)
-            ->where('mapel', $mapel)
-            ->first();
-
-        if (! $tp) {
-            $tp = TujuanPembelajaran::where('judul', $rawTitle)
-                ->where('mapel', $mapel)
+        // 1. Prioritaskan jika CBT Jadwal ini ditautkan ke Materi yang memiliki TP
+        if ($jadwal) {
+            $linkedMateri = \App\Models\Materi::where('cbt_jadwal_id', $jadwal->id)
+                ->whereNotNull('tp_id')
+                ->with('tp')
                 ->first();
+            if ($linkedMateri && $linkedMateri->tp) {
+                $tp = $linkedMateri->tp;
+            }
         }
 
+        // 2. Jika tidak melalui materi, cari apakah guru memiliki TP kurikulum yang judulnya cocok dengan judul ujian
         if (! $tp) {
-            $nextCount = TujuanPembelajaran::where('mapel', $mapel)->count() + 1;
-            $tpKode = 'TP-CBT' . $nextCount;
+            $mapel = $jadwal?->bankSoal?->mataPelajaran?->nama 
+                ?? $cbtNilai->bankSoal?->mataPelajaran?->nama;
+            $rawTitle = $jadwal?->judul_ujian ?? $cbtNilai->bankSoal?->judul;
 
-            $tp = TujuanPembelajaran::create([
-                'kode' => $tpKode,
-                'judul' => $tpTitle,
-                'mapel' => $mapel,
-                'jenis' => 'Sumatif',
-                'kktp' => 75,
-                'semester' => $semester,
-                'tahun_ajaran_id' => $taId,
-            ]);
+            if ($mapel && $rawTitle) {
+                $tp = TujuanPembelajaran::where('judul', $rawTitle)
+                    ->where('mapel', $mapel)
+                    ->first();
+            }
+        }
+
+        // 3. JIKA TIDAK DITAUTKAN KE TP: SEGERA BERHENTI (JANGAN BUAT TP BARU OTOMATIS)
+        // Nilai ujian tetap tersimpan aman di tabel cbt_nilais untuk menu Hasil Nilai CBT.
+        if (! $tp) {
+            return;
         }
 
         NilaiTp::updateOrCreate(
@@ -979,7 +976,7 @@ class GuruCbtController extends Controller
             ],
             [
                 'nilai' => floatval($cbtNilai->nilai),
-                'catatan' => "Nilai CBT Otomatis ({$cbtNilai->jumlah_benar} Benar, {$cbtNilai->jumlah_salah} Salah)",
+                'catatan' => "Nilai CBT ({$cbtNilai->jumlah_benar} Benar, {$cbtNilai->jumlah_salah} Salah)",
                 'guru_id' => $jadwal?->guru_id,
             ]
         );
@@ -1023,7 +1020,7 @@ class GuruCbtController extends Controller
 
         $jadwal->delete();
 
-        return redirect()->back()->with('message', 'Jadwal CBT berhasil dihapus (riwayat nilai siswa tetap tersimpan aman di CBT Nilai dan Nilai TP)!');
+        return redirect()->back()->with('message', 'Jadwal CBT berhasil dihapus (riwayat nilai siswa tetap tersimpan aman di CBT Nilai)!');
     }
 
     /**

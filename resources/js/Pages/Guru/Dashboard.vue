@@ -548,19 +548,35 @@ function onSaveTp({ editing, data }) {
   });
 }
 
-function onDeleteTp(id) {
+function onDeleteTp(id, confirmed = false) {
+  const doDelete = () => {
+    tpList.value = tpList.value.filter(t => t.id !== id);
+    nilaiList.value = nilaiList.value.filter(n => n.tpId !== id);
+    router.delete(route('guru.tp.delete', id), {
+      preserveScroll: true,
+      only: ['tpListProp', 'nilaiListProp'],
+      onSuccess: () => {
+        showToast('Tujuan Pembelajaran berhasil dihapus!', 'success');
+      },
+      onError: (errors) => {
+        const msg = Object.values(errors)[0] || 'Gagal menghapus Tujuan Pembelajaran.';
+        showToast(msg, 'error');
+      }
+    });
+  };
+
+  if (confirmed === true) {
+    doDelete();
+    return;
+  }
+
   confirmDelete({
     title: 'Hapus Tujuan Pembelajaran?',
     text: 'Nilai siswa terkait juga akan dibersihkan dari database!',
     confirmButtonText: 'Ya, Hapus TP!'
   }).then((result) => {
     if (result.isConfirmed) {
-      tpList.value = tpList.value.filter(t => t.id !== id);
-      nilaiList.value = nilaiList.value.filter(n => n.tpId !== id);
-      router.delete(route('guru.tp.delete', id), {
-        preserveScroll: true,
-        only: ['tpListProp', 'nilaiListProp']
-      });
+      doDelete();
     }
   });
 }

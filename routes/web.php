@@ -148,6 +148,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/cbt/keluar-ruang-tunggu', [SiswaDashboardController::class, 'keluarRuangTunggu'])->name('cbt.keluar-ruang-tunggu');
         Route::post('/cbt/catat-pelanggaran', [SiswaDashboardController::class, 'catatPelanggaran'])->name('cbt.catat-pelanggaran');
         Route::post('/cbt/heartbeat', [SiswaDashboardController::class, 'heartbeatSesi'])->name('cbt.heartbeat');
+        Route::post('/cbt/refresh', [SiswaDashboardController::class, 'refreshCbtExam'])->name('cbt.refresh');
         Route::post('/cbt/submit', [SiswaDashboardController::class, 'submitCbtExam'])->name('cbt.submit');
         Route::post('/materi/{id}/track-open', [SiswaDashboardController::class, 'trackMateriOpen'])->name('materi.track-open');
         Route::post('/materi/{id}/track-complete', [SiswaDashboardController::class, 'trackMateriComplete'])->name('materi.track-complete');

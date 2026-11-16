@@ -147,6 +147,7 @@ const violationAlertMessage = ref('');
 const isExamLocked = ref(false);
 const isExamSubmitted = ref(false);
 const showMobilePalette = ref(false);
+const isRefreshingExam = ref(false);
 
 // Lightbox modal state for viewing images in full size
 const selectedLightboxImage = ref(null);
@@ -1309,6 +1310,129 @@ function stopHeartbeat() {
 }
 
 // -----------------------------------------------------------------------------
+// IN-PLACE REFRESH / SINKRONISASI UJIAN AMAN (FULLSCREEN TETAP AKTIF)
+// -----------------------------------------------------------------------------
+async function refreshExamData() {
+  if (!activeExam.value || !activeStudent.value || isRefreshingExam.value) return;
+
+  isRefreshingExam.value = true;
+
+  // Pastikan mode Layar Penuh (Fullscreen) tetap aktif
+  try {
+    if (!document.fullscreenElement) {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      } else if (document.documentElement.webkitRequestFullscreen) {
+        await document.documentElement.webkitRequestFullscreen();
+      }
+    }
+  } catch (err) {
+    console.log('Fullscreen re-assert ignored or blocked:', err);
+  }
+
+  try {
+    const res = await axios.post(route('siswa.cbt.refresh'), {
+      jadwal_id: activeExam.value.id,
+      siswa_id: activeStudent.value.id,
+    });
+
+    if (res.data && res.data.success) {
+      const newSoals = res.data.soals || [];
+
+      // Perbarui activeExam data
+      activeExam.value.soals = newSoals;
+      if (res.data.durasiMenit) {
+        activeExam.value.durasiMenit = res.data.durasiMenit;
+      }
+
+      // Perbarui teks pertanyaan & opsi yang sedang tampil tanpa mengacak ulang atau menghapus jawaban siswa
+      const newSoalMap = new Map(newSoals.map((s) => [s.id, s]));
+
+      preparedQuestions.value = preparedQuestions.value.map((existingQ) => {
+        const updated = newSoalMap.get(existingQ.id);
+        if (!updated) return existingQ;
+
+        const updatedOptions = existingQ.displayOptions.map((opt) => {
+          const letter = opt.originalKey;
+          return {
+            ...opt,
+            text: updated['opsi' + letter] !== undefined ? updated['opsi' + letter] : opt.text,
+            gambar: updated['gambarOpsi' + letter] !== undefined ? updated['gambarOpsi' + letter] : opt.gambar,
+          };
+        });
+
+        return {
+          ...existingQ,
+          pertanyaan: updated.pertanyaan,
+          stimulusTeks: updated.stimulusTeks,
+          mediaSoal: updated.mediaSoal,
+          tipeMediaSoal: updated.tipeMediaSoal,
+          posisiMediaSoal: updated.posisiMediaSoal,
+          bobot: updated.bobot,
+          dataInteraktif: updated.dataInteraktif || existingQ.dataInteraktif,
+          displayOptions: updatedOptions,
+        };
+      });
+
+      // Tambahkan soal baru jika ada butir soal yang baru saja diinput/ditambahkan oleh guru
+      const existingIds = new Set(preparedQuestions.value.map((q) => q.id));
+      const letters = ['A', 'B', 'C', 'D', 'E'];
+      const addedQuestions = newSoals.filter((s) => !existingIds.has(s.id));
+
+      if (addedQuestions.length > 0) {
+        const formattedNew = addedQuestions.map((q) => {
+          const rawOptions = letters
+            .filter((l) => (q['opsi' + l] && String(q['opsi' + l]).trim() !== '') || q['gambarOpsi' + l])
+            .map((l) => ({
+              originalKey: l,
+              text: q['opsi' + l] || '',
+              gambar: q['gambarOpsi' + l] || null,
+            }));
+
+          const displayOptions = rawOptions.map((opt, idx) => ({
+            displayKey: letters[idx] || opt.originalKey,
+            originalKey: opt.originalKey,
+            text: opt.text,
+            gambar: opt.gambar,
+          }));
+
+          return {
+            ...q,
+            displayOptions,
+          };
+        });
+
+        preparedQuestions.value = [...preparedQuestions.value, ...formattedNew];
+      }
+
+      // Sinkronkan sisa waktu timer dari server jika ada koreksi
+      if (res.data.sisaWaktuDetik !== undefined && res.data.sisaWaktuDetik !== null) {
+        const sisa = Number(res.data.sisaWaktuDetik);
+        if (sisa > 0) {
+          remainingSeconds.value = sisa;
+        }
+      }
+
+      // Sinkronkan status kunci ujian dari guru
+      if (res.data.is_locked) {
+        isExamLocked.value = true;
+      } else if (isExamLocked.value && !res.data.is_locked) {
+        isExamLocked.value = false;
+        violationCount.value = 0;
+      }
+
+      showToast('Data ujian berhasil dimuat ulang! Jawaban Anda tetap aman.', 'success');
+    }
+  } catch (err) {
+    console.error('Refresh exam failed:', err);
+    const msg = err.response?.data?.message || 'Gagal memuat ulang data ujian. Periksa koneksi internet Anda.';
+    showToast(msg, 'warning');
+  } finally {
+    isRefreshingExam.value = false;
+  }
+}
+
+// -----------------------------------------------------------------------------
 // ANTI-CHEAT, ACCIDENTAL REFRESH PREVENTION & TOUCH GUARD
 // -----------------------------------------------------------------------------
 let touchStartY = 0;
@@ -1372,10 +1496,10 @@ function handleCopyPaste(e) {
 
 function handleKeyDown(e) {
   if (currentMode.value === 'exam_room') {
-    // Cegah F5 dan kombinasi refresh Ctrl+R / Cmd+R agar tidak keluar dari ujian tanpa sengaja
+    // Alihkan F5 dan kombinasi refresh Ctrl+R / Cmd+R ke refresh in-place aman tanpa keluar fullscreen
     if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r')) {
       e.preventDefault();
-      showToast('Fitur refresh halaman dinonaktifkan selama ujian berlangsung demi keamanan sesi!', 'warning');
+      refreshExamData();
       return;
     }
 
@@ -2341,6 +2465,25 @@ function submitExam(force = false) {
               <span>{{ sfxEnabled ? '🔊 SFX' : '🔇 Mute' }}</span>
             </button>
 
+            <!-- Tombol Refresh / Sinkronisasi Ujian Aman (In-Place Tanpa Keluar Fullscreen) -->
+            <button
+              type="button"
+              @click="refreshExamData"
+              :disabled="isRefreshingExam"
+              :class="[
+                'px-3 py-2 rounded-2xl border text-xs font-bold font-mono flex items-center gap-1.5 transition-all min-h-[42px] cursor-pointer',
+                isRefreshingExam
+                  ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300 animate-pulse'
+                  : 'bg-white/5 hover:bg-white/10 border-white/10 hover:border-cyan-500/40 text-cyan-300'
+              ]"
+              title="Refresh / Sinkronkan Data Soal & Ujian tanpa keluar Layar Penuh (Shortcut: F5 / Ctrl+R)"
+            >
+              <svg :class="['w-4 h-4', isRefreshingExam ? 'animate-spin text-cyan-400' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span class="hidden sm:inline">{{ isRefreshingExam ? 'Sinkron...' : 'Refresh' }}</span>
+            </button>
+
             <!-- Mobile Toggle Palette Button -->
             <button
               @click="showMobilePalette = !showMobilePalette"
@@ -3034,10 +3177,21 @@ function submitExam(force = false) {
           </button>
         </div>
 
-        <div class="pt-2">
+        <div class="pt-2 flex items-center gap-2">
+          <button
+            type="button"
+            @click="refreshExamData"
+            :disabled="isRefreshingExam"
+            class="flex-1 py-3 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold text-xs flex items-center justify-center gap-1.5 min-h-[44px] cursor-pointer"
+          >
+            <svg :class="['w-4 h-4', isRefreshingExam ? 'animate-spin' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>{{ isRefreshingExam ? 'Menyinkronkan...' : 'Refresh Ujian' }}</span>
+          </button>
           <button
             @click="showMobilePalette = false"
-            class="w-full py-3 rounded-xl bg-white/10 text-white font-bold text-xs min-h-[44px]"
+            class="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold text-xs min-h-[44px] cursor-pointer"
           >
             Tutup Palet
           </button>

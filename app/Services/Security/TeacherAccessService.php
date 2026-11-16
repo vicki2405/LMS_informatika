@@ -192,10 +192,19 @@ class TeacherAccessService
 
         $allowedMapels = self::mapelNames($guru);
 
-        if (empty($allowedMapels) || $tp->mapel === null) {
+        if (empty($allowedMapels) || $tp->mapel === null || trim((string) $tp->mapel) === '' || strcasecmp(trim((string) $tp->mapel), 'Umum') === 0) {
             return true;
         }
 
-        return in_array(trim((string) $tp->mapel), $allowedMapels, true);
+        $tpMapel = strtolower(trim((string) $tp->mapel));
+
+        foreach ($allowedMapels as $m) {
+            $mLower = strtolower(trim((string) $m));
+            if ($tpMapel === $mLower || str_contains($tpMapel, $mLower) || str_contains($mLower, $tpMapel)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
