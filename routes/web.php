@@ -2,26 +2,27 @@
 
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\BackupController;
-use App\Http\Controllers\Guru\GuruDashboardController;
 use App\Http\Controllers\Guru\GuruCbtController;
+use App\Http\Controllers\Guru\GuruDashboardController;
 use App\Http\Controllers\Guru\GuruMateriController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Siswa\SiswaDashboardController;
-use App\Http\Controllers\WelcomeController;
 use App\Http\Controllers\WaliKelas\WaliKelasDashboardController;
+use App\Http\Controllers\WelcomeController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
 Route::get('/', [WelcomeController::class, 'index']);
 
 Route::get('/dashboard', function (Request $request) {
     $user = $request->user();
-    
+
     if ($user && $user->hasRole('admin')) {
         return redirect()->route('admin.dashboard');
     }
-    
+
     if ($user && $user->hasRole('wali_kelas')) {
         return redirect()->route('wali-kelas.dashboard');
     }
@@ -33,7 +34,7 @@ Route::get('/dashboard', function (Request $request) {
     if ($user && $user->hasRole('murid')) {
         return redirect()->route('siswa.dashboard');
     }
-    
+
     return Inertia::render('Dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
@@ -118,6 +119,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         // CBT Routes
         Route::post('/cbt/bank-soal/store', [GuruCbtController::class, 'storeBankSoal'])->name('cbt.bank-soal.store');
+        Route::get('/cbt/bank-soal/{id}/export-doc', [GuruCbtController::class, 'exportDoc'])->name('cbt.bank-soal.export-doc');
         Route::delete('/cbt/bank-soal/{id}', [GuruCbtController::class, 'deleteBankSoal'])->name('cbt.bank-soal.delete');
         Route::post('/cbt/soal/store', [GuruCbtController::class, 'storeSoal'])->name('cbt.soal.store');
         Route::delete('/cbt/soal/{id}', [GuruCbtController::class, 'deleteSoal'])->name('cbt.soal.delete');
@@ -149,6 +151,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/cbt/catat-pelanggaran', [SiswaDashboardController::class, 'catatPelanggaran'])->name('cbt.catat-pelanggaran');
         Route::post('/cbt/heartbeat', [SiswaDashboardController::class, 'heartbeatSesi'])->name('cbt.heartbeat');
         Route::post('/cbt/refresh', [SiswaDashboardController::class, 'refreshCbtExam'])->name('cbt.refresh');
+        Route::post('/cbt/check-jawaban', [SiswaDashboardController::class, 'checkCbtJawaban'])->name('cbt.check-jawaban');
+        Route::post('/cbt/toggle-mode', [SiswaDashboardController::class, 'toggleModeUjian'])->name('cbt.toggle-mode');
         Route::post('/cbt/submit', [SiswaDashboardController::class, 'submitCbtExam'])->name('cbt.submit');
         Route::post('/materi/{id}/track-open', [SiswaDashboardController::class, 'trackMateriOpen'])->name('materi.track-open');
         Route::post('/materi/{id}/track-complete', [SiswaDashboardController::class, 'trackMateriComplete'])->name('materi.track-complete');
@@ -163,7 +167,7 @@ Route::middleware('auth')->group(function () {
 
 // Fail-safe direct storage file response for shared hosting / cPanel when symlinks are unavailable
 Route::get('/storage/{path}', function (string $path) {
-    $disk = \Illuminate\Support\Facades\Storage::disk('public');
+    $disk = Storage::disk('public');
     $fullPath = $disk->path($path);
     if (! file_exists($fullPath) || is_dir($fullPath)) {
         abort(404);

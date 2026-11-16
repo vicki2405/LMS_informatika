@@ -340,6 +340,7 @@ function handleStartCbtWithToken(payload) {
           :nilaiTPList="nilaiTPList"
           :siswaObj="props.siswaObjProp"
           :activeSiswa="activeSiswa"
+          @switch-siswa="switchStudent"
         />
 
       </main>

@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::prefix('v1')->group(function () {
-    
+
     // 1. Authentication Endpoints
     Route::post('/auth/login', [AuthApiController::class, 'login'])->middleware('throttle:10,1');
 
@@ -61,9 +61,10 @@ Route::prefix('v1')->group(function () {
             Route::post('/nilai/swap-tp', [GuruApiController::class, 'swapOrMoveNilaiTp']);
             Route::get('/materi', [GuruApiController::class, 'getMateri']);
             Route::post('/materi/{id}/toggle-status', [GuruApiController::class, 'toggleMateriStatus']);
-            
+
             // CBT API
             Route::get('/cbt/bank-soal', [GuruApiController::class, 'getCbtBankSoal']);
+            Route::get('/cbt/bank-soal/{id}/export-doc', [GuruApiController::class, 'exportCbtDoc']);
             Route::post('/cbt/bank-soal', [GuruApiController::class, 'storeCbtBankSoal']);
             Route::delete('/cbt/bank-soal/{id}', [GuruApiController::class, 'deleteCbtBankSoal']);
             Route::post('/cbt/soal', [GuruApiController::class, 'storeCbtSoal']);
@@ -103,6 +104,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/cbt/jadwal', [SiswaApiController::class, 'getCbtJadwals']);
             Route::get('/cbt/nilai', [SiswaApiController::class, 'getCbtNilais']);
             Route::post('/cbt/start', [SiswaApiController::class, 'startCbtExam'])->middleware('throttle:15,1');
+            Route::post('/cbt/check-jawaban', [SiswaApiController::class, 'checkCbtJawaban']);
             Route::post('/cbt/submit', [SiswaApiController::class, 'submitCbtExam']);
         });
     });

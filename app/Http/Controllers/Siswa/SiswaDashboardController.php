@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Siswa;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Guru\GuruCbtController;
 use App\Models\Absensi;
 use App\Models\CbtJadwal;
 use App\Models\CbtNilai;
@@ -16,16 +17,14 @@ use App\Models\NilaiTp;
 use App\Models\PengumpulanTugas;
 use App\Models\Siswa;
 use App\Models\TahunAjaran;
-use App\Models\TujuanPembelajaran;
 use App\Models\Tugas;
-use App\Http\Controllers\Guru\GuruCbtController;
+use App\Models\TujuanPembelajaran;
 use App\Services\Cbt\CbtExamService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -89,6 +88,7 @@ class SiswaDashboardController extends Controller
             'cbtSesiListProp' => function () use ($kelasId, $jurusanId) {
                 $jadwals = $this->getCbtJadwals($kelasId, $jurusanId);
                 $jadwalIds = collect($jadwals)->pluck('id')->toArray();
+
                 return $this->getCbtSesis($jadwalIds, $kelasId);
             },
             'jadwalListProp' => fn () => $this->getJadwalData($kelasId),
@@ -186,7 +186,7 @@ class SiswaDashboardController extends Controller
                             ->where(function ($mQuery) use ($kelasMapelNames) {
                                 $mQuery->whereHas('mapel', function ($mq) use ($kelasMapelNames) {
                                     $mq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
-                                       ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
+                                        ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
                                 })->orWhereHas('tp', function ($tq) use ($kelasMapelNames) {
                                     $tq->whereIn(DB::raw('LOWER(TRIM(mapel))'), $kelasMapelNames);
                                 });
@@ -352,11 +352,11 @@ class SiswaDashboardController extends Controller
                             ->whereHas('bankSoal.mataPelajaran', function ($mq) use ($kelasMapelNames) {
                                 $mq->where(function ($subMq) use ($kelasMapelNames) {
                                     $subMq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
-                                          ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
+                                        ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
                                     foreach ($kelasMapelNames as $km) {
                                         $clean = trim(preg_replace('/\(.*?\)/', '', $km));
                                         if (strlen($clean) >= 3) {
-                                            $subMq->orWhereRaw('LOWER(TRIM(nama)) LIKE ?', ['%' . strtolower($clean) . '%']);
+                                            $subMq->orWhereRaw('LOWER(TRIM(nama)) LIKE ?', ['%'.strtolower($clean).'%']);
                                         }
                                     }
                                 });
@@ -399,6 +399,7 @@ class SiswaDashboardController extends Controller
                     'acakSoal' => (bool) ($j->acak_soal ?? true),
                     'acakOpsi' => (bool) ($j->acak_opsi ?? true),
                     'modeUjian' => $j->mode_ujian ?? 'formal',
+                    'mode_ujian' => $j->mode_ujian ?? 'formal',
                     'jumlahSoal' => $j->bankSoal?->soals_count ?? ($j->bankSoal?->soals?->count() ?? 0),
                     'totalSelesai' => $jadwalNilais->count(),
                     'riwayatPeserta' => $jadwalNilais->map(fn ($r) => [
@@ -422,6 +423,7 @@ class SiswaDashboardController extends Controller
 
         return CbtNilai::query()
             ->with([
+                'jadwal.bankSoal:id,judul,mata_pelajaran_id',
                 'jadwal.bankSoal.mataPelajaran:id,nama',
                 'jadwal.guru:id,nama',
                 'siswa:id,nama,kelas_id',
@@ -439,6 +441,7 @@ class SiswaDashboardController extends Controller
                     'namaSiswa' => $n->siswa?->nama ?? 'Siswa',
                     'nis' => '100'.$n->siswa_id,
                     'judulUjian' => $n->jadwal?->judul_ujian ?? 'Ujian CBT',
+                    'bankSoalJudul' => $n->jadwal?->bankSoal?->judul ?? '',
                     'mapelNama' => $n->jadwal?->bankSoal?->mataPelajaran?->nama ?? 'Umum',
                     'guruNama' => $n->jadwal?->guru?->nama ?? 'Guru Pengajar',
                     'jumlahSoal' => $n->jumlah_soal,
@@ -497,7 +500,7 @@ class SiswaDashboardController extends Controller
         if ($activeTa) {
             $query->where(function ($q) use ($activeTa) {
                 $q->where('tahun_ajaran_id', '=', $activeTa->id)
-                  ->orWhereNull('tahun_ajaran_id');
+                    ->orWhereNull('tahun_ajaran_id');
             });
         }
 
@@ -563,6 +566,7 @@ class SiswaDashboardController extends Controller
             if ($requestedSiswaId) {
                 return Siswa::query()->find($requestedSiswaId);
             }
+
             return $user->siswa ?: Siswa::query()->first();
         }
 
@@ -571,6 +575,7 @@ class SiswaDashboardController extends Controller
             if ($requestedSiswaId && (int) $requestedSiswaId !== (int) $user->siswa->id) {
                 return null; // Reject attempt to act as another student
             }
+
             return $user->siswa;
         }
 
@@ -584,7 +589,7 @@ class SiswaDashboardController extends Controller
             ->where('kelas_id', $user->kelas_id)
             ->where(function ($q) use ($userName) {
                 $q->where('nama', '=', $userName)
-                  ->orWhereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)]);
+                    ->orWhereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($userName)]);
             })
             ->first();
 
@@ -592,6 +597,7 @@ class SiswaDashboardController extends Controller
             if ($requestedSiswaId && (int) $requestedSiswaId !== (int) $personalSiswa->id) {
                 return null; // Reject attempt to act as another student
             }
+
             return $personalSiswa;
         }
 
@@ -818,6 +824,7 @@ class SiswaDashboardController extends Controller
                 if (is_array($val)) {
                     return count(array_filter($val)) > 0;
                 }
+
                 return $val !== null && trim((string) $val) !== '';
             })->count();
 
@@ -904,6 +911,8 @@ class SiswaDashboardController extends Controller
             'message' => 'Token valid. Ujian dimulai.',
             'soals' => $service->serializeQuestions($jadwal),
             'durasiMenit' => $jadwal->durasi_menit ?? 60,
+            'modeUjian' => $jadwal->mode_ujian ?? 'formal',
+            'mode_ujian' => $jadwal->mode_ujian ?? 'formal',
             'sesi' => [
                 'id' => $sesi->id,
                 'status' => $sesi->status,
@@ -948,7 +957,7 @@ class SiswaDashboardController extends Controller
             if (! $isReadCompleted) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Akses ditolak: Anda wajib menyelesaikan materi pembelajaran "' . $jadwal->materi->judul . '" terlebih dahulu untuk mendapatkan token ujian!',
+                    'message' => 'Akses ditolak: Anda wajib menyelesaikan materi pembelajaran "'.$jadwal->materi->judul.'" terlebih dahulu untuk mendapatkan token ujian!',
                 ], 403);
             }
 
@@ -1181,6 +1190,69 @@ class SiswaDashboardController extends Controller
     }
 
     /**
+     * Real-time answer check for CBT interactive/game mode.
+     * Evaluates whether the chosen answer is correct without leaking full answer keys.
+     */
+    public function checkCbtJawaban(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'jadwal_id' => 'required|integer|exists:cbt_jadwals,id',
+            'soal_id' => 'required|integer|exists:cbt_soals,id',
+            'jawaban' => 'required',
+            'siswa_id' => 'nullable|integer|exists:siswas,id',
+        ]);
+
+        $siswa = $this->resolveAuthorizedSiswa($request, $validated['siswa_id'] ?? null);
+        if (! $siswa) {
+            $siswa = $this->resolveAuthorizedSiswa($request, null);
+        }
+        if (! $siswa && $request->user()?->siswa) {
+            $siswa = $request->user()->siswa;
+        }
+        if (! $siswa && $request->user()?->hasRole('admin')) {
+            $siswa = \App\Models\Siswa::first();
+        }
+
+        if (! $siswa) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak: siswa tidak valid.'], 403);
+        }
+
+        $jadwal = CbtJadwal::findOrFail($validated['jadwal_id']);
+        $soal = CbtSoal::find($validated['soal_id']);
+        if (! $soal) {
+            return response()->json(['success' => false, 'message' => 'Butir soal tidak ditemukan.'], 404);
+        }
+
+        $result = app(CbtExamService::class)->evaluateSingleAnswer($soal, $validated['jawaban']);
+
+        return response()->json([
+            'success' => true,
+            'is_correct' => $result['is_correct'],
+            'xp' => $result['xp'],
+        ]);
+    }
+
+    /**
+     * Quick toggle/switch exam mode between interactive and formal.
+     */
+    public function toggleModeUjian(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'jadwal_id' => 'required|integer|exists:cbt_jadwals,id',
+            'mode_ujian' => 'required|string|in:formal,game',
+        ]);
+
+        $jadwal = CbtJadwal::findOrFail($validated['jadwal_id']);
+        $jadwal->update(['mode_ujian' => $validated['mode_ujian']]);
+
+        return response()->json([
+            'success' => true,
+            'mode_ujian' => $jadwal->mode_ujian,
+            'message' => 'Mode ujian berhasil diubah ke ' . ($jadwal->mode_ujian === 'game' ? 'Mode Interaktif' : 'CBT Formal'),
+        ]);
+    }
+
+    /**
      * Record or update when a student opens/reads learning material.
      */
     public function trackMateriOpen(Request $request, int $id): JsonResponse
@@ -1208,7 +1280,7 @@ class SiswaDashboardController extends Controller
                 [
                     'kelas_id' => $siswa->kelas_id,
                     'status' => 'Hadir',
-                    'keterangan' => 'Hadir (Akses Materi: ' . Str::limit($materi->judul, 40) . ')',
+                    'keterangan' => 'Hadir (Akses Materi: '.Str::limit($materi->judul, 40).')',
                 ]
             );
         }
@@ -1273,7 +1345,7 @@ class SiswaDashboardController extends Controller
                 [
                     'kelas_id' => $siswa->kelas_id,
                     'status' => 'Hadir',
-                    'keterangan' => 'Hadir (Akses Materi: ' . Str::limit($materi->judul, 40) . ')',
+                    'keterangan' => 'Hadir (Akses Materi: '.Str::limit($materi->judul, 40).')',
                 ]
             );
         }

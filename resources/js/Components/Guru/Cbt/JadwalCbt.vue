@@ -8,13 +8,45 @@ const props = defineProps({
   bankSoalList: { type: Array, default: () => [] },
   masterKelasList: { type: Array, default: () => [] },
   jurusanList: { type: Array, default: () => [] },
+  mapelList: { type: Array, default: () => [] },
 });
 
 // Search & Filter
 const searchQuery = ref('');
 const filterStatus = ref('');
+const filterMapel = ref('');
 const filterJurusan = ref('');
 const filterKelas = ref('');
+
+// Computed available mapel list: combines props.mapelList and subjects from jadwalList
+const availableMapelList = computed(() => {
+  const mapels = new Map();
+  // 1. From props.mapelList
+  if (Array.isArray(props.mapelList)) {
+    props.mapelList.forEach((m) => {
+      if (m && m.id && m.nama) {
+        mapels.set(String(m.id), { id: String(m.id), nama: m.nama });
+      } else if (typeof m === 'string' && m.trim()) {
+        mapels.set(m.trim(), { id: m.trim(), nama: m.trim() });
+      }
+    });
+  }
+  // 2. From jadwalList (if any mapel not in props)
+  if (Array.isArray(props.jadwalList)) {
+    props.jadwalList.forEach((j) => {
+      if (j.mapelId && j.mapelNama && j.mapelNama !== '-') {
+        if (!mapels.has(String(j.mapelId))) {
+          mapels.set(String(j.mapelId), { id: String(j.mapelId), nama: j.mapelNama });
+        }
+      } else if (j.mapelNama && j.mapelNama !== '-' && j.mapelNama !== 'Umum') {
+        if (!mapels.has(j.mapelNama)) {
+          mapels.set(j.mapelNama, { id: j.mapelNama, nama: j.mapelNama });
+        }
+      }
+    });
+  }
+  return Array.from(mapels.values()).sort((a, b) => a.nama.localeCompare(b.nama));
+});
 
 // Master kelas list filtered by filterJurusan for the top filter bar
 const availableKelasForFilter = computed(() => {
@@ -31,10 +63,14 @@ const filteredJadwals = computed(() => {
       (j.token && j.token.toLowerCase().includes(searchQuery.value.toLowerCase()));
 
     const matchStatus = !filterStatus.value || j.status === filterStatus.value;
+    const matchMapel = !filterMapel.value ||
+      (j.mapelId && String(j.mapelId) === String(filterMapel.value)) ||
+      (j.mapelNama && j.mapelNama === filterMapel.value) ||
+      (j.mapelNama && j.mapelNama.toLowerCase() === filterMapel.value.toLowerCase());
     const matchJurusan = !filterJurusan.value || String(j.jurusanId) === String(filterJurusan.value);
     const matchKelas = !filterKelas.value || String(j.kelasId) === String(filterKelas.value);
 
-    return matchSearch && matchStatus && matchJurusan && matchKelas;
+    return matchSearch && matchStatus && matchMapel && matchJurusan && matchKelas;
   });
 });
 
@@ -114,8 +150,8 @@ function goToMonitoring(j) {
     </div>
 
     <!-- Filter & Search Controls -->
-    <div class="p-4 sm:p-5 rounded-2xl bg-slate-900/80 border border-white/10 backdrop-blur-xl space-y-3 sm:space-y-0 sm:flex sm:items-center sm:gap-4 shadow-lg">
-      <div class="flex-1 relative">
+    <div class="p-4 sm:p-5 rounded-2xl bg-slate-900/80 border border-white/10 backdrop-blur-xl flex flex-col md:flex-row flex-wrap items-stretch md:items-center gap-3 shadow-lg">
+      <div class="flex-1 min-w-[200px] relative">
         <svg class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
         </svg>
@@ -127,10 +163,19 @@ function goToMonitoring(j) {
         />
       </div>
 
+      <!-- Filter Mata Pelajaran -->
+      <select
+        v-model="filterMapel"
+        class="w-full md:w-auto min-w-[170px] py-2.5 px-3 rounded-xl bg-slate-800 border border-white/10 text-gray-200 text-xs sm:text-sm focus:outline-none focus:border-teal-400 min-h-[40px]"
+      >
+        <option value="">Semua Mata Pelajaran</option>
+        <option v-for="m in availableMapelList" :key="m.id" :value="m.id">{{ m.nama }}</option>
+      </select>
+
       <!-- Filter Status -->
       <select
         v-model="filterStatus"
-        class="w-full sm:w-44 py-2.5 px-3 rounded-xl bg-slate-800 border border-white/10 text-gray-200 text-xs sm:text-sm focus:outline-none focus:border-teal-400 min-h-[40px]"
+        class="w-full md:w-auto min-w-[140px] py-2.5 px-3 rounded-xl bg-slate-800 border border-white/10 text-gray-200 text-xs sm:text-sm focus:outline-none focus:border-teal-400 min-h-[40px]"
       >
         <option value="">Semua Status</option>
         <option value="aktif">🟢 Aktif (Terbuka)</option>
@@ -141,7 +186,7 @@ function goToMonitoring(j) {
       <select
         v-model="filterJurusan"
         @change="filterKelas = ''"
-        class="w-full sm:w-44 py-2.5 px-3 rounded-xl bg-slate-800 border border-white/10 text-gray-200 text-xs sm:text-sm focus:outline-none focus:border-teal-400 min-h-[40px]"
+        class="w-full md:w-auto min-w-[140px] py-2.5 px-3 rounded-xl bg-slate-800 border border-white/10 text-gray-200 text-xs sm:text-sm focus:outline-none focus:border-teal-400 min-h-[40px]"
       >
         <option value="">Semua Jurusan</option>
         <option v-for="j in jurusanList" :key="j.id" :value="j.id">{{ j.kode }} - {{ j.nama }}</option>
@@ -150,7 +195,7 @@ function goToMonitoring(j) {
       <!-- Filter Kelas -->
       <select
         v-model="filterKelas"
-        class="w-full sm:w-44 py-2.5 px-3 rounded-xl bg-slate-800 border border-white/10 text-gray-200 text-xs sm:text-sm focus:outline-none focus:border-teal-400 min-h-[40px]"
+        class="w-full md:w-auto min-w-[140px] py-2.5 px-3 rounded-xl bg-slate-800 border border-white/10 text-gray-200 text-xs sm:text-sm focus:outline-none focus:border-teal-400 min-h-[40px]"
       >
         <option value="">Semua Kelas</option>
         <option v-for="k in availableKelasForFilter" :key="k.id" :value="k.id">{{ k.namaKelas }}</option>

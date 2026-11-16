@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Guru\GuruCbtController;
 use App\Models\Absensi;
 use App\Models\CbtBankSoal;
 use App\Models\CbtJadwal;
@@ -17,11 +18,14 @@ use App\Models\Materi;
 use App\Models\NilaiTp;
 use App\Models\Siswa;
 use App\Models\TujuanPembelajaran;
+use App\Services\Cbt\CbtDocExportService;
 use App\Services\Security\FileSecurityService;
 use App\Services\Security\TeacherAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class GuruApiController extends Controller
 {
@@ -83,6 +87,7 @@ class GuruApiController extends Controller
             'Akses ditolak: sesi ujian ini bukan milik Anda.'
         );
     }
+
     public function getJadwal(Request $request): JsonResponse
     {
         $guru = $this->resolveGuru($request);
@@ -185,6 +190,7 @@ class GuruApiController extends Controller
         }
 
         $jurnal = Jurnal::updateOrCreate(['id' => $validated['id'] ?? null], array_merge($validated, ['guru_id' => $guru->id]));
+
         return response()->json(['success' => true, 'message' => 'Jurnal berhasil disimpan', 'data' => $jurnal]);
     }
 
@@ -200,6 +206,7 @@ class GuruApiController extends Controller
         );
 
         $jurnal->delete();
+
         return response()->json(['success' => true, 'message' => 'Jurnal berhasil dihapus']);
     }
 
@@ -238,7 +245,7 @@ class GuruApiController extends Controller
             'Akses ditolak: mapel ini bukan mapel yang Anda ajar.'
         );
 
-        $tpId = !empty($validated['id']) ? intval($validated['id']) : null;
+        $tpId = ! empty($validated['id']) ? intval($validated['id']) : null;
         $dataToSave = [
             'kode' => $validated['kode'],
             'mapel' => $validated['mapel'] ?? null,
@@ -264,6 +271,7 @@ class GuruApiController extends Controller
         $tp = TujuanPembelajaran::findOrFail($id);
         $this->ensureTpAccess(request(), $tp);
         $tp->delete();
+
         return response()->json(['success' => true, 'message' => 'Tujuan Pembelajaran berhasil dihapus']);
     }
 
@@ -357,7 +365,7 @@ class GuruApiController extends Controller
         return response()->json([
             'success' => true,
             'isPublished' => (bool) $materi->is_published,
-            'message' => 'Status materi berhasil diubah menjadi ' . ($materi->is_published ? 'ON (Rilis)' : 'OFF (Draft)')
+            'message' => 'Status materi berhasil diubah menjadi '.($materi->is_published ? 'ON (Rilis)' : 'OFF (Draft)'),
         ]);
     }
 
@@ -390,6 +398,7 @@ class GuruApiController extends Controller
 
         $validated['guru_id'] = $this->resolveGuru($request)?->id;
         $item = CbtBankSoal::create($validated);
+
         return response()->json(['success' => true, 'message' => 'Bank Soal berhasil dibuat', 'data' => $item]);
     }
 
@@ -428,6 +437,7 @@ class GuruApiController extends Controller
 
         $validated['guru_id'] = $this->resolveGuru($request)?->id;
         $item = CbtJadwal::create($validated);
+
         return response()->json(['success' => true, 'message' => 'Jadwal CBT berhasil dibuat', 'data' => $item]);
     }
 
@@ -437,6 +447,7 @@ class GuruApiController extends Controller
         $this->ensureJadwalAccess(request(), $jadwal);
         $newStatus = $jadwal->status === 'aktif' ? 'nonaktif' : 'aktif';
         $jadwal->update(['status' => $newStatus]);
+
         return response()->json(['success' => true, 'message' => 'Status berhasil diubah', 'status' => $newStatus]);
     }
 
@@ -445,13 +456,22 @@ class GuruApiController extends Controller
         $bankSoal = CbtBankSoal::findOrFail($id);
         $this->ensureBankSoalAccess(request(), $bankSoal);
         $bankSoal->delete();
+
         return response()->json(['success' => true, 'message' => 'Bank Soal CBT berhasil dihapus']);
+    }
+
+    public function exportCbtDoc(int $id, Request $request, CbtDocExportService $exportService)
+    {
+        $bankSoal = CbtBankSoal::findOrFail($id);
+        $this->ensureBankSoalAccess($request, $bankSoal);
+
+        return $exportService->export($bankSoal);
     }
 
     public function storeCbtSoal(Request $request): JsonResponse
     {
         if ($request->has('bobot')) {
-            $request->merge(['bobot' => str_replace(',', '.', (string)$request->input('bobot'))]);
+            $request->merge(['bobot' => str_replace(',', '.', (string) $request->input('bobot'))]);
         }
 
         $tipeSoal = $request->input('tipe_soal', 'pilihan_ganda');
@@ -517,7 +537,7 @@ class GuruApiController extends Controller
         if (! empty($validated['id'])) {
             $nomorUrut = $existing?->nomor_urut ?? ($validated['nomor_urut'] ?? 1);
         } else {
-            $lastNomor = \App\Models\CbtSoal::where('bank_soal_id', $validated['bank_soal_id'])->max('nomor_urut') ?? 0;
+            $lastNomor = CbtSoal::where('bank_soal_id', $validated['bank_soal_id'])->max('nomor_urut') ?? 0;
             $nomorUrut = $lastNomor + 1;
         }
 
@@ -556,7 +576,7 @@ class GuruApiController extends Controller
             $data['tipe_media_soal'] = $isAudio ? 'audio' : 'image';
         } elseif ($request->boolean('hapus_media_soal')) {
             if ($existing?->media_soal) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete($existing->media_soal);
+                Storage::disk('public')->delete($existing->media_soal);
             }
             $data['media_soal'] = null;
             $data['tipe_media_soal'] = null;
@@ -575,7 +595,7 @@ class GuruApiController extends Controller
                 $data[$colKey] = $path;
             } elseif ($request->boolean($delKey)) {
                 if ($existing?->$colKey) {
-                    \Illuminate\Support\Facades\Storage::disk('public')->delete($existing->$colKey);
+                    Storage::disk('public')->delete($existing->$colKey);
                 }
                 $data[$colKey] = null;
             }
@@ -587,6 +607,7 @@ class GuruApiController extends Controller
         } else {
             $soal = CbtSoal::create($data);
         }
+
         return response()->json(['success' => true, 'message' => 'Soal CBT berhasil disimpan', 'data' => $soal]);
     }
 
@@ -602,19 +623,19 @@ class GuruApiController extends Controller
         $bankSoalId = $soal->bank_soal_id;
 
         if ($soal->media_soal) {
-            \Illuminate\Support\Facades\Storage::disk('public')->delete($soal->media_soal);
+            Storage::disk('public')->delete($soal->media_soal);
         }
         foreach (['a', 'b', 'c', 'd', 'e'] as $opt) {
             $colKey = "gambar_opsi_{$opt}";
             if ($soal->$colKey) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete($soal->$colKey);
+                Storage::disk('public')->delete($soal->$colKey);
             }
         }
 
         $soal->delete();
 
         // Re-sequence remaining questions
-        $remaining = \App\Models\CbtSoal::where('bank_soal_id', $bankSoalId)
+        $remaining = CbtSoal::where('bank_soal_id', $bankSoalId)
             ->orderBy('nomor_urut', 'asc')
             ->orderBy('id', 'asc')
             ->get();
@@ -632,7 +653,7 @@ class GuruApiController extends Controller
     public function updateAllCbtBobot(Request $request): JsonResponse
     {
         if ($request->has('bobot')) {
-            $request->merge(['bobot' => str_replace(',', '.', (string)$request->input('bobot'))]);
+            $request->merge(['bobot' => str_replace(',', '.', (string) $request->input('bobot'))]);
         }
 
         $validated = $request->validate([
@@ -645,14 +666,14 @@ class GuruApiController extends Controller
 
         $bobot = floatval($validated['bobot']);
 
-        $updatedCount = \App\Models\CbtSoal::where('bank_soal_id', $validated['bank_soal_id'])
+        $updatedCount = CbtSoal::where('bank_soal_id', $validated['bank_soal_id'])
             ->update(['bobot' => $bobot]);
 
         return response()->json([
             'success' => true,
             'message' => "Bobot seluruh butir soal ({$updatedCount} soal) berhasil diubah menjadi {$bobot} poin",
             'updated_count' => $updatedCount,
-            'bobot' => $bobot
+            'bobot' => $bobot,
         ]);
     }
 
@@ -679,13 +700,13 @@ class GuruApiController extends Controller
         $bankSoalId = $validated['bank_soal_id'];
         $soalsInput = $validated['soals'];
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($bankSoalId, $soalsInput) {
-            $lastNomor = \App\Models\CbtSoal::where('bank_soal_id', $bankSoalId)->max('nomor_urut') ?? 0;
+        DB::transaction(function () use ($bankSoalId, $soalsInput) {
+            $lastNomor = CbtSoal::where('bank_soal_id', $bankSoalId)->max('nomor_urut') ?? 0;
             $currentNomor = $lastNomor;
 
             foreach ($soalsInput as $s) {
                 $currentNomor++;
-                $bobotRaw = isset($s['bobot']) && $s['bobot'] !== '' ? str_replace(',', '.', (string)$s['bobot']) : '1.0';
+                $bobotRaw = isset($s['bobot']) && $s['bobot'] !== '' ? str_replace(',', '.', (string) $s['bobot']) : '1.0';
                 $bobot = floatval($bobotRaw);
                 if ($bobot <= 0) {
                     $bobot = 1.0;
@@ -695,18 +716,20 @@ class GuruApiController extends Controller
                 $tipeMedia = null;
                 $posisiMedia = $s['posisi_media_soal'] ?? 'bawah';
 
-                if (!empty($s['gambar_base64'])) {
+                if (! empty($s['gambar_base64'])) {
                     $rawBase64 = $s['gambar_base64'];
                     if (preg_match('/^data:image\/(\w+);base64,/', $rawBase64, $matchType)) {
                         $rawBase64 = substr($rawBase64, strpos($rawBase64, ',') + 1);
                         $type = strtolower($matchType[1]);
-                        if ($type === 'jpeg') $type = 'jpg';
+                        if ($type === 'jpeg') {
+                            $type = 'jpg';
+                        }
                         if (in_array($type, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
                             $decoded = base64_decode($rawBase64);
                             if ($decoded !== false) {
                                 FileSecurityService::validateBase64Image($decoded, $type);
-                                $filename = 'cbt_media/soals/' . \Illuminate\Support\Str::random(30) . '.' . $type;
-                                \Illuminate\Support\Facades\Storage::disk('public')->put($filename, $decoded);
+                                $filename = 'cbt_media/soals/'.Str::random(30).'.'.$type;
+                                Storage::disk('public')->put($filename, $decoded);
                                 $mediaPath = $filename;
                                 $tipeMedia = 'image';
                             }
@@ -714,7 +737,7 @@ class GuruApiController extends Controller
                     }
                 }
 
-                \App\Models\CbtSoal::create([
+                CbtSoal::create([
                     'bank_soal_id' => $bankSoalId,
                     'nomor_urut' => $currentNomor,
                     'pertanyaan' => trim($s['pertanyaan']),
@@ -733,6 +756,7 @@ class GuruApiController extends Controller
         });
 
         $count = count($soalsInput);
+
         return response()->json([
             'success' => true,
             'message' => "Berhasil mengimpor {$count} butir soal ke dalam Bank Soal",
@@ -745,6 +769,7 @@ class GuruApiController extends Controller
         $jadwal = CbtJadwal::findOrFail($id);
         $this->ensureJadwalAccess(request(), $jadwal);
         $jadwal->delete();
+
         return response()->json(['success' => true, 'message' => 'Jadwal CBT berhasil dihapus']);
     }
 
@@ -766,7 +791,7 @@ class GuruApiController extends Controller
 
     public function getMonitoringData(Request $request, int $id): JsonResponse
     {
-        return app(\App\Http\Controllers\Guru\GuruCbtController::class)->getMonitoringData($request, $id);
+        return app(GuruCbtController::class)->getMonitoringData($request, $id);
     }
 
     public function resetSesiSiswa(Request $request, int $id): JsonResponse
@@ -780,6 +805,7 @@ class GuruApiController extends Controller
             'soal_terjawab' => 0,
             'last_heartbeat' => now(),
         ]);
+
         return response()->json(['success' => true, 'message' => 'Sesi siswa berhasil direset']);
     }
 
@@ -788,6 +814,7 @@ class GuruApiController extends Controller
         $sesi = CbtSesi::with('jadwal')->findOrFail($id);
         $this->ensureSesiAccess($request, $sesi);
         $sesi->update(['status' => 'terkunci', 'last_heartbeat' => now()]);
+
         return response()->json(['success' => true, 'message' => 'Sesi siswa berhasil dikunci']);
     }
 
@@ -796,6 +823,7 @@ class GuruApiController extends Controller
         $sesi = CbtSesi::with('jadwal')->findOrFail($id);
         $this->ensureSesiAccess($request, $sesi);
         $sesi->update(['status' => 'mengerjakan', 'jumlah_pelanggaran' => 0, 'last_heartbeat' => now()]);
+
         return response()->json(['success' => true, 'message' => 'Kunci ujian siswa berhasil dibuka']);
     }
 
@@ -805,6 +833,7 @@ class GuruApiController extends Controller
         $this->ensureSesiAccess($request, $sesi);
         CbtNilai::where('jadwal_id', $sesi->jadwal_id)->where('siswa_id', $sesi->siswa_id)->delete();
         $sesi->delete();
+
         return response()->json(['success' => true, 'message' => 'Sesi peserta berhasil dihapus']);
     }
 
@@ -838,9 +867,9 @@ class GuruApiController extends Controller
         }
 
         if ($validated['mode'] === 'new_tp') {
-            $tp = \App\Models\TujuanPembelajaran::create([
-                'kode' => $validated['kode'] ?? ('TP-CBT' . rand(10, 99)),
-                'judul' => $validated['judul'] ?? ('Ujian CBT - ' . $jadwal->judul_ujian),
+            $tp = TujuanPembelajaran::create([
+                'kode' => $validated['kode'] ?? ('TP-CBT'.rand(10, 99)),
+                'judul' => $validated['judul'] ?? ('Ujian CBT - '.$jadwal->judul_ujian),
                 'mapel' => $validated['mapel'] ?? ($jadwal->bankSoal?->mataPelajaran?->nama ?? 'Umum'),
                 'jenis' => $validated['jenis'] ?? 'Sumatif',
                 'kktp' => $validated['kktp'] ?? 75,
@@ -852,23 +881,25 @@ class GuruApiController extends Controller
             $targetTpId = $validated['tp_id'];
         }
 
-        $nilaisQuery = \App\Models\CbtNilai::where('jadwal_id', $jadwal->id);
-        if (!empty($validated['siswa_ids'])) {
+        $nilaisQuery = CbtNilai::where('jadwal_id', $jadwal->id);
+        if (! empty($validated['siswa_ids'])) {
             $nilaisQuery->whereIn('siswa_id', $validated['siswa_ids']);
         }
         $cbtNilais = $nilaisQuery->get();
 
-        $overwrite = isset($validated['overwrite']) ? (bool)$validated['overwrite'] : true;
+        $overwrite = isset($validated['overwrite']) ? (bool) $validated['overwrite'] : true;
         $transferredCount = 0;
 
         DB::transaction(function () use ($cbtNilais, $targetTpId, $guruId, $overwrite, &$transferredCount) {
             foreach ($cbtNilais as $cbt) {
-                if (!$overwrite) {
-                    $exists = \App\Models\NilaiTp::where('tp_id', $targetTpId)->where('siswa_id', $cbt->siswa_id)->exists();
-                    if ($exists) continue;
+                if (! $overwrite) {
+                    $exists = NilaiTp::where('tp_id', $targetTpId)->where('siswa_id', $cbt->siswa_id)->exists();
+                    if ($exists) {
+                        continue;
+                    }
                 }
 
-                \App\Models\NilaiTp::updateOrCreate(
+                NilaiTp::updateOrCreate(
                     [
                         'tp_id' => $targetTpId,
                         'siswa_id' => $cbt->siswa_id,
@@ -887,7 +918,7 @@ class GuruApiController extends Controller
             'success' => true,
             'message' => "Berhasil mentransfer {$transferredCount} nilai CBT ke Nilai TP",
             'transferred_count' => $transferredCount,
-            'tp_id' => $targetTpId
+            'tp_id' => $targetTpId,
         ]);
     }
 
@@ -938,9 +969,10 @@ class GuruApiController extends Controller
 
         if ($conflict) {
             $conflictName = $conflict->guru?->nama ?? 'Guru lain';
+
             return response()->json([
                 'success' => false,
-                'message' => "Kelas {$kelasObj->nama_kelas} pada hari {$validated['hari']} Jam ke-{$validated['jam_ke']} sudah diisi oleh {$conflictName} ({$conflict->mata_pelajaran})."
+                'message' => "Kelas {$kelasObj->nama_kelas} pada hari {$validated['hari']} Jam ke-{$validated['jam_ke']} sudah diisi oleh {$conflictName} ({$conflict->mata_pelajaran}).",
             ], 422);
         }
 
@@ -1020,7 +1052,10 @@ class GuruApiController extends Controller
 
         $kelases = $query->get()->sort(function ($a, $b) {
             $t = strcmp($a->tingkat ?? 'X', $b->tingkat ?? 'X');
-            if ($t !== 0) return $t;
+            if ($t !== 0) {
+                return $t;
+            }
+
             return strnatcasecmp($a->nama_kelas, $b->nama_kelas);
         })->values();
 
@@ -1047,7 +1082,7 @@ class GuruApiController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Kelas ampuan berhasil disimpan.',
-            'count' => count($validated['kelas_ids'])
+            'count' => count($validated['kelas_ids']),
         ]);
     }
 
@@ -1092,7 +1127,7 @@ class GuruApiController extends Controller
         return response()->json([
             'success' => true,
             'message' => "Seluruh nilai kolom TP {$tp->kode} untuk kelas {$kelasObj->nama_kelas} berhasil dikosongkan.",
-            'deleted' => $deleted
+            'deleted' => $deleted,
         ]);
     }
 
@@ -1175,7 +1210,7 @@ class GuruApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => $validated['mode'] === 'swap' ? 'Nilai kedua TP berhasil ditukar.' : 'Nilai TP berhasil dipindahkan.'
+            'message' => $validated['mode'] === 'swap' ? 'Nilai kedua TP berhasil ditukar.' : 'Nilai TP berhasil dipindahkan.',
         ]);
     }
 }

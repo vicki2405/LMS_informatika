@@ -827,6 +827,7 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
           :bankSoalList="props.cbtBankSoalListProp"
           :masterKelasList="props.masterKelasListProp"
           :jurusanList="props.jurusanListProp"
+          :mapelList="props.mapelListProp"
         />
 
         <!-- CBT: HASIL NILAI UJIAN VIEW -->

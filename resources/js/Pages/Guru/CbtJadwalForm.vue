@@ -386,7 +386,7 @@ function handleSubmit() {
                   {{ targetKelasList.length > 0 ? `-- Semua Kelas Ampuan Mapel Ini (${targetKelasList.map(k => k.namaKelas).join(', ')}) --` : '-- Semua Kelas --' }}
                 </option>
                 <option v-for="k in targetKelasList" :key="k.id" :value="k.id">
-                  {{ k.namaKelas }} {{ k.jurusan ? `(${k.jurusan})` : (k.jurusanKode ? `(${k.jurusanKode})` : '') }}
+                  {{ k.namaKelas }}
                 </option>
               </select>
 

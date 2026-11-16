@@ -235,6 +235,7 @@ const filteredJadwals = computed(() => {
   return props.cbtJadwalList.filter((j) => {
     return j.judulUjian.toLowerCase().includes(q) ||
       j.mapelNama.toLowerCase().includes(q) ||
+      (j.bankSoalJudul && j.bankSoalJudul.toLowerCase().includes(q)) ||
       j.guruNama.toLowerCase().includes(q);
   });
 });
@@ -245,6 +246,7 @@ const filteredNilais = computed(() => {
     const matchSearch = !searchQuery.value.trim() ||
       n.judulUjian.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       n.mapelNama.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      (n.bankSoalJudul && n.bankSoalJudul.toLowerCase().includes(searchQuery.value.toLowerCase())) ||
       n.namaSiswa.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       n.nis.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       n.guruNama.toLowerCase().includes(searchQuery.value.toLowerCase());
@@ -306,15 +308,13 @@ const sortedFilteredNilais = computed(() => {
 
 // Live Leaderboard & Live Ranking during Exam
 const showLiveLeaderboardModal = ref(false);
+const gameResultMap = ref({});
 
 const liveCorrectAnswersCount = computed(() => {
   let count = 0;
   currentQuestions.value.forEach((q) => {
-    const ans = answers.value[q.id];
-    if (ans && q.kunciJawaban) {
-      if (String(ans).trim().toUpperCase() === String(q.kunciJawaban).trim().toUpperCase()) {
-        count++;
-      }
+    if (gameResultMap.value[q.id]?.isCorrect) {
+      count++;
     }
   });
   return count;
@@ -603,7 +603,16 @@ function playCorrectChime() {
 // -----------------------------------------------------------------------------
 // GAMIFICATION, QUEST & CONFETTI STATE
 // -----------------------------------------------------------------------------
-const isGameMode = computed(() => activeExam.value?.modeUjian === 'game');
+const isGameMode = computed(() => {
+  const m = String(
+    activeExam.value?.modeUjian ||
+    activeExam.value?.mode_ujian ||
+    selectedJadwal.value?.modeUjian ||
+    selectedJadwal.value?.mode_ujian ||
+    ''
+  ).trim().toLowerCase();
+  return m === 'game' || m === 'interaktif';
+});
 
 // -----------------------------------------------------------------------------
 // 5 RANDOM ANIMATION THEMES FOR CORRECT ANSWERS (JAWABAN BENAR)
@@ -804,6 +813,59 @@ function dismissGameFeedback() {
   gameFeedback.value.show = false;
 }
 
+const isTogglingMode = ref(false);
+async function toggleSelectedJadwalMode(newMode) {
+  if (!selectedJadwal.value?.id || isTogglingMode.value) return;
+  isTogglingMode.value = true;
+  try {
+    const res = await axios.post('/siswa/cbt/toggle-mode', {
+      jadwal_id: selectedJadwal.value.id,
+      mode_ujian: newMode,
+    });
+    if (res.data?.success) {
+      selectedJadwal.value.modeUjian = newMode;
+      selectedJadwal.value.mode_ujian = newMode;
+      showToast(`Mode ujian diatur ke: ${newMode === 'game' ? '🎮 Mode Interaktif' : '🏛️ CBT Formal'}`, 'success');
+    }
+  } catch (err) {
+    // Client-side fallback in case endpoint isn't reached
+    selectedJadwal.value.modeUjian = newMode;
+    selectedJadwal.value.mode_ujian = newMode;
+    showToast(`Mode ujian diatur ke: ${newMode === 'game' ? '🎮 Mode Interaktif' : '🏛️ CBT Formal'}`, 'info');
+  } finally {
+    isTogglingMode.value = false;
+  }
+}
+
+async function evaluateGameAnswer(soalId, answer) {
+  if (!isGameMode.value || !activeExam.value?.id) return;
+  try {
+    const checkUrl = '/siswa/cbt/check-jawaban';
+    const resolvedSiswaId = activeExam.value?.siswaId || activeStudent.value?.id || props.activeSiswa?.id || selectedSiswaId.value || props.siswaObj?.id;
+    const payload = {
+      jadwal_id: activeExam.value.id,
+      soal_id: soalId,
+      jawaban: answer,
+      siswa_id: resolvedSiswaId || undefined,
+    };
+    const res = await axios.post(checkUrl, payload);
+    if (res.data?.success) {
+      const isCorrect = Boolean(res.data.is_correct);
+      gameResultMap.value[soalId] = {
+        isCorrect,
+        xp: res.data.xp || 0,
+      };
+      triggerGameFeedback(isCorrect);
+    } else {
+      triggerGameFeedback(false);
+    }
+  } catch (err) {
+    console.error('Check answer failed:', err);
+    // Reliable fallback: trigger motivational teaser animation so feedback always occurs
+    triggerGameFeedback(false);
+  }
+}
+
 const isCelebratingConfetti = ref(false);
 const hasCelebrated100 = ref(false);
 
@@ -885,10 +947,13 @@ function selectMatchRight(rightText) {
   currentPairs[selectedMatchLeftId.value] = rightText;
   answers.value[qId] = currentPairs;
 
-  if (isGameMode.value && currentQuestion.value?.dataInteraktif?.kunciJawaban) {
-    const expected = currentQuestion.value.dataInteraktif.kunciJawaban[selectedMatchLeftId.value];
-    const isCorrect = expected && String(expected).trim().toLowerCase() === String(rightText).trim().toLowerCase();
-    triggerGameFeedback(isCorrect);
+  if (isGameMode.value) {
+    const totalPairs = currentQuestion.value?.dataInteraktif?.pasanganKiri?.length || 0;
+    if (totalPairs > 0 && Object.keys(currentPairs).length >= totalPairs) {
+      evaluateGameAnswer(qId, currentPairs);
+    } else {
+      playPairMatchSound();
+    }
   } else {
     playPairMatchSound();
   }
@@ -961,6 +1026,13 @@ function moveReorderItem(index, direction) {
   answers.value[q.id] = currentOrderIds;
 }
 
+function confirmReorderAnswer() {
+  const q = currentQuestion.value;
+  if (!q || !isGameMode.value) return;
+  const currentOrderIds = answers.value[q.id];
+  evaluateGameAnswer(q.id, currentOrderIds);
+}
+
 // 3. CATEGORIZE (Mengelompokkan) Logic: Category Selection
 function setItemCategory(itemId, categoryName) {
   const qId = currentQuestion.value.id;
@@ -978,10 +1050,11 @@ function setItemCategory(itemId, categoryName) {
     delete currentCats[itemId];
   } else {
     currentCats[itemId] = categoryName;
-    if (isGameMode.value && currentQuestion.value?.dataInteraktif?.kunciJawaban) {
-      const expectedCat = currentQuestion.value.dataInteraktif.kunciJawaban[itemId];
-      const isCorrect = expectedCat && String(expectedCat).trim().toLowerCase() === String(categoryName).trim().toLowerCase();
-      triggerGameFeedback(isCorrect);
+    if (isGameMode.value) {
+      const totalItems = currentQuestion.value?.dataInteraktif?.items?.length || 0;
+      if (totalItems > 0 && Object.keys(currentCats).length >= totalItems) {
+        evaluateGameAnswer(qId, currentCats);
+      }
     }
   }
   answers.value[qId] = currentCats;
@@ -1176,13 +1249,18 @@ async function startExamFromWaitingRoom() {
   }
 
   // Setup Exam State
+  const resolvedMode = started?.modeUjian || started?.mode_ujian || selectedJadwal.value?.modeUjian || selectedJadwal.value?.mode_ujian || 'formal';
   activeExam.value = {
     ...selectedJadwal.value,
+    modeUjian: resolvedMode,
+    mode_ujian: resolvedMode,
+    siswaId: activeStudent.value?.id || props.activeSiswa?.id || selectedSiswaId.value || props.siswaObj?.id,
     soals: started?.soals || [],
     durasiMenit: started?.durasiMenit ?? selectedJadwal.value.durasiMenit,
   };
   currentQuestionIndex.value = 0;
   answers.value = {};
+  gameResultMap.value = {};
   raguRagu.value = {};
   violationCount.value = 0;
   isExamLocked.value = false;
@@ -1433,30 +1511,8 @@ async function refreshExamData() {
 }
 
 // -----------------------------------------------------------------------------
-// ANTI-CHEAT, ACCIDENTAL REFRESH PREVENTION & TOUCH GUARD
+// ANTI-CHEAT & ACCIDENTAL REFRESH PREVENTION
 // -----------------------------------------------------------------------------
-let touchStartY = 0;
-
-function handleTouchStart(e) {
-  if (e.touches && e.touches.length === 1) {
-    touchStartY = e.touches[0].clientY;
-  }
-}
-
-function handleTouchMove(e) {
-  if (currentMode.value === 'exam_room') {
-    const touchY = e.touches[0].clientY;
-    const touchDiff = touchY - touchStartY;
-    // Jika posisi scroll di puncak atas dan user menarik ke bawah (pull-to-refresh ponsel)
-    const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
-    if (scrollTop <= 0 && touchDiff > 0) {
-      if (e.cancelable) {
-        e.preventDefault();
-      }
-    }
-  }
-}
-
 function handleBeforeUnload(e) {
   if (currentMode.value === 'exam_room' && !isExamSubmitted.value) {
     e.preventDefault();
@@ -1516,17 +1572,13 @@ function handleKeyDown(e) {
 function setupAntiCheatListeners() {
   if (typeof window === 'undefined') return;
 
-  // Lapis 1: Kunci overscroll di body/html agar gestur pull-to-refresh mobile mati
+  // Lapis 1: Kunci overscroll di body/html agar gestur pull-to-refresh mobile mati (aman tanpa mengganggu scroll normal)
   document.documentElement.style.overscrollBehaviorY = 'contain';
   document.body.style.overscrollBehaviorY = 'contain';
   document.body.style.overscrollBehavior = 'contain';
 
-  // Lapis 2: Guard event sentuhan dan beforeunload
+  // Lapis 2: Guard beforeunload & guard jendela / shortcut
   window.addEventListener('beforeunload', handleBeforeUnload);
-  document.addEventListener('touchstart', handleTouchStart, { passive: true });
-  document.addEventListener('touchmove', handleTouchMove, { passive: false });
-
-  // Lapis 3: Guard anti-cheat jendela & shortcut
   document.addEventListener('visibilitychange', handleVisibilityChange);
   window.addEventListener('blur', handleWindowBlur);
   document.addEventListener('contextmenu', handleContextMenu);
@@ -1545,8 +1597,6 @@ function removeAntiCheatListeners() {
   document.body.style.overscrollBehavior = '';
 
   window.removeEventListener('beforeunload', handleBeforeUnload);
-  document.removeEventListener('touchstart', handleTouchStart);
-  document.removeEventListener('touchmove', handleTouchMove);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
   window.removeEventListener('blur', handleWindowBlur);
   document.removeEventListener('contextmenu', handleContextMenu);
@@ -1622,9 +1672,8 @@ function selectAnswer(optionKey) {
   answers.value[currentQuestion.value.id] = optionKey;
 
   // Evaluasi instan jika mode game
-  if (isGameMode.value && currentQuestion.value.kunciJawaban) {
-    const isCorrect = String(optionKey).toUpperCase() === String(currentQuestion.value.kunciJawaban).toUpperCase();
-    triggerGameFeedback(isCorrect);
+  if (isGameMode.value) {
+    evaluateGameAnswer(currentQuestion.value.id, optionKey);
   }
 }
 
@@ -1911,9 +1960,18 @@ function submitExam(force = false) {
           >
             <div class="space-y-3">
               <div class="flex items-center justify-between gap-2">
-                <span class="px-3 py-1 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-300 font-black text-[11px] truncate max-w-[170px]">
-                  📖 {{ j.mapelNama }}
-                </span>
+                <div class="flex items-center gap-1.5 flex-wrap min-w-0">
+                  <span class="px-2.5 py-1 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-300 font-black text-[11px] truncate max-w-[120px] sm:max-w-[160px]" :title="'Mapel: ' + j.mapelNama">
+                    📖 {{ j.mapelNama }}
+                  </span>
+                  <span
+                    v-if="j.bankSoalJudul"
+                    class="px-2.5 py-1 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-extrabold text-[11px] truncate max-w-[120px] sm:max-w-[160px]"
+                    :title="'Paket Soal: ' + j.bankSoalJudul"
+                  >
+                    📝 {{ j.bankSoalJudul }}
+                  </span>
+                </div>
 
                 <!-- Badge Linked Materi Status -->
                 <span
@@ -1945,7 +2003,29 @@ function submitExam(force = false) {
                   <span>👨‍🏫</span>
                   <span>{{ j.guruNama }}</span>
                 </p>
+
+                <!-- Dedicated Paket Soal Info Box (Clean & Multi-line Friendly for Long Names) -->
+                <div v-if="j.bankSoalJudul" class="mt-2.5 p-2.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 flex items-start gap-2 shadow-inner">
+                  <span class="text-sm shrink-0 mt-0.5">📝</span>
+                  <div class="min-w-0 flex-1">
+                    <span class="text-[10px] uppercase font-black tracking-wider text-indigo-400/80 block">Paket Soal:</span>
+                    <p class="text-xs font-bold text-white line-clamp-2 leading-relaxed break-words" :title="j.bankSoalJudul">
+                      {{ j.bankSoalJudul }}
+                    </p>
+                  </div>
+                </div>
+
                 <div class="flex flex-wrap items-center gap-1.5 mt-2">
+                  <span
+                    :class="[
+                      'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] border shadow-sm',
+                      (j.modeUjian === 'game' || j.mode_ujian === 'game')
+                        ? 'bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border-indigo-500/40 text-indigo-300'
+                        : 'bg-white/5 border-white/10 text-gray-400'
+                    ]"
+                  >
+                    {{ (j.modeUjian === 'game' || j.mode_ujian === 'game') ? '🎮 Mode Interaktif' : '🏛️ CBT Formal' }}
+                  </span>
                   <span
                     v-if="j.acakSoal"
                     class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold text-[10px]"
@@ -2086,9 +2166,14 @@ function submitExam(force = false) {
                   {{ n.judulUjian }}
                 </td>
                 <td class="py-4 px-4">
-                  <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-500/10 text-teal-300 border border-teal-500/20 font-semibold">
-                    📖 {{ n.mapelNama }}
-                  </span>
+                  <div class="space-y-1">
+                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-500/10 text-teal-300 border border-teal-500/20 font-semibold text-xs">
+                      📖 {{ n.mapelNama }}
+                    </span>
+                    <span v-if="n.bankSoalJudul" class="block text-[11px] text-indigo-300 font-medium truncate max-w-[180px]" :title="'Paket Soal: ' + n.bankSoalJudul">
+                      📝 {{ n.bankSoalJudul }}
+                    </span>
+                  </div>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="inline-flex items-center gap-2 font-mono font-bold">
@@ -2163,7 +2248,10 @@ function submitExam(force = false) {
 
             <div class="space-y-1">
               <p class="text-xs font-bold text-white">{{ n.judulUjian }}</p>
-              <p class="text-[11px] text-teal-300 font-medium">📖 {{ n.mapelNama }}</p>
+              <p class="text-[11px] text-teal-300 font-medium">
+                📖 {{ n.mapelNama }}
+                <span v-if="n.bankSoalJudul" class="text-indigo-300 font-bold block sm:inline mt-0.5 sm:mt-0 sm:ml-1">• 📝 {{ n.bankSoalJudul }}</span>
+              </p>
             </div>
 
             <div class="grid grid-cols-2 gap-2 text-[11px] text-gray-300 bg-white/5 p-2.5 rounded-xl font-mono">
@@ -2248,7 +2336,7 @@ function submitExam(force = false) {
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-3 text-[11px] font-mono">
               <div class="p-3 rounded-2xl bg-white/5 border border-white/5">
                 <span class="text-gray-400 block text-[10px] uppercase font-sans">Mata Pelajaran:</span>
-                <span class="font-bold text-white truncate block">{{ selectedJadwal.mapelNama }}</span>
+                <span class="font-bold text-white truncate block">📖 {{ selectedJadwal.mapelNama }}</span>
               </div>
               <div class="p-3 rounded-2xl bg-white/5 border border-white/5">
                 <span class="text-gray-400 block text-[10px] uppercase font-sans">Durasi:</span>
@@ -2257,6 +2345,67 @@ function submitExam(force = false) {
               <div class="p-3 rounded-2xl bg-white/5 border border-white/5 col-span-2 sm:col-span-1">
                 <span class="text-gray-400 block text-[10px] uppercase font-sans">Jumlah Soal:</span>
                 <span class="font-bold text-emerald-300">📝 {{ selectedJadwal.jumlahSoal }} Butir</span>
+              </div>
+            </div>
+
+            <!-- Full-width Paket Soal Info Card (Full Uncut Text) -->
+            <div v-if="selectedJadwal.bankSoalJudul" class="mt-2.5 p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 flex items-start gap-2.5">
+              <span class="text-base shrink-0 mt-0.5">📝</span>
+              <div class="min-w-0 flex-1">
+                <span class="text-[10px] uppercase font-black tracking-wider text-indigo-400/80 block">Paket Soal CBT:</span>
+                <p class="text-xs sm:text-sm font-bold text-white leading-relaxed break-words">
+                  {{ selectedJadwal.bankSoalJudul }}
+                </p>
+              </div>
+            </div>
+
+            <!-- Mode Ujian Selector / Switcher Box -->
+            <div class="mt-3 p-4 rounded-2xl bg-slate-950/70 border border-white/10 space-y-2.5">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-[10px] sm:text-[11px] uppercase font-bold tracking-wider text-gray-400">Mode Pelaksanaan:</span>
+                <span
+                  :class="[
+                    'text-[10px] sm:text-[11px] font-black px-2.5 py-0.5 rounded-full border',
+                    (selectedJadwal.modeUjian === 'game' || selectedJadwal.mode_ujian === 'game')
+                      ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
+                      : 'bg-white/10 border-white/20 text-gray-300'
+                  ]"
+                >
+                  {{ (selectedJadwal.modeUjian === 'game' || selectedJadwal.mode_ujian === 'game') ? '🎮 Mode Interaktif' : '🏛️ CBT Formal' }}
+                </span>
+              </div>
+              <p class="text-[11px] text-gray-400">
+                {{ (selectedJadwal.modeUjian === 'game' || selectedJadwal.mode_ujian === 'game')
+                  ? '✨ Animasi selebrasi piala juara saat benar, ejekan motivasi saat salah, dan audio chiptune aktif.'
+                  : '📝 Format ujian resmi standar tanpa animasi feedback respon.' }}
+              </p>
+              <div class="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  @click="toggleSelectedJadwalMode('game')"
+                  :class="[
+                    'py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 min-h-[40px] cursor-pointer',
+                    (selectedJadwal.modeUjian === 'game' || selectedJadwal.mode_ujian === 'game')
+                      ? 'bg-indigo-600 text-white border-indigo-400 shadow-lg shadow-indigo-500/30'
+                      : 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                  ]"
+                >
+                  <span>🎮</span>
+                  <span>Mode Interaktif</span>
+                </button>
+                <button
+                  type="button"
+                  @click="toggleSelectedJadwalMode('formal')"
+                  :class="[
+                    'py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 min-h-[40px] cursor-pointer',
+                    (selectedJadwal.modeUjian !== 'game' && selectedJadwal.mode_ujian !== 'game')
+                      ? 'bg-slate-700 text-white border-slate-500 shadow-md'
+                      : 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                  ]"
+                >
+                  <span>🏛️</span>
+                  <span>CBT Formal</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2393,25 +2542,23 @@ function submitExam(force = false) {
     <!-- ======================================================================= -->
     <!-- MODE 3: RUANG UJIAN CBT LIVE (EXAM ROOM)                                 -->
     <!-- ======================================================================= -->
-    <div v-else-if="currentMode === 'exam_room' && activeExam" class="space-y-6 select-none exam-room-container w-full max-w-full overflow-x-hidden">
+    <div v-else-if="currentMode === 'exam_room' && activeExam" class="space-y-4 exam-room-container w-full max-w-full">
       
-      <!-- Top Exam Sticky Header -->
-      <div class="sticky top-16 z-30 p-4 sm:p-5 rounded-3xl bg-slate-900/95 border border-cyan-500/40 shadow-2xl backdrop-blur-2xl space-y-3">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <!-- 1. SLIM COMPACT STICKY EXAM HUD -->
+      <div class="sticky top-16 z-30 px-3.5 sm:px-5 py-2.5 sm:py-3 rounded-2xl bg-slate-900/95 border border-cyan-500/40 shadow-xl backdrop-blur-xl transition-all">
+        <div class="flex items-center justify-between gap-2 sm:gap-4 flex-wrap">
           <!-- Active Student & Exam Badge -->
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/40 text-cyan-300 flex items-center justify-center text-lg font-black shrink-0 shadow-inner">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/40 text-cyan-300 flex items-center justify-center text-sm font-black shrink-0">
               👤
             </div>
-            <div>
+            <div class="min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-sm font-black text-white">{{ activeStudent?.nama }}</span>
-                <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">NIS: {{ activeStudent?.nis }}</span>
-                
+                <span class="text-xs sm:text-sm font-black text-white truncate max-w-[120px] sm:max-w-[200px]">{{ activeStudent?.nama }}</span>
                 <!-- Badge Mode Ujian -->
                 <span
                   :class="[
-                    'text-[10px] font-mono px-2.5 py-0.5 rounded-full font-black flex items-center gap-1 border shadow-sm',
+                    'text-[9px] sm:text-[10px] font-mono px-2 py-0.5 rounded-full font-black flex items-center gap-1 border shadow-sm shrink-0',
                     isGameMode
                       ? 'bg-gradient-to-r from-amber-500/25 to-pink-500/25 text-amber-300 border-amber-500/40 shadow-amber-500/20 animate-pulse'
                       : 'bg-white/10 text-gray-300 border-white/20'
@@ -2419,75 +2566,54 @@ function submitExam(force = false) {
                 >
                   <span>{{ isGameMode ? '🎮 MODE GAME' : '🏛️ CBT FORMAL' }}</span>
                 </span>
-
-                <span v-if="totalAnswered > 0" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-black animate-pulse flex items-center gap-1">
-                  <span>🔥</span>
-                  <span>{{ totalAnswered }} Soal Terjawab</span>
-                </span>
-                <span v-if="violationCount > 0" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse font-bold">
-                  ⚠️ {{ violationCount }} Pelanggaran
-                </span>
-
-                <!-- Live Ranking Status Badge -->
-                <span
-                  class="text-[10px] font-mono px-2.5 py-0.5 rounded-full font-black flex items-center gap-1.5 border shadow-sm bg-amber-500/15 text-amber-300 border-amber-400/30 select-none"
-                  title="Posisi klasemen sementara kamu di kelas"
-                >
-                  <span v-if="liveRankingInfo.rank === 1">🥇</span>
-                  <span v-else-if="liveRankingInfo.rank === 2">🥈</span>
-                  <span v-else-if="liveRankingInfo.rank === 3">🥉</span>
-                  <span v-else>🏆</span>
-                  <span>Posisi #{{ liveRankingInfo.rank }}/{{ liveRankingInfo.total }}</span>
-                  <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                <span v-if="violationCount > 0" class="text-[9px] sm:text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse font-bold shrink-0">
+                  ⚠️ {{ violationCount }}
                 </span>
               </div>
-              <div class="flex items-center gap-1.5 text-xs text-gray-400 mt-0.5 font-mono">
-                <span class="text-teal-300 font-bold">{{ activeExam.mapelNama }}</span>
+              <div class="flex items-center gap-1.5 text-[11px] text-gray-400 font-mono truncate mt-0.5">
+                <span class="text-teal-300 font-bold truncate max-w-[110px] sm:max-w-[200px]">📖 {{ activeExam.mapelNama }}</span>
                 <span>•</span>
-                <span>Soal {{ currentQuestionIndex + 1 }} / {{ currentQuestions.length }}</span>
+                <span class="text-cyan-300 font-bold shrink-0">Soal {{ currentQuestionIndex + 1 }} / {{ currentQuestions.length }}</span>
               </div>
             </div>
           </div>
 
-          <div class="flex items-center gap-2 sm:gap-2.5 shrink-0 flex-wrap justify-end">
+          <!-- Controls Right (SFX, Refresh, Palet, Timer, Selesai) -->
+          <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <!-- Sound FX Toggle Button -->
             <button
               type="button"
               @click="sfxEnabled = !sfxEnabled"
               :class="[
-                'px-3 py-2 rounded-2xl border text-xs font-bold font-mono flex items-center gap-1.5 transition-all min-h-[42px]',
+                'px-2.5 py-1.5 rounded-xl border text-[11px] font-bold font-mono flex items-center gap-1 transition-all min-h-[36px]',
                 sfxEnabled
                   ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
                   : 'bg-white/5 border-white/10 text-gray-400'
               ]"
               :title="sfxEnabled ? 'Matikan Efek Suara (Mute)' : 'Nyalakan Efek Suara (SFX)'"
             >
-              <span>{{ sfxEnabled ? '🔊 SFX' : '🔇 Mute' }}</span>
+              <span>{{ sfxEnabled ? '🔊' : '🔇' }}</span>
+              <span class="hidden md:inline">{{ sfxEnabled ? 'SFX' : 'Mute' }}</span>
             </button>
 
-            <!-- Tombol Refresh / Sinkronisasi Ujian Aman (In-Place Tanpa Keluar Fullscreen) -->
+            <!-- Refresh Button -->
             <button
               type="button"
               @click="refreshExamData"
               :disabled="isRefreshingExam"
-              :class="[
-                'px-3 py-2 rounded-2xl border text-xs font-bold font-mono flex items-center gap-1.5 transition-all min-h-[42px] cursor-pointer',
-                isRefreshingExam
-                  ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300 animate-pulse'
-                  : 'bg-white/5 hover:bg-white/10 border-white/10 hover:border-cyan-500/40 text-cyan-300'
-              ]"
-              title="Refresh / Sinkronkan Data Soal & Ujian tanpa keluar Layar Penuh (Shortcut: F5 / Ctrl+R)"
+              class="p-2 sm:px-2.5 sm:py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-cyan-300 text-[11px] font-bold font-mono flex items-center gap-1 transition-all min-h-[36px]"
+              title="Refresh / Sinkronkan Data Soal (F5 / Ctrl+R)"
             >
-              <svg :class="['w-4 h-4', isRefreshingExam ? 'animate-spin text-cyan-400' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg :class="['w-3.5 h-3.5', isRefreshingExam ? 'animate-spin text-cyan-400' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              <span class="hidden sm:inline">{{ isRefreshingExam ? 'Sinkron...' : 'Refresh' }}</span>
+              <span class="hidden sm:inline">Refresh</span>
             </button>
 
             <!-- Mobile Toggle Palette Button -->
             <button
               @click="showMobilePalette = !showMobilePalette"
-              class="lg:hidden px-3 py-2 rounded-2xl bg-white/5 border border-white/10 text-cyan-300 font-mono font-bold text-xs flex items-center gap-1.5 min-h-[42px]"
+              class="lg:hidden px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-cyan-300 font-mono font-bold text-[11px] flex items-center gap-1 min-h-[36px]"
             >
               <span>📑 Palet ({{ totalAnswered }}/{{ currentQuestions.length }})</span>
             </button>
@@ -2495,29 +2621,32 @@ function submitExam(force = false) {
             <!-- Live Countdown Timer -->
             <div
               :class="[
-                'px-3.5 sm:px-4 py-2 rounded-2xl border font-mono font-black text-sm sm:text-base flex items-center gap-2 shadow-lg transition-colors min-h-[42px]',
+                'px-2.5 sm:px-3 py-1.5 rounded-xl border font-mono font-black text-xs sm:text-sm flex items-center gap-1.5 shadow-md transition-colors min-h-[36px]',
                 remainingSeconds < 300
                   ? 'bg-rose-500/20 border-rose-500 text-rose-300 animate-pulse'
                   : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
               ]"
             >
-              <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               <span>{{ formattedTime }}</span>
             </div>
 
             <!-- Selesaikan Ujian Button -->
             <button
               @click="confirmSubmitExam"
-              class="px-4 sm:px-5 py-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-emerald-500/20 active:scale-95 transition-all min-h-[42px]"
+              class="px-3 sm:px-4 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/20 active:scale-95 transition-all min-h-[36px]"
             >
               ✓ Selesai
             </button>
           </div>
         </div>
+      </div>
 
-        <!-- Motivation Banner & Acuan Rangking Real-Time -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3.5 py-2 rounded-2xl bg-gradient-to-r from-slate-950/80 via-amber-950/30 to-slate-950/80 border border-amber-500/30 text-xs">
-          <div class="flex items-center gap-2.5 min-w-0">
+      <!-- 2. NON-STICKY GAMIFICATION WIDGET (Scrolls naturally, never covers questions) -->
+      <div v-if="isGameMode" class="p-3 sm:p-4 rounded-2xl bg-slate-900/80 border border-white/10 shadow-lg space-y-2.5">
+        <!-- Motivation Banner & Rangking Real-Time -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-slate-950/80 via-amber-950/30 to-slate-950/80 border border-amber-500/30 text-xs">
+          <div class="flex items-center gap-2 min-w-0">
             <span class="text-base shrink-0">🎯</span>
             <p class="font-bold text-amber-200 truncate text-[11px] sm:text-xs">
               {{ liveRankingInfo.motivationText }}
@@ -2526,16 +2655,16 @@ function submitExam(force = false) {
           <button
             type="button"
             @click="showLiveLeaderboardModal = true"
-            class="self-start sm:self-auto shrink-0 px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-mono text-[10px] font-black transition-colors flex items-center gap-1 cursor-pointer"
+            class="self-start sm:self-auto shrink-0 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-mono text-[10px] font-black transition-colors flex items-center gap-1 cursor-pointer"
           >
-            <span>🏆 Intip Klasemen</span>
+            <span>🏆 Intip Klasemen (#{{ liveRankingInfo.rank }}/{{ liveRankingInfo.total }})</span>
             <span class="text-xs">»</span>
           </button>
         </div>
 
         <!-- Quest / Level Progress Gaming Bar -->
-        <div class="pt-2 border-t border-white/10">
-          <div class="flex items-center justify-between text-[11px] font-mono pb-1.5">
+        <div class="space-y-1">
+          <div class="flex items-center justify-between text-[11px] font-mono">
             <span class="text-gray-300 flex items-center gap-1.5 font-bold">
               <span>{{ currentQuestStage.icon }}</span>
               <span>Tahap: {{ currentQuestStage.title }}</span>
@@ -2554,28 +2683,33 @@ function submitExam(force = false) {
       </div>
 
       <!-- Main Question & Palette Layout -->
-      <div v-if="currentQuestion" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div v-if="currentQuestion" class="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-1">
         
         <!-- Question Work Area (Cols 1-8) -->
         <div class="lg:col-span-8 space-y-5">
-          <div class="p-6 sm:p-8 rounded-3xl bg-slate-900/85 border border-white/10 shadow-2xl backdrop-blur-xl space-y-6">
+          <div class="p-5 sm:p-7 rounded-3xl bg-slate-900/85 border border-white/10 shadow-2xl backdrop-blur-xl space-y-5">
             
             <!-- Question Meta Header -->
-            <div class="flex items-center justify-between gap-3 border-b border-white/10 pb-4">
-              <div class="flex items-center gap-2">
-                <span class="w-8 h-8 rounded-xl bg-cyan-500 text-slate-950 font-black flex items-center justify-center text-sm shadow-lg shadow-cyan-500/30">
+            <div class="flex items-center justify-between gap-3 border-b border-white/10 pb-3.5">
+              <div class="flex items-center gap-2.5">
+                <span class="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-400 to-teal-400 text-slate-950 font-black flex items-center justify-center text-sm shadow-md shadow-cyan-400/30 shrink-0">
                   {{ currentQuestionIndex + 1 }}
                 </span>
-                <span class="text-xs font-bold text-gray-300 font-mono">
-                  Poin Bobot: {{ currentQuestion.bobot || 1 }}
-                </span>
+                <div>
+                  <span class="text-xs sm:text-sm font-black text-white font-mono block leading-tight">
+                    Nomor Soal {{ currentQuestionIndex + 1 }}
+                  </span>
+                  <span class="text-[10px] sm:text-[11px] font-bold text-gray-400 font-mono">
+                    Bobot: {{ currentQuestion.bobot || 1 }} Poin
+                  </span>
+                </div>
               </div>
 
               <!-- Ragu-ragu Checkbox / Button -->
               <button
                 @click="toggleRaguRagu"
                 :class="[
-                  'inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border min-h-[38px]',
+                  'inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold transition-all border min-h-[38px]',
                   raguRagu[currentQuestion.id]
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-black'
                     : 'bg-white/5 text-gray-400 border-white/10 hover:text-white'
@@ -2731,8 +2865,8 @@ function submitExam(force = false) {
                     ? (answers[currentQuestion.id] === opt.originalKey ? 'cursor-default' : 'opacity-40 cursor-not-allowed pointer-events-none')
                     : 'cursor-pointer',
                   answers[currentQuestion.id] === opt.originalKey
-                    ? (isGameMode && currentQuestion.kunciJawaban
-                        ? (opt.originalKey === currentQuestion.kunciJawaban
+                    ? (isGameMode && gameResultMap[currentQuestion.id]
+                        ? (gameResultMap[currentQuestion.id].isCorrect
                             ? 'bg-gradient-to-r from-emerald-500/25 to-teal-500/25 border-emerald-400 text-white shadow-lg shadow-emerald-500/20 ring-2 ring-emerald-400/50'
                             : 'bg-gradient-to-r from-rose-500/20 to-red-500/20 border-rose-500 text-white shadow-lg shadow-rose-500/15 animate-wobble ring-2 ring-rose-500/40')
                         : 'bg-gradient-to-r from-cyan-500/20 to-teal-500/20 border-cyan-400 text-white shadow-lg shadow-cyan-500/10')
@@ -2744,16 +2878,16 @@ function submitExam(force = false) {
                   :class="[
                     'w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0 font-mono transition-all',
                     answers[currentQuestion.id] === opt.originalKey
-                      ? (isGameMode && currentQuestion.kunciJawaban
-                          ? (opt.originalKey === currentQuestion.kunciJawaban
+                      ? (isGameMode && gameResultMap[currentQuestion.id]
+                          ? (gameResultMap[currentQuestion.id].isCorrect
                               ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 scale-105 shadow-md shadow-emerald-400/40 font-black'
                               : 'bg-gradient-to-r from-rose-500 to-red-500 text-white scale-105 shadow-md shadow-rose-500/30 font-black')
                           : 'bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 scale-105 shadow-md shadow-cyan-400/30')
                       : 'bg-white/10 text-gray-300 group-hover:bg-white/20 group-hover:text-white'
                   ]"
                 >
-                  <span v-if="isGameMode && answers[currentQuestion.id] === opt.originalKey">
-                    {{ opt.originalKey === currentQuestion.kunciJawaban ? '🏆' : '💥' }}
+                  <span v-if="isGameMode && answers[currentQuestion.id] === opt.originalKey && gameResultMap[currentQuestion.id]">
+                    {{ gameResultMap[currentQuestion.id].isCorrect ? '🏆' : '💥' }}
                   </span>
                   <span v-else>
                     {{ opt.displayKey }}
@@ -2767,16 +2901,16 @@ function submitExam(force = false) {
                   </span>
 
                   <!-- Game Mode Direct Feedback Pill -->
-                  <div v-if="isGameMode && answers[currentQuestion.id] === opt.originalKey" class="pt-0.5">
+                  <div v-if="isGameMode && answers[currentQuestion.id] === opt.originalKey && gameResultMap[currentQuestion.id]" class="pt-0.5">
                     <span
                       :class="[
                         'text-[10px] font-black px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 font-mono border',
-                        opt.originalKey === currentQuestion.kunciJawaban
+                        gameResultMap[currentQuestion.id].isCorrect
                           ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10'
                           : 'bg-rose-500/20 text-rose-300 border-rose-500/40 shadow-sm shadow-rose-500/10'
                       ]"
                     >
-                      <span v-if="opt.originalKey === currentQuestion.kunciJawaban">✓ TERKUNCI (BENAR • +100 XP)</span>
+                      <span v-if="gameResultMap[currentQuestion.id].isCorrect">✓ TERKUNCI (BENAR • +100 XP)</span>
                       <span v-else>💥 TERKUNCI (SALAH • +0 XP)</span>
                     </span>
                   </div>
@@ -2980,6 +3114,17 @@ function submitExam(force = false) {
                   </div>
                 </div>
               </div>
+
+              <!-- Confirm Reorder button in game mode -->
+              <div v-if="isGameMode" class="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  @click="confirmReorderAnswer"
+                  class="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-purple-500/25 active:scale-95 transition-all min-h-[40px] cursor-pointer"
+                >
+                  <span>🔒 Kunci &amp; Evaluasi Urutan</span>
+                </button>
+              </div>
             </div>
 
             <!-- ========================================================= -->
@@ -3071,7 +3216,7 @@ function submitExam(force = false) {
 
         <!-- Question Palette Sidebar Desktop (Cols 9-12) -->
         <div class="hidden lg:block lg:col-span-4">
-          <div class="p-6 rounded-3xl bg-slate-900/85 border border-white/10 shadow-2xl backdrop-blur-xl sticky top-40 space-y-4">
+          <div class="p-5 sm:p-6 rounded-3xl bg-slate-900/85 border border-white/10 shadow-2xl backdrop-blur-xl sticky top-32 space-y-4">
             <div class="flex items-center justify-between border-b border-white/10 pb-3">
               <h4 class="font-black text-white text-sm flex items-center gap-2">
                 <span>📑</span>
@@ -3225,10 +3370,27 @@ function submitExam(force = false) {
         </div>
 
         <!-- Exam Information Card -->
-        <div class="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-1">
-          <span class="text-[10px] text-teal-300 uppercase font-black tracking-wider block">Mata Pelajaran:</span>
-          <p class="text-sm font-black text-white">{{ selectedJadwal.judulUjian }}</p>
-          <p class="text-xs text-gray-300">📖 {{ selectedJadwal.mapelNama }} ({{ selectedJadwal.jumlahSoal }} Butir Soal • {{ selectedJadwal.durasiMenit }} Menit)</p>
+        <div class="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <span class="px-2.5 py-0.5 rounded-lg bg-teal-500/15 border border-teal-500/30 text-teal-300 text-[11px] font-black uppercase tracking-wider">
+              📖 {{ selectedJadwal.mapelNama }}
+            </span>
+            <span class="text-xs text-gray-400 font-mono">
+              ⏱️ {{ selectedJadwal.durasiMenit }} Menit • 📝 {{ selectedJadwal.jumlahSoal }} Butir
+            </span>
+          </div>
+
+          <h4 class="text-sm sm:text-base font-black text-white leading-snug">{{ selectedJadwal.judulUjian }}</h4>
+
+          <div v-if="selectedJadwal.bankSoalJudul" class="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 flex items-start gap-2">
+            <span class="text-sm shrink-0 mt-0.5">📝</span>
+            <div class="min-w-0 flex-1">
+              <span class="text-[10px] uppercase font-bold text-indigo-400/80 block">Paket Soal CBT:</span>
+              <p class="text-xs font-bold text-white leading-relaxed break-words">
+                {{ selectedJadwal.bankSoalJudul }}
+              </p>
+            </div>
+          </div>
         </div>
 
         <!-- SINGLE UNIFIED SEARCHABLE STUDENT SELECTOR (1 FORM DUA FUNGSI) -->
@@ -3902,8 +4064,7 @@ function submitExam(force = false) {
 
 <style scoped>
 .exam-room-container {
-  overscroll-behavior-y: contain;
-  overscroll-behavior: contain;
+  touch-action: pan-y pinch-zoom;
   -webkit-overflow-scrolling: touch;
 }
 

@@ -9,9 +9,16 @@ use App\Models\CbtNilai;
 use App\Models\CbtSesi;
 use App\Models\CbtSoal;
 use App\Models\Guru;
+use App\Models\Jadwal;
+use App\Models\Jurusan;
+use App\Models\Kelas;
+use App\Models\MataPelajaran;
+use App\Models\Materi;
 use App\Models\NilaiTp;
+use App\Models\Siswa;
 use App\Models\TahunAjaran;
 use App\Models\TujuanPembelajaran;
+use App\Services\Cbt\CbtDocExportService;
 use App\Services\Security\FileSecurityService;
 use App\Services\Security\TeacherAccessService;
 use Illuminate\Http\JsonResponse;
@@ -21,11 +28,9 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-
-use App\Models\Jurusan;
-use App\Models\Kelas;
 use Inertia\Inertia;
 use Inertia\Response;
+
 class GuruCbtController extends Controller
 {
     /**
@@ -123,14 +128,14 @@ class GuruCbtController extends Controller
                     'tipeSoal' => $s->tipe_soal ?? 'pilihan_ganda',
                     'stimulusTeks' => $s->stimulus_teks,
                     'dataInteraktif' => $s->data_interaktif,
-                    'mediaSoal' => $s->media_soal ? ('/storage/' . ltrim($s->media_soal, '/')) : null,
+                    'mediaSoal' => $s->media_soal ? ('/storage/'.ltrim($s->media_soal, '/')) : null,
                     'tipeMediaSoal' => $s->tipe_media_soal,
                     'posisiMediaSoal' => $s->posisi_media_soal ?? 'bawah',
-                    'gambarOpsiA' => $s->gambar_opsi_a ? ('/storage/' . ltrim($s->gambar_opsi_a, '/')) : null,
-                    'gambarOpsiB' => $s->gambar_opsi_b ? ('/storage/' . ltrim($s->gambar_opsi_b, '/')) : null,
-                    'gambarOpsiC' => $s->gambar_opsi_c ? ('/storage/' . ltrim($s->gambar_opsi_c, '/')) : null,
-                    'gambarOpsiD' => $s->gambar_opsi_d ? ('/storage/' . ltrim($s->gambar_opsi_d, '/')) : null,
-                    'gambarOpsiE' => $s->gambar_opsi_e ? ('/storage/' . ltrim($s->gambar_opsi_e, '/')) : null,
+                    'gambarOpsiA' => $s->gambar_opsi_a ? ('/storage/'.ltrim($s->gambar_opsi_a, '/')) : null,
+                    'gambarOpsiB' => $s->gambar_opsi_b ? ('/storage/'.ltrim($s->gambar_opsi_b, '/')) : null,
+                    'gambarOpsiC' => $s->gambar_opsi_c ? ('/storage/'.ltrim($s->gambar_opsi_c, '/')) : null,
+                    'gambarOpsiD' => $s->gambar_opsi_d ? ('/storage/'.ltrim($s->gambar_opsi_d, '/')) : null,
+                    'gambarOpsiE' => $s->gambar_opsi_e ? ('/storage/'.ltrim($s->gambar_opsi_e, '/')) : null,
                 ])->toArray(),
             ];
         })->toArray();
@@ -170,6 +175,7 @@ class GuruCbtController extends Controller
                 'bankSoalId' => $j->bank_soal_id,
                 'bankSoalJudul' => $j->bankSoal?->judul ?? 'Bank Soal CBT',
                 'bankSoalKode' => $j->bankSoal?->kode ?? '-',
+                'mapelId' => $j->bankSoal?->mata_pelajaran_id,
                 'mapelNama' => $j->bankSoal?->mataPelajaran?->nama ?? 'Umum',
                 'jurusanId' => $jurusanId,
                 'jurusanNama' => $jurusanNama,
@@ -224,14 +230,14 @@ class GuruCbtController extends Controller
         $sesisMap = CbtSesi::whereIn('jadwal_id', $jadwalIds)
             ->whereIn('siswa_id', $siswaIds)
             ->get()
-            ->keyBy(fn ($s) => $s->jadwal_id . '_' . $s->siswa_id);
+            ->keyBy(fn ($s) => $s->jadwal_id.'_'.$s->siswa_id);
 
         return $nilais->map(function ($n) use ($sesisMap) {
             $kelasObj = $n->siswa?->kelas ?? $n->jadwal?->kelas;
             $jurusanObj = $kelasObj?->jurusan ?? $n->jadwal?->bankSoal?->jurusan;
             $mapelName = $n->jadwal?->bankSoal?->mataPelajaran?->nama ?? 'Informatika';
 
-            $sesiKey = $n->jadwal_id . '_' . $n->siswa_id;
+            $sesiKey = $n->jadwal_id.'_'.$n->siswa_id;
             $sesi = $sesisMap->get($sesiKey);
 
             $durasiMenitRiil = null;
@@ -292,10 +298,10 @@ class GuruCbtController extends Controller
 
         $data = [
             'judul' => $validated['judul'],
-            'kode' => !empty($validated['kode']) ? $validated['kode'] : ('BS-'.strtoupper(Str::random(6))),
-            'jurusan_id' => !empty($validated['jurusan_id']) ? $validated['jurusan_id'] : null,
-            'kelas_id' => !empty($validated['kelas_id']) ? $validated['kelas_id'] : null,
-            'mata_pelajaran_id' => !empty($validated['mata_pelajaran_id']) ? $validated['mata_pelajaran_id'] : null,
+            'kode' => ! empty($validated['kode']) ? $validated['kode'] : ('BS-'.strtoupper(Str::random(6))),
+            'jurusan_id' => ! empty($validated['jurusan_id']) ? $validated['jurusan_id'] : null,
+            'kelas_id' => ! empty($validated['kelas_id']) ? $validated['kelas_id'] : null,
+            'mata_pelajaran_id' => ! empty($validated['mata_pelajaran_id']) ? $validated['mata_pelajaran_id'] : null,
             'guru_id' => $guru?->id,
             'deskripsi' => $validated['deskripsi'] ?? null,
             'jumlah_pilihan' => $validated['jumlah_pilihan'] ?? 5,
@@ -313,7 +319,8 @@ class GuruCbtController extends Controller
         if ($redirectTo) {
             return redirect($redirectTo)->with('message', $msg);
         }
-        return redirect()->to(route('guru.dashboard') . '?tab=cbt-jadwal')->with('message', $msg);
+
+        return redirect()->to(route('guru.dashboard').'?tab=cbt-jadwal')->with('message', $msg);
     }
 
     /**
@@ -329,13 +336,24 @@ class GuruCbtController extends Controller
     }
 
     /**
+     * Export Bank Soal to Word (.doc) matching the standard import/preview question format.
+     */
+    public function exportDoc(int $id, Request $request, CbtDocExportService $exportService)
+    {
+        $bankSoal = CbtBankSoal::findOrFail($id);
+        $this->ensureBankSoalAccess($request, $bankSoal);
+
+        return $exportService->export($bankSoal);
+    }
+
+    /**
      * Store or update Question (Butir Soal A-E).
      */
     public function storeSoal(Request $request): RedirectResponse
     {
         // Normalize decimal comma to dot (e.g. "2,5" -> "2.5")
         if ($request->has('bobot')) {
-            $request->merge(['bobot' => str_replace(',', '.', (string)$request->input('bobot'))]);
+            $request->merge(['bobot' => str_replace(',', '.', (string) $request->input('bobot'))]);
         }
 
         $tipeSoal = $request->input('tipe_soal', 'pilihan_ganda');
@@ -516,7 +534,7 @@ class GuruCbtController extends Controller
     public function updateAllBobot(Request $request): RedirectResponse
     {
         if ($request->has('bobot')) {
-            $request->merge(['bobot' => str_replace(',', '.', (string)$request->input('bobot'))]);
+            $request->merge(['bobot' => str_replace(',', '.', (string) $request->input('bobot'))]);
         }
 
         $validated = $request->validate([
@@ -532,7 +550,7 @@ class GuruCbtController extends Controller
         $updatedCount = CbtSoal::where('bank_soal_id', $validated['bank_soal_id'])
             ->update(['bobot' => $bobot]);
 
-        $formattedBobot = fmod($bobot, 1) === 0.0 ? number_format($bobot, 0) : str_replace('.', ',', (string)$bobot);
+        $formattedBobot = fmod($bobot, 1) === 0.0 ? number_format($bobot, 0) : str_replace('.', ',', (string) $bobot);
 
         return redirect()->back()->with('message', "Bobot seluruh butir soal ({$updatedCount} soal) berhasil diubah menjadi {$formattedBobot} poin!");
     }
@@ -604,7 +622,7 @@ class GuruCbtController extends Controller
 
             foreach ($soalsInput as $s) {
                 $currentNomor++;
-                $bobotRaw = isset($s['bobot']) && $s['bobot'] !== '' ? str_replace(',', '.', (string)$s['bobot']) : '1.0';
+                $bobotRaw = isset($s['bobot']) && $s['bobot'] !== '' ? str_replace(',', '.', (string) $s['bobot']) : '1.0';
                 $bobot = floatval($bobotRaw);
                 if ($bobot <= 0) {
                     $bobot = 1.0;
@@ -615,17 +633,19 @@ class GuruCbtController extends Controller
                 $posisiMedia = $s['posisi_media_soal'] ?? 'bawah';
 
                 // Simpan gambar dari base64 jika ada
-                if (!empty($s['gambar_base64'])) {
+                if (! empty($s['gambar_base64'])) {
                     $rawBase64 = $s['gambar_base64'];
                     if (preg_match('/^data:image\/(\w+);base64,/', $rawBase64, $matchType)) {
                         $rawBase64 = substr($rawBase64, strpos($rawBase64, ',') + 1);
                         $type = strtolower($matchType[1]);
-                        if ($type === 'jpeg') $type = 'jpg';
+                        if ($type === 'jpeg') {
+                            $type = 'jpg';
+                        }
                         if (in_array($type, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
                             $decoded = base64_decode($rawBase64);
                             if ($decoded !== false) {
                                 FileSecurityService::validateBase64Image($decoded, $type);
-                                $filename = 'cbt_media/soals/' . Str::random(30) . '.' . $type;
+                                $filename = 'cbt_media/soals/'.Str::random(30).'.'.$type;
                                 Storage::disk('public')->put($filename, $decoded);
                                 $mediaPath = $filename;
                                 $tipeMedia = 'image';
@@ -657,7 +677,8 @@ class GuruCbtController extends Controller
         if ($redirectTo) {
             return redirect($redirectTo)->with('message', "Berhasil mengimpor {$count} butir soal ke dalam Bank Soal!");
         }
-        return redirect()->to(route('guru.dashboard') . '?tab=cbt-bank-soal')->with('message', "Berhasil mengimpor {$count} butir soal ke dalam Bank Soal!");
+
+        return redirect()->to(route('guru.dashboard').'?tab=cbt-bank-soal')->with('message', "Berhasil mengimpor {$count} butir soal ke dalam Bank Soal!");
     }
 
     /**
@@ -696,7 +717,7 @@ class GuruCbtController extends Controller
         $bankSoalList = self::getBankSoalsList($guruId);
         $jurusanList = Jurusan::query()->orderBy('id', 'asc')->get();
 
-        $guruJadwals = \App\Models\Jadwal::query()
+        $guruJadwals = Jadwal::query()
             ->when($guruId, fn ($q) => $q->where('guru_id', $guruId))
             ->get(['kelas_id', 'mata_pelajaran']);
 
@@ -710,12 +731,16 @@ class GuruCbtController extends Controller
         $masterKelasList = Kelas::query()->with(['jurusan'])->get()
             ->sort(function ($a, $b) {
                 $t = strcmp($a->tingkat ?? 'X', $b->tingkat ?? 'X');
-                if ($t !== 0) return $t;
+                if ($t !== 0) {
+                    return $t;
+                }
+
                 return strnatcasecmp($a->nama_kelas, $b->nama_kelas);
             })
             ->values()
             ->map(function ($k) use ($mapelsByKelasId) {
                 $mapels = array_values(array_unique($mapelsByKelasId[$k->id] ?? []));
+
                 return [
                     'id' => $k->id,
                     'namaKelas' => $k->nama_kelas,
@@ -728,19 +753,19 @@ class GuruCbtController extends Controller
             })->toArray();
 
         $guruMapelNames = $guruJadwals->pluck('mata_pelajaran')->filter()->unique()->values()->toArray();
-        $guruMapelIds = !empty($guruMapelNames)
-            ? \App\Models\MataPelajaran::whereIn('nama', $guruMapelNames)->pluck('id')->toArray()
+        $guruMapelIds = ! empty($guruMapelNames)
+            ? MataPelajaran::whereIn('nama', $guruMapelNames)->pluck('id')->toArray()
             : [];
         $guruKelasIds = $guruJadwals->pluck('kelas_id')->filter()->unique()->values()->toArray();
 
-        $materiList = \App\Models\Materi::query()
+        $materiList = Materi::query()
             ->where('is_published', true)
-            ->when(!empty($guruMapelIds), function ($q) use ($guruMapelIds) {
+            ->when(! empty($guruMapelIds), function ($q) use ($guruMapelIds) {
                 $q->where(function ($sub) use ($guruMapelIds) {
                     $sub->whereIn('mapel_id', $guruMapelIds)->orWhereNull('mapel_id');
                 });
             })
-            ->when(!empty($guruKelasIds), function ($q) use ($guruKelasIds) {
+            ->when(! empty($guruKelasIds), function ($q) use ($guruKelasIds) {
                 $q->where(function ($sub) use ($guruKelasIds) {
                     $sub->whereIn('kelas_id', $guruKelasIds)->orWhereNull('kelas_id');
                 });
@@ -761,7 +786,7 @@ class GuruCbtController extends Controller
         $serializedJadwal = null;
         if ($jadwal) {
             $jurusanId = $jadwal->jurusan_id ?? $jadwal->kelas?->jurusan_id;
-            $linkedMateriId = \App\Models\Materi::where('cbt_jadwal_id', $jadwal->id)->value('id');
+            $linkedMateriId = Materi::where('cbt_jadwal_id', $jadwal->id)->value('id');
             $serializedJadwal = [
                 'id' => $jadwal->id,
                 'bank_soal_id' => $jadwal->bank_soal_id,
@@ -824,7 +849,7 @@ class GuruCbtController extends Controller
         }
 
         if (! empty($validated['materi_id'])) {
-            $materi = \App\Models\Materi::findOrFail($validated['materi_id']);
+            $materi = Materi::findOrFail($validated['materi_id']);
             abort_unless(
                 TeacherAccessService::canAccessMateri($request->user(), $guru, $materi),
                 403,
@@ -838,18 +863,18 @@ class GuruCbtController extends Controller
             $this->ensureJadwalAccess($request, $existingJadwal);
         }
 
-        $judulUjian = !empty($validated['judul_ujian']) 
-            ? trim($validated['judul_ujian']) 
+        $judulUjian = ! empty($validated['judul_ujian'])
+            ? trim($validated['judul_ujian'])
             : ($bankSoal?->judul ?? 'Ujian CBT');
 
-        $jurusanId = !empty($validated['jurusan_id']) ? $validated['jurusan_id'] : null;
-        if (!$jurusanId && !empty($validated['kelas_id'])) {
-            $jurusanId = \App\Models\Kelas::where('id', $validated['kelas_id'])->value('jurusan_id');
+        $jurusanId = ! empty($validated['jurusan_id']) ? $validated['jurusan_id'] : null;
+        if (! $jurusanId && ! empty($validated['kelas_id'])) {
+            $jurusanId = Kelas::where('id', $validated['kelas_id'])->value('jurusan_id');
         }
 
-        $waktuMulai = !empty($validated['waktu_mulai']) ? Carbon::parse($validated['waktu_mulai']) : null;
+        $waktuMulai = ! empty($validated['waktu_mulai']) ? Carbon::parse($validated['waktu_mulai']) : null;
         $durasiMenit = $validated['durasi_menit'] ?? 60;
-        $waktuSelesai = !empty($validated['waktu_selesai'])
+        $waktuSelesai = ! empty($validated['waktu_selesai'])
             ? Carbon::parse($validated['waktu_selesai'])
             : ($waktuMulai ? $waktuMulai->copy()->endOfDay() : null);
 
@@ -860,13 +885,13 @@ class GuruCbtController extends Controller
         $data = [
             'bank_soal_id' => $validated['bank_soal_id'],
             'jurusan_id' => $jurusanId,
-            'kelas_id' => !empty($validated['kelas_id']) ? $validated['kelas_id'] : null,
+            'kelas_id' => ! empty($validated['kelas_id']) ? $validated['kelas_id'] : null,
             'guru_id' => $guru?->id,
             'judul_ujian' => $judulUjian,
             'waktu_mulai' => $waktuMulai,
             'waktu_selesai' => $waktuSelesai,
             'durasi_menit' => $durasiMenit,
-            'token' => !empty($validated['token']) ? $validated['token'] : strtoupper(Str::random(6)),
+            'token' => ! empty($validated['token']) ? $validated['token'] : strtoupper(Str::random(6)),
             'acak_soal' => $request->boolean('acak_soal', true),
             'acak_opsi' => $request->boolean('acak_opsi', true),
             'status' => $validated['status'] ?? 'aktif',
@@ -884,11 +909,11 @@ class GuruCbtController extends Controller
 
         // Sync linked materi
         $materiId = $request->input('materi_id');
-        if (!empty($materiId)) {
-            \App\Models\Materi::where('cbt_jadwal_id', $jadwal->id)->where('id', '!=', $materiId)->update(['cbt_jadwal_id' => null]);
-            \App\Models\Materi::where('id', $materiId)->update(['cbt_jadwal_id' => $jadwal->id]);
+        if (! empty($materiId)) {
+            Materi::where('cbt_jadwal_id', $jadwal->id)->where('id', '!=', $materiId)->update(['cbt_jadwal_id' => null]);
+            Materi::where('id', $materiId)->update(['cbt_jadwal_id' => $jadwal->id]);
         } else {
-            \App\Models\Materi::where('cbt_jadwal_id', $jadwal->id)->update(['cbt_jadwal_id' => null]);
+            Materi::where('cbt_jadwal_id', $jadwal->id)->update(['cbt_jadwal_id' => null]);
         }
 
         $redirectTo = $request->input('redirect_to');
@@ -896,7 +921,7 @@ class GuruCbtController extends Controller
             return redirect($redirectTo)->with('message', $msg);
         }
 
-        return redirect()->to(route('guru.dashboard') . '?tab=cbt-jadwal')->with('message', $msg);
+        return redirect()->to(route('guru.dashboard').'?tab=cbt-jadwal')->with('message', $msg);
     }
 
     /**
@@ -907,7 +932,7 @@ class GuruCbtController extends Controller
         $jadwal = CbtJadwal::findOrFail($id);
         $this->ensureJadwalAccess(request(), $jadwal);
         $newStatus = $jadwal->status === 'aktif' ? 'nonaktif' : 'aktif';
-        
+
         $updateData = ['status' => $newStatus];
         if ($newStatus === 'aktif') {
             // Ketika guru mengaktifkan jadwal ujian, pastikan waktu mulai tidak menghalangi siswa masuk
@@ -941,7 +966,7 @@ class GuruCbtController extends Controller
 
         // 1. Prioritaskan jika CBT Jadwal ini ditautkan ke Materi yang memiliki TP
         if ($jadwal) {
-            $linkedMateri = \App\Models\Materi::where('cbt_jadwal_id', $jadwal->id)
+            $linkedMateri = Materi::where('cbt_jadwal_id', $jadwal->id)
                 ->whereNotNull('tp_id')
                 ->with('tp')
                 ->first();
@@ -952,7 +977,7 @@ class GuruCbtController extends Controller
 
         // 2. Jika tidak melalui materi, cari apakah guru memiliki TP kurikulum yang judulnya cocok dengan judul ujian
         if (! $tp) {
-            $mapel = $jadwal?->bankSoal?->mataPelajaran?->nama 
+            $mapel = $jadwal?->bankSoal?->mataPelajaran?->nama
                 ?? $cbtNilai->bankSoal?->mataPelajaran?->nama;
             $rawTitle = $jadwal?->judul_ujian ?? $cbtNilai->bankSoal?->judul;
 
@@ -1002,6 +1027,7 @@ class GuruCbtController extends Controller
             self::syncCbtNilaiToTp($score, $score->jadwal);
             $synced++;
         }
+
         return $synced;
     }
 
@@ -1042,7 +1068,7 @@ class GuruCbtController extends Controller
         $jadwal = CbtJadwal::findOrFail($validated['jadwal_id']);
         $this->ensureJadwalAccess($request, $jadwal);
 
-        $siswa = \App\Models\Siswa::findOrFail($validated['siswa_id']);
+        $siswa = Siswa::findOrFail($validated['siswa_id']);
         abort_unless(
             TeacherAccessService::canAccessSiswa($request->user(), $this->resolveGuru($request), $siswa),
             403,
@@ -1154,14 +1180,14 @@ class GuruCbtController extends Controller
         if ($jadwal->kelas_id) {
             $matchingKelasIds = [$jadwal->kelas_id];
         } else {
-            $jadwalGuruQuery = \App\Models\Jadwal::query()
+            $jadwalGuruQuery = Jadwal::query()
                 ->where('guru_id', $guruId)
                 ->whereNotNull('kelas_id');
 
-            if (!empty($mapelNama)) {
+            if (! empty($mapelNama)) {
                 $jadwalGuruQuery->where(function ($q) use ($mapelNama) {
                     $q->where('mata_pelajaran', $mapelNama)
-                        ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [strtolower(trim((string)$mapelNama))]);
+                        ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [strtolower(trim((string) $mapelNama))]);
                 });
             }
 
@@ -1173,7 +1199,7 @@ class GuruCbtController extends Controller
 
             // Sertakan juga kelas dari siswa yang sudah terdaftar di sesi ujian ini jika ada
             $pesertaKelasIds = $sesisRaw->pluck('siswa.kelas_id')->filter()->unique()->values()->toArray();
-            if (!empty($pesertaKelasIds)) {
+            if (! empty($pesertaKelasIds)) {
                 $matchingKelasIds = array_values(array_unique(array_merge($matchingKelasIds, $pesertaKelasIds)));
             }
         }
@@ -1182,7 +1208,10 @@ class GuruCbtController extends Controller
             ->get(['id', 'nama_kelas', 'tingkat'])
             ->sort(function ($a, $b) {
                 $t = strcmp($a->tingkat ?? 'X', $b->tingkat ?? 'X');
-                if ($t !== 0) return $t;
+                if ($t !== 0) {
+                    return $t;
+                }
+
                 return strnatcasecmp($a->nama_kelas, $b->nama_kelas);
             })
             ->map(fn ($k) => [
@@ -1212,7 +1241,7 @@ class GuruCbtController extends Controller
             'masterKelasList' => $masterKelasList,
         ];
 
-        if ($request->wantsJson() && !$request->header('X-Inertia')) {
+        if ($request->wantsJson() && ! $request->header('X-Inertia')) {
             return response()->json($payload);
         }
 
@@ -1242,6 +1271,7 @@ class GuruCbtController extends Controller
         if ($request->wantsJson() && ! $request->header('X-Inertia')) {
             return response()->json(['success' => true, 'message' => $msg]);
         }
+
         return redirect()->back()->with('message', $msg);
     }
 
@@ -1263,6 +1293,7 @@ class GuruCbtController extends Controller
         if ($request->wantsJson() && ! $request->header('X-Inertia')) {
             return response()->json(['success' => true, 'message' => $msg]);
         }
+
         return redirect()->back()->with('message', $msg);
     }
 
@@ -1285,6 +1316,7 @@ class GuruCbtController extends Controller
         if ($request->wantsJson() && ! $request->header('X-Inertia')) {
             return response()->json(['success' => true, 'message' => $msg]);
         }
+
         return redirect()->back()->with('message', $msg);
     }
 
@@ -1305,6 +1337,7 @@ class GuruCbtController extends Controller
         if ($request->wantsJson() && ! $request->header('X-Inertia')) {
             return response()->json(['success' => true, 'message' => $msg]);
         }
+
         return redirect()->back()->with('message', $msg);
     }
 
@@ -1346,12 +1379,12 @@ class GuruCbtController extends Controller
 
         // Determine or create Target TP
         if ($validated['mode'] === 'new_tp') {
-            $tpMapel = !empty($validated['mapel']) ? $validated['mapel'] : ($jadwal->bankSoal?->mataPelajaran?->nama ?? 'Informatika');
-            $tpJudul = !empty($validated['judul']) ? $validated['judul'] : ('Ujian CBT - ' . $jadwal->judul_ujian);
-            $tpKode = !empty($validated['kode']) ? $validated['kode'] : ('TP-CBT' . rand(10, 99));
+            $tpMapel = ! empty($validated['mapel']) ? $validated['mapel'] : ($jadwal->bankSoal?->mataPelajaran?->nama ?? 'Informatika');
+            $tpJudul = ! empty($validated['judul']) ? $validated['judul'] : ('Ujian CBT - '.$jadwal->judul_ujian);
+            $tpKode = ! empty($validated['kode']) ? $validated['kode'] : ('TP-CBT'.rand(10, 99));
 
             $activeTa = TahunAjaran::getActive();
-            $taId = !empty($validated['tahun_ajaran_id']) ? $validated['tahun_ajaran_id'] : ($activeTa?->id ?? 1);
+            $taId = ! empty($validated['tahun_ajaran_id']) ? $validated['tahun_ajaran_id'] : ($activeTa?->id ?? 1);
 
             $tp = TujuanPembelajaran::create([
                 'kode' => $tpKode,
@@ -1375,7 +1408,7 @@ class GuruCbtController extends Controller
 
         // Fetch CBT scores
         $nilaisQuery = CbtNilai::where('jadwal_id', $jadwal->id);
-        if (!empty($validated['siswa_ids'])) {
+        if (! empty($validated['siswa_ids'])) {
             $nilaisQuery->whereIn('siswa_id', $validated['siswa_ids']);
         }
         $cbtNilais = $nilaisQuery->get();
@@ -1384,16 +1417,17 @@ class GuruCbtController extends Controller
             return redirect()->back()->with('error', 'Tidak ada data nilai ujian CBT untuk ditransfer.');
         }
 
-        $overwrite = isset($validated['overwrite']) ? (bool)$validated['overwrite'] : true;
+        $overwrite = isset($validated['overwrite']) ? (bool) $validated['overwrite'] : true;
         $transferredCount = 0;
         $skippedCount = 0;
 
         DB::transaction(function () use ($cbtNilais, $targetTpId, $guruId, $overwrite, &$transferredCount, &$skippedCount) {
             foreach ($cbtNilais as $cbt) {
-                if (!$overwrite) {
+                if (! $overwrite) {
                     $exists = NilaiTp::where('tp_id', $targetTpId)->where('siswa_id', $cbt->siswa_id)->exists();
                     if ($exists) {
                         $skippedCount++;
+
                         continue;
                     }
                 }

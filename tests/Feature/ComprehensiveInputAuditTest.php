@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\Guru\GuruCbtController;
 use App\Models\CbtBankSoal;
 use App\Models\CbtJadwal;
 use App\Models\CbtNilai;
@@ -9,19 +10,21 @@ use App\Models\CbtSoal;
 use App\Models\Guru;
 use App\Models\Jadwal;
 use App\Models\Jurnal;
-use App\Models\KasusSiswa;
 use App\Models\Kelas;
 use App\Models\MataPelajaran;
 use App\Models\Materi;
 use App\Models\NilaiTp;
 use App\Models\Siswa;
 use App\Models\TahunAjaran;
+use App\Models\Tugas;
 use App\Models\TujuanPembelajaran;
 use App\Models\User;
+use App\Services\Cbt\CbtExamService;
+use Carbon\Carbon;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class ComprehensiveInputAuditTest extends TestCase
@@ -29,13 +32,21 @@ class ComprehensiveInputAuditTest extends TestCase
     use RefreshDatabase;
 
     protected User $guruUser;
+
     protected Guru $guru;
+
     protected User $waliKelasUser;
+
     protected Guru $waliGuru;
+
     protected User $adminUser;
+
     protected User $siswaUser;
+
     protected Siswa $siswa;
+
     protected Kelas $kelas;
+
     protected TahunAjaran $tahunAjaran;
 
     protected function setUp(): void
@@ -414,7 +425,7 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 12: Siswa Submit Tugas */
     public function test_siswa_submit_tugas(): void
     {
-        $tugas = \App\Models\Tugas::create([
+        $tugas = Tugas::create([
             'guru_id' => $this->guru->id,
             'kelas_id' => $this->kelas->id,
             'judul' => 'Tugas Portofolio HTML',
@@ -440,7 +451,7 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 13: Guru dapat mengosongkan seluruh nilai satu kolom TP */
     public function test_guru_can_clear_nilai_tp_kolom(): void
     {
-        $tp = \App\Models\TujuanPembelajaran::create([
+        $tp = TujuanPembelajaran::create([
             'kode' => 'TP-CLR-1',
             'judul' => 'Uji Coba Clear Kolom',
             'mapel' => 'Informatika',
@@ -449,7 +460,7 @@ class ComprehensiveInputAuditTest extends TestCase
             'tahun_ajaran' => '2025/2026',
         ]);
 
-        \App\Models\NilaiTp::create([
+        NilaiTp::create([
             'tp_id' => $tp->id,
             'siswa_id' => $this->siswa->id,
             'guru_id' => $this->guru->id,
@@ -478,7 +489,7 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 14: Guru dapat menukar (swap) nilai antar-TP untuk kelas terpilih */
     public function test_guru_can_swap_nilai_antar_tp(): void
     {
-        $tpA = \App\Models\TujuanPembelajaran::create([
+        $tpA = TujuanPembelajaran::create([
             'kode' => 'TP-SWP-A',
             'judul' => 'Materi A',
             'mapel' => 'Informatika',
@@ -487,7 +498,7 @@ class ComprehensiveInputAuditTest extends TestCase
             'tahun_ajaran' => '2025/2026',
         ]);
 
-        $tpB = \App\Models\TujuanPembelajaran::create([
+        $tpB = TujuanPembelajaran::create([
             'kode' => 'TP-SWP-B',
             'judul' => 'Materi B',
             'mapel' => 'Informatika',
@@ -496,7 +507,7 @@ class ComprehensiveInputAuditTest extends TestCase
             'tahun_ajaran' => '2025/2026',
         ]);
 
-        \App\Models\NilaiTp::create([
+        NilaiTp::create([
             'tp_id' => $tpA->id,
             'siswa_id' => $this->siswa->id,
             'guru_id' => $this->guru->id,
@@ -504,7 +515,7 @@ class ComprehensiveInputAuditTest extends TestCase
             'catatan' => 'Nilai Awal TP A',
         ]);
 
-        \App\Models\NilaiTp::create([
+        NilaiTp::create([
             'tp_id' => $tpB->id,
             'siswa_id' => $this->siswa->id,
             'guru_id' => $this->guru->id,
@@ -541,7 +552,7 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 15: Guru dapat memindahkan (move) nilai dari TP Asal ke TP Tujuan */
     public function test_guru_can_move_nilai_antar_tp(): void
     {
-        $tpSrc = \App\Models\TujuanPembelajaran::create([
+        $tpSrc = TujuanPembelajaran::create([
             'kode' => 'TP-MOV-SRC',
             'judul' => 'Source TP',
             'mapel' => 'Informatika',
@@ -550,7 +561,7 @@ class ComprehensiveInputAuditTest extends TestCase
             'tahun_ajaran' => '2025/2026',
         ]);
 
-        $tpTgt = \App\Models\TujuanPembelajaran::create([
+        $tpTgt = TujuanPembelajaran::create([
             'kode' => 'TP-MOV-TGT',
             'judul' => 'Target TP',
             'mapel' => 'Informatika',
@@ -559,7 +570,7 @@ class ComprehensiveInputAuditTest extends TestCase
             'tahun_ajaran' => '2025/2026',
         ]);
 
-        \App\Models\NilaiTp::create([
+        NilaiTp::create([
             'tp_id' => $tpSrc->id,
             'siswa_id' => $this->siswa->id,
             'guru_id' => $this->guru->id,
@@ -594,8 +605,8 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 16: Guru dapat membuka Dedicated Page Tambah Jadwal CBT */
     public function test_guru_can_render_cbt_jadwal_create_page(): void
     {
-        $mapel = \App\Models\MataPelajaran::first();
-        \App\Models\Materi::create([
+        $mapel = MataPelajaran::first();
+        Materi::create([
             'judul' => 'Materi Uji Coba Prasyarat CBT',
             'tipe' => 'Slider PPT',
             'is_published' => true,
@@ -618,15 +629,15 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 17: Guru dapat membuka Dedicated Page Edit Jadwal CBT */
     public function test_guru_can_render_cbt_jadwal_edit_page(): void
     {
-        $bank = \App\Models\CbtBankSoal::create([
+        $bank = CbtBankSoal::create([
             'kode' => 'BANK-JAD-1',
             'judul' => 'Bank Soal Uji Jadwal',
-            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'mata_pelajaran_id' => MataPelajaran::first()->id,
             'guru_id' => $this->guru->id,
             'tingkat' => 'X',
         ]);
 
-        $jadwal = \App\Models\CbtJadwal::create([
+        $jadwal = CbtJadwal::create([
             'bank_soal_id' => $bank->id,
             'guru_id' => $this->guru->id,
             'judul_ujian' => 'Ujian Tengah Semester Informatika',
@@ -649,10 +660,10 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 18: Guru dapat menyimpan Jadwal CBT dan redirect kembali ke tab cbt-jadwal */
     public function test_guru_can_store_cbt_jadwal_and_redirects_to_cbt_jadwal_tab(): void
     {
-        $bank = \App\Models\CbtBankSoal::create([
+        $bank = CbtBankSoal::create([
             'kode' => 'BANK-JAD-2',
             'judul' => 'Bank Soal Baru',
-            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'mata_pelajaran_id' => MataPelajaran::first()->id,
             'guru_id' => $this->guru->id,
             'tingkat' => 'X',
         ]);
@@ -669,7 +680,7 @@ class ComprehensiveInputAuditTest extends TestCase
         ]);
 
         $response->assertSessionHasNoErrors();
-        $response->assertRedirect(route('guru.dashboard') . '?tab=cbt-jadwal');
+        $response->assertRedirect(route('guru.dashboard').'?tab=cbt-jadwal');
 
         $this->assertDatabaseHas('cbt_jadwals', [
             'judul_ujian' => 'Penilaian Harian Jaringan Komputer',
@@ -682,15 +693,15 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 19: Menghapus Jadwal CBT tidak menghapus nilai siswa (Soft Delete) */
     public function test_deleting_cbt_jadwal_preserves_student_scores(): void
     {
-        $bank = \App\Models\CbtBankSoal::create([
+        $bank = CbtBankSoal::create([
             'kode' => 'BANK-PRESERVE-1',
             'judul' => 'Bank Soal Aman Nilai',
-            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'mata_pelajaran_id' => MataPelajaran::first()->id,
             'guru_id' => $this->guru->id,
             'tingkat' => 'X',
         ]);
 
-        $jadwal = \App\Models\CbtJadwal::create([
+        $jadwal = CbtJadwal::create([
             'bank_soal_id' => $bank->id,
             'guru_id' => $this->guru->id,
             'judul_ujian' => 'Ujian Akhir Yang Dihapus',
@@ -700,7 +711,7 @@ class ComprehensiveInputAuditTest extends TestCase
             'mode_ujian' => 'formal',
         ]);
 
-        $nilai = \App\Models\CbtNilai::create([
+        $nilai = CbtNilai::create([
             'jadwal_id' => $jadwal->id,
             'siswa_id' => $this->siswa->id,
             'bank_soal_id' => $bank->id,
@@ -717,8 +728,8 @@ class ComprehensiveInputAuditTest extends TestCase
 
         // Pastikan jadwal di soft-delete (tidak tampil di query normal)
         $this->assertSoftDeleted('cbt_jadwals', ['id' => $jadwal->id]);
-        $this->assertNull(\App\Models\CbtJadwal::find($jadwal->id));
-        $this->assertNotNull(\App\Models\CbtJadwal::withTrashed()->find($jadwal->id));
+        $this->assertNull(CbtJadwal::find($jadwal->id));
+        $this->assertNotNull(CbtJadwal::withTrashed()->find($jadwal->id));
 
         // Pastikan nilai siswa TIDAK terhapus dari database!
         $this->assertDatabaseHas('cbt_nilais', [
@@ -728,7 +739,7 @@ class ComprehensiveInputAuditTest extends TestCase
         ]);
 
         // Pastikan daftar nilai (Hasil Nilai CBT) tetap dapat membaca nilai ini
-        $nilaiList = \App\Http\Controllers\Guru\GuruCbtController::getNilaisList($this->guru->id);
+        $nilaiList = GuruCbtController::getNilaisList($this->guru->id);
         $found = collect($nilaiList)->firstWhere('id', $nilai->id);
         $this->assertNotNull($found, 'Nilai siswa harus tetap muncul di daftar hasil nilai');
         $this->assertEquals(90.00, $found['nilai']);
@@ -737,9 +748,9 @@ class ComprehensiveInputAuditTest extends TestCase
 
     public function test_guru_can_import_bulk_20_soal_into_cbt_bank_soal(): void
     {
-        $bank = \App\Models\CbtBankSoal::create([
+        $bank = CbtBankSoal::create([
             'guru_id' => $this->guru->id,
-            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'mata_pelajaran_id' => MataPelajaran::first()->id,
             'judul' => 'Bank Soal Ujian 20 Soal',
             'kode' => 'BANK-20',
             'tingkat' => 'X',
@@ -771,23 +782,23 @@ class ComprehensiveInputAuditTest extends TestCase
         $response->assertRedirect();
 
         // Pastikan ke-20 soal tersimpan lengkap di database
-        $this->assertEquals(20, \App\Models\CbtSoal::where('bank_soal_id', $bank->id)->count());
+        $this->assertEquals(20, CbtSoal::where('bank_soal_id', $bank->id)->count());
 
-        $firstSoal = \App\Models\CbtSoal::where('bank_soal_id', $bank->id)->where('nomor_urut', 1)->first();
+        $firstSoal = CbtSoal::where('bank_soal_id', $bank->id)->where('nomor_urut', 1)->first();
         $this->assertNotNull($firstSoal);
         $this->assertEquals('Pertanyaan ke-1: Berapakah hasil dari 1 + 10?', $firstSoal->pertanyaan);
         $this->assertEquals(2.5, $firstSoal->bobot);
 
-        $twentiethSoal = \App\Models\CbtSoal::where('bank_soal_id', $bank->id)->where('nomor_urut', 20)->first();
+        $twentiethSoal = CbtSoal::where('bank_soal_id', $bank->id)->where('nomor_urut', 20)->first();
         $this->assertNotNull($twentiethSoal);
         $this->assertEquals('-', $twentiethSoal->opsi_e);
     }
 
     public function test_guru_can_render_cbt_bank_soal_import_page(): void
     {
-        $bank = \App\Models\CbtBankSoal::create([
+        $bank = CbtBankSoal::create([
             'guru_id' => $this->guru->id,
-            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'mata_pelajaran_id' => MataPelajaran::first()->id,
             'judul' => 'Bank Soal Uji Render Import',
             'kode' => 'BANK-RENDER',
             'tingkat' => 'XI',
@@ -807,10 +818,10 @@ class ComprehensiveInputAuditTest extends TestCase
 
     public function test_guru_can_render_materi_monitoring_page(): void
     {
-        $kelas = \App\Models\Kelas::first();
-        $mapel = \App\Models\MataPelajaran::first();
+        $kelas = Kelas::first();
+        $mapel = MataPelajaran::first();
 
-        $materi = \App\Models\Materi::create([
+        $materi = Materi::create([
             'guru_id' => $this->guru->id,
             'kelas_id' => $kelas->id,
             'mata_pelajaran_id' => $mapel->id,
@@ -835,19 +846,19 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 23: Guru dapat membuka Dedicated Page Live Monitoring CBT & Anti-Cheat */
     public function test_guru_can_render_cbt_monitoring_page(): void
     {
-        $bank = \App\Models\CbtBankSoal::create([
+        $bank = CbtBankSoal::create([
             'guru_id' => $this->guru->id,
-            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'mata_pelajaran_id' => MataPelajaran::first()->id,
             'judul' => 'Bank Soal Monitoring CBT',
             'kode' => 'BANK-MON-1',
             'tingkat' => 'X',
             'total_soal' => 5,
         ]);
 
-        $jadwal = \App\Models\CbtJadwal::create([
+        $jadwal = CbtJadwal::create([
             'bank_soal_id' => $bank->id,
             'guru_id' => $this->guru->id,
-            'kelas_id' => \App\Models\Kelas::first()->id,
+            'kelas_id' => Kelas::first()->id,
             'judul_ujian' => 'Ujian Monitoring Realtime',
             'token' => 'MONIT1',
             'status' => 'aktif',
@@ -883,10 +894,10 @@ class ComprehensiveInputAuditTest extends TestCase
     /** Test 24: Guru dapat mengatur jendela akses fleksibel untuk daring dan tidak ditimpa oleh durasi */
     public function test_guru_can_set_flexible_access_window_for_online_students(): void
     {
-        $bank = \App\Models\CbtBankSoal::create([
+        $bank = CbtBankSoal::create([
             'kode' => 'BANK-DARING-1',
             'judul' => 'Bank Soal Ujian Daring',
-            'mata_pelajaran_id' => \App\Models\MataPelajaran::first()->id,
+            'mata_pelajaran_id' => MataPelajaran::first()->id,
             'guru_id' => $this->guru->id,
             'tingkat' => 'X',
         ]);
@@ -908,7 +919,7 @@ class ComprehensiveInputAuditTest extends TestCase
         ]);
 
         $response->assertSessionHasNoErrors();
-        $jadwal = \App\Models\CbtJadwal::where('token', 'DARING1')->first();
+        $jadwal = CbtJadwal::where('token', 'DARING1')->first();
         $this->assertNotNull($jadwal);
         // Pastikan waktu_selesai benar-benar jam 23:59 dan TIDAK ditimpa oleh durasi (08:00)
         $this->assertEquals('23:59', $jadwal->waktu_selesai->format('H:i'));
@@ -926,18 +937,55 @@ class ComprehensiveInputAuditTest extends TestCase
         $invalidResponse->assertSessionHasErrors('waktu_selesai');
 
         // 3. Simulasikan siswa sekolah daring yang masuk jam 12:00 siang (setelah jam 08:00)
-        \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse("{$today} 12:00:00"));
-        $service = app(\App\Services\Cbt\CbtExamService::class);
+        Carbon::setTestNow(Carbon::parse("{$today} 12:00:00"));
+        $service = app(CbtExamService::class);
 
         // Siswa harus diizinkan mengikuti ujian karena jendela akses masih terbuka sampai 23:59
         $eligible = true;
         try {
             $service->assertJadwalEligible($jadwal, $this->siswa);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             $eligible = false;
         }
         $this->assertTrue($eligible, 'Siswa daring jam 12:00 seharusnya diizinkan memulai ujian.');
 
-        \Carbon\Carbon::setTestNow(); // Reset time mock
+        Carbon::setTestNow(); // Reset time mock
+    }
+
+    public function test_guru_can_export_cbt_bank_soal_to_doc_format(): void
+    {
+        $bank = CbtBankSoal::create([
+            'judul' => 'Ulangan Harian Komputer',
+            'kode' => 'UH-KOMP',
+            'guru_id' => $this->guru->id,
+            'jumlah_pilihan' => 5,
+        ]);
+
+        CbtSoal::create([
+            'bank_soal_id' => $bank->id,
+            'nomor_urut' => 1,
+            'pertanyaan' => 'Ibu kota negara Indonesia saat ini adalah...',
+            'opsi_a' => 'Jakarta',
+            'opsi_b' => 'Bandung',
+            'opsi_c' => 'Surabaya',
+            'opsi_d' => 'Medan',
+            'opsi_e' => 'Semarang',
+            'kunci_jawaban' => 'A',
+            'bobot' => 1,
+        ]);
+
+        // 1. Web Route Test
+        $response = $this->actingAs($this->guruUser)->get(route('guru.cbt.bank-soal.export-doc', $bank->id));
+        $response->assertStatus(200);
+        $response->assertHeader('Content-Type', 'application/msword; charset=UTF-8');
+        $this->assertStringContainsString('1. Ibu kota negara Indonesia saat ini adalah...', $response->getContent());
+        $this->assertStringContainsString('A. Jakarta', $response->getContent());
+        $this->assertStringContainsString('Kunci: A', $response->getContent());
+
+        // 2. API Route Test
+        $apiResponse = $this->actingAs($this->guruUser, 'sanctum')->get("/api/v1/guru/cbt/bank-soal/{$bank->id}/export-doc");
+        $apiResponse->assertStatus(200);
+        $apiResponse->assertHeader('Content-Type', 'application/msword; charset=UTF-8');
+        $this->assertStringContainsString('1. Ibu kota negara Indonesia saat ini adalah...', $apiResponse->getContent());
     }
 }

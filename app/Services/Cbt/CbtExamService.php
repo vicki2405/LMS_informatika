@@ -4,6 +4,8 @@ namespace App\Services\Cbt;
 
 use App\Models\CbtJadwal;
 use App\Models\CbtSesi;
+use App\Models\CbtSoal;
+use App\Models\Jadwal;
 use App\Models\Siswa;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -31,18 +33,18 @@ class CbtExamService
 
             if ($mapelName) {
                 $cleanMapel = strtolower(trim(preg_replace('/\(.*?\)/', '', $mapelName)));
-                $hasScheduledMapel = \App\Models\Jadwal::where('kelas_id', $siswa->kelas_id)
+                $hasScheduledMapel = Jadwal::where('kelas_id', $siswa->kelas_id)
                     ->whereNotNull('mata_pelajaran')
                     ->where(function ($q) use ($mapelName, $mapelKode, $cleanMapel) {
                         $q->whereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [strtolower(trim($mapelName))])
-                          ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) LIKE ?', ['%' . $cleanMapel . '%']);
+                            ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) LIKE ?', ['%'.$cleanMapel.'%']);
                         if ($mapelKode) {
                             $q->orWhereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [strtolower(trim($mapelKode))]);
                         }
                     })
                     ->exists();
 
-                $classHasAnySchedule = \App\Models\Jadwal::where('kelas_id', $siswa->kelas_id)->exists();
+                $classHasAnySchedule = Jadwal::where('kelas_id', $siswa->kelas_id)->exists();
 
                 if ($classHasAnySchedule && ! $hasScheduledMapel) {
                     $this->fail('Mata pelajaran ujian ini tidak ada dalam jadwal pelajaran kelas Anda.');
@@ -65,12 +67,12 @@ class CbtExamService
         if (! $isEnteringWaitingRoom) {
             // Toleransi clock-skew 15 menit agar perbedaan jam client dan server hosting tidak memblokir siswa
             if ($jadwal->waktu_mulai && $now->copy()->addMinutes(15)->lt($jadwal->waktu_mulai)) {
-                $this->fail('Ujian belum dimulai. Sesi ujian dijadwalkan pada ' . $jadwal->waktu_mulai->format('d M Y H:i') . ' WIB.');
+                $this->fail('Ujian belum dimulai. Sesi ujian dijadwalkan pada '.$jadwal->waktu_mulai->format('d M Y H:i').' WIB.');
             }
         }
 
         if ($jadwal->waktu_selesai && $now->gt($jadwal->waktu_selesai)) {
-            $this->fail('Waktu ujian telah berakhir pada ' . $jadwal->waktu_selesai->format('d M Y H:i') . ' WIB.');
+            $this->fail('Waktu ujian telah berakhir pada '.$jadwal->waktu_selesai->format('d M Y H:i').' WIB.');
         }
     }
 
@@ -78,7 +80,7 @@ class CbtExamService
     {
         $this->assertJadwalEligible($jadwal, $siswa);
 
-        $throttleKey = 'cbt_token_fail:' . ($siswa->id ?? 0) . ':' . $jadwal->id . ':' . $request->ip();
+        $throttleKey = 'cbt_token_fail:'.($siswa->id ?? 0).':'.$jadwal->id.':'.$request->ip();
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             $seconds = RateLimiter::availableIn($throttleKey);
             $this->fail("Terlalu banyak percobaan token salah. Tunggu {$seconds} detik sebelum mencoba lagi.");
@@ -191,7 +193,7 @@ class CbtExamService
 
         return ($jadwal->bankSoal?->soals ?? collect())
             ->sortBy('nomor_urut')
-            ->map(function ($s) use ($isGameMode) {
+            ->map(function ($s) {
                 $rawInteractive = is_array($s->data_interaktif)
                     ? $s->data_interaktif
                     : json_decode($s->data_interaktif ?? '[]', true);
@@ -276,6 +278,77 @@ class CbtExamService
             })
             ->values()
             ->toArray();
+    }
+
+    public function evaluateSingleAnswer(CbtSoal $soal, mixed $jawaban): array
+    {
+        $tipe = $soal->tipe_soal ?? 'pilihan_ganda';
+        $rawInteractive = is_array($soal->data_interaktif)
+            ? $soal->data_interaktif
+            : json_decode($soal->data_interaktif ?? '[]', true);
+
+        $isCorrect = false;
+
+        if ($tipe === 'match') {
+            $ans = is_string($jawaban) ? (json_decode($jawaban, true) ?? []) : ($jawaban ?? []);
+            $totalPairs = is_array($rawInteractive) ? count($rawInteractive) : 0;
+            $correctPairs = 0;
+            if ($totalPairs > 0 && is_array($ans)) {
+                foreach ($rawInteractive as $idx => $pair) {
+                    $leftId = (string) ($pair['id'] ?? ($idx + 1));
+                    $expectedRight = trim($pair['kanan'] ?? '');
+                    $givenRight = trim($ans[$leftId] ?? '');
+                    if ($expectedRight !== '' && strcasecmp($expectedRight, $givenRight) === 0) {
+                        $correctPairs++;
+                    }
+                }
+                $isCorrect = ($correctPairs === $totalPairs);
+            }
+        } elseif ($tipe === 'reorder') {
+            $ans = is_string($jawaban) ? (json_decode($jawaban, true) ?? []) : ($jawaban ?? []);
+            $expectedOrder = [];
+            if (is_array($rawInteractive)) {
+                foreach ($rawInteractive as $idx => $item) {
+                    $expectedOrder[] = (string) ($item['id'] ?? ($idx + 1));
+                }
+            }
+            $totalItems = count($expectedOrder);
+            $correctPositions = 0;
+            if ($totalItems > 0 && is_array($ans)) {
+                foreach ($expectedOrder as $pos => $id) {
+                    if (isset($ans[$pos]) && (string) $ans[$pos] === (string) $id) {
+                        $correctPositions++;
+                    }
+                }
+                $isCorrect = ($correctPositions === $totalItems);
+            }
+        } elseif ($tipe === 'categorize') {
+            $ans = is_string($jawaban) ? (json_decode($jawaban, true) ?? []) : ($jawaban ?? []);
+            $rawItems = is_array($rawInteractive) ? ($rawInteractive['items'] ?? []) : [];
+            $totalItems = count($rawItems);
+            $correctItems = 0;
+            if ($totalItems > 0 && is_array($ans)) {
+                foreach ($rawItems as $idx => $item) {
+                    $itemId = (string) ($item['id'] ?? ($idx + 1));
+                    $expectedCat = trim($item['kategori'] ?? '');
+                    $givenCat = trim($ans[$itemId] ?? '');
+                    if ($expectedCat !== '' && strcasecmp($expectedCat, $givenCat) === 0) {
+                        $correctItems++;
+                    }
+                }
+                $isCorrect = ($correctItems === $totalItems);
+            }
+        } else {
+            // Default: pilihan_ganda
+            $jawabanSiswa = strtoupper(trim(is_string($jawaban) ? $jawaban : ''));
+            $kunci = strtoupper(trim($soal->kunci_jawaban ?? ''));
+            $isCorrect = ($jawabanSiswa !== '' && $jawabanSiswa === $kunci);
+        }
+
+        return [
+            'is_correct' => $isCorrect,
+            'xp' => $isCorrect ? 100 : 0,
+        ];
     }
 
     private function fail(string $message): never
