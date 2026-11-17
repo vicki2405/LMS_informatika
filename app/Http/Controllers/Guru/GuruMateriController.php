@@ -507,6 +507,7 @@ class GuruMateriController extends Controller
         $guru = $this->resolveGuru($request);
         $guruId = $guru?->id;
         $mapelNama = $materi->mapel?->nama ?? ($materi->tp?->mapel ?? null);
+        $mapelKode = $materi->mapel?->kode ?? null;
 
         // Kunci kelas sasaran materi:
         // Jika materi untuk kelas spesifik -> hanya kelas itu.
@@ -518,19 +519,34 @@ class GuruMateriController extends Controller
                 ->where('guru_id', $guruId)
                 ->whereNotNull('kelas_id');
 
-            if (!empty($mapelNama)) {
-                $jadwalGuruQuery->where(function ($q) use ($mapelNama) {
-                    $q->where('mata_pelajaran', $mapelNama)
-                        ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [strtolower(trim((string)$mapelNama))]);
+            $searchTerms = [];
+            if (! empty($mapelNama)) {
+                $searchTerms[] = strtolower(trim((string) $mapelNama));
+                $cleanNama = strtolower(trim(preg_replace('/\(.*?\)/', '', (string) $mapelNama)));
+                if (! empty($cleanNama) && strlen($cleanNama) >= 2) {
+                    $searchTerms[] = $cleanNama;
+                }
+            }
+            if (! empty($mapelKode)) {
+                $searchTerms[] = strtolower(trim((string) $mapelKode));
+                $cleanKode = strtolower(trim(preg_replace('/\(.*?\)/', '', (string) $mapelKode)));
+                if (! empty($cleanKode) && strlen($cleanKode) >= 2) {
+                    $searchTerms[] = $cleanKode;
+                }
+            }
+
+            $searchTerms = array_values(array_unique(array_filter($searchTerms)));
+
+            if (! empty($searchTerms)) {
+                $jadwalGuruQuery->where(function ($q) use ($searchTerms) {
+                    foreach ($searchTerms as $term) {
+                        $q->orWhereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [$term])
+                            ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) LIKE ?', ['%'.$term.'%']);
+                    }
                 });
             }
 
             $matchingKelasIds = $jadwalGuruQuery->pluck('kelas_id')->unique()->values()->toArray();
-
-            // Fallback jika belum ada jadwal spesifik untuk mapel ini, gunakan kelas ampuan guru umum
-            if (empty($matchingKelasIds)) {
-                $matchingKelasIds = $this->getTeacherKelasIds($guruId);
-            }
         }
 
         $query = Siswa::with('kelas')->where('status', 'Aktif');

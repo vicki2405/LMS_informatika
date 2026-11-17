@@ -31,20 +31,48 @@ class CbtExamService
             $mapelName = $jadwal->bankSoal?->mataPelajaran?->nama;
             $mapelKode = $jadwal->bankSoal?->mataPelajaran?->kode;
 
-            if ($mapelName) {
-                $cleanMapel = strtolower(trim(preg_replace('/\(.*?\)/', '', $mapelName)));
+            $searchTerms = [];
+            if (! empty($mapelName)) {
+                $searchTerms[] = strtolower(trim((string) $mapelName));
+                $cleanNama = strtolower(trim(preg_replace('/\(.*?\)/', '', (string) $mapelName)));
+                if (! empty($cleanNama) && strlen($cleanNama) >= 2) {
+                    $searchTerms[] = $cleanNama;
+                }
+            }
+            if (! empty($mapelKode)) {
+                $searchTerms[] = strtolower(trim((string) $mapelKode));
+                $cleanKode = strtolower(trim(preg_replace('/\(.*?\)/', '', (string) $mapelKode)));
+                if (! empty($cleanKode) && strlen($cleanKode) >= 2) {
+                    $searchTerms[] = $cleanKode;
+                }
+            }
+            $searchTerms = array_values(array_unique(array_filter($searchTerms)));
+
+            if (! empty($searchTerms)) {
                 $hasScheduledMapel = Jadwal::where('kelas_id', $siswa->kelas_id)
                     ->whereNotNull('mata_pelajaran')
-                    ->where(function ($q) use ($mapelName, $mapelKode, $cleanMapel) {
-                        $q->whereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [strtolower(trim($mapelName))])
-                            ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) LIKE ?', ['%'.$cleanMapel.'%']);
-                        if ($mapelKode) {
-                            $q->orWhereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [strtolower(trim($mapelKode))]);
+                    ->where(function ($q) use ($searchTerms) {
+                        foreach ($searchTerms as $term) {
+                            $q->orWhereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [$term])
+                                ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) LIKE ?', ['%'.$term.'%']);
                         }
                     })
                     ->exists();
 
                 $classHasAnySchedule = Jadwal::where('kelas_id', $siswa->kelas_id)->exists();
+
+                // Fallback cek Tujuan Pembelajaran hanya jika tabel jadwal belum diisi sama sekali
+                if (! $hasScheduledMapel && ! $classHasAnySchedule) {
+                    $hasScheduledMapel = \App\Models\TujuanPembelajaran::query()
+                        ->whereHas('nilaiTps.siswa', fn ($sq) => $sq->where('kelas_id', $siswa->kelas_id))
+                        ->where(function ($tq) use ($searchTerms) {
+                            foreach ($searchTerms as $term) {
+                                $tq->orWhereRaw('LOWER(TRIM(mapel)) = ?', [$term])
+                                    ->orWhereRaw('LOWER(TRIM(mapel)) LIKE ?', ['%'.$term.'%']);
+                            }
+                        })
+                        ->exists();
+                }
 
                 if ($classHasAnySchedule && ! $hasScheduledMapel) {
                     $this->fail('Mata pelajaran ujian ini tidak ada dalam jadwal pelajaran kelas Anda.');

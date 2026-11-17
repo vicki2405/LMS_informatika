@@ -56,6 +56,10 @@ const selectedBankSoalMapel = computed(() => {
   return selectedBankSoal.value?.mapelNama || selectedBankSoal.value?.mataPelajaran?.nama || '';
 });
 
+const selectedBankSoalKode = computed(() => {
+  return selectedBankSoal.value?.mapelKode || selectedBankSoal.value?.mataPelajaran?.kode || '';
+});
+
 // Watch when bank soal changes: automatically sync judul_ujian & kelas_id if defined
 watch(() => form.value.bank_soal_id, (newVal) => {
   if (newVal && selectedBankSoal.value) {
@@ -75,16 +79,18 @@ watch(() => form.value.bank_soal_id, (newVal) => {
 const targetKelasList = computed(() => {
   const list = props.masterKelasList || [];
   const mapelTarget = selectedBankSoalMapel.value?.toLowerCase().trim();
-  if (mapelTarget) {
-    const cleanTarget = mapelTarget.replace(/\(.*?\)/g, '').trim();
+  const kodeTarget = selectedBankSoalKode.value?.toLowerCase().trim();
+
+  if (mapelTarget || kodeTarget) {
+    const cleanTarget = mapelTarget ? mapelTarget.replace(/\(.*?\)/g, '').trim() : '';
     const matched = list.filter((k) => {
       if (!k.mapels || k.mapels.length === 0) return false;
       return k.mapels.some((m) => {
-        const mLower = m.toLowerCase().trim();
+        const mLower = String(m).toLowerCase().trim();
         const mClean = mLower.replace(/\(.*?\)/g, '').trim();
-        return mLower.includes(mapelTarget) || mapelTarget.includes(mLower) ||
-               (cleanTarget && mClean.includes(cleanTarget)) ||
-               (mClean && cleanTarget.includes(mClean));
+        return (mapelTarget && (mLower.includes(mapelTarget) || mapelTarget.includes(mLower))) ||
+               (cleanTarget && ((mClean && mClean.includes(cleanTarget)) || (cleanTarget.includes(mClean)))) ||
+               (kodeTarget && (mLower === kodeTarget || mClean === kodeTarget || mLower.includes(kodeTarget)));
       });
     });
     return matched;

@@ -110,6 +110,7 @@ class GuruCbtController extends Controller
                 'tingkat' => $b->kelas?->tingkat ?? 'X',
                 'mapelId' => $b->mata_pelajaran_id,
                 'mapelNama' => $b->mataPelajaran?->nama ?? 'Umum',
+                'mapelKode' => $b->mataPelajaran?->kode ?? '',
                 'deskripsi' => $b->deskripsi ?? '',
                 'jumlahPilihan' => $b->jumlah_pilihan ?? 5,
                 'jumlahSoal' => $b->soals->count(),
@@ -721,10 +722,28 @@ class GuruCbtController extends Controller
             ->when($guruId, fn ($q) => $q->where('guru_id', $guruId))
             ->get(['kelas_id', 'mata_pelajaran']);
 
+        $allMapels = MataPelajaran::get(['id', 'nama', 'kode']);
         $mapelsByKelasId = [];
         foreach ($guruJadwals as $gj) {
             if ($gj->kelas_id && $gj->mata_pelajaran) {
-                $mapelsByKelasId[$gj->kelas_id][] = $gj->mata_pelajaran;
+                $rawMapel = trim((string) $gj->mata_pelajaran);
+                $mapelsByKelasId[$gj->kelas_id][] = $rawMapel;
+                $clean = trim(preg_replace('/\(.*?\)/', '', $rawMapel));
+                if ($clean !== '') {
+                    $mapelsByKelasId[$gj->kelas_id][] = $clean;
+                }
+                $matchedMapel = $allMapels->first(function ($mp) use ($rawMapel, $clean) {
+                    return strcasecmp($mp->nama, $rawMapel) === 0
+                        || strcasecmp($mp->kode, $rawMapel) === 0
+                        || strcasecmp($mp->nama, $clean) === 0
+                        || strcasecmp($mp->kode, $clean) === 0;
+                });
+                if ($matchedMapel) {
+                    $mapelsByKelasId[$gj->kelas_id][] = $matchedMapel->nama;
+                    if ($matchedMapel->kode) {
+                        $mapelsByKelasId[$gj->kelas_id][] = $matchedMapel->kode;
+                    }
+                }
             }
         }
 

@@ -185,10 +185,26 @@ class SiswaDashboardController extends Controller
                         $sub->whereNull('kelas_id')
                             ->where(function ($mQuery) use ($kelasMapelNames) {
                                 $mQuery->whereHas('mapel', function ($mq) use ($kelasMapelNames) {
-                                    $mq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
-                                        ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
+                                    $mq->where(function ($subMq) use ($kelasMapelNames) {
+                                        $subMq->whereIn(DB::raw('LOWER(TRIM(nama))'), $kelasMapelNames)
+                                            ->orWhereIn(DB::raw('LOWER(TRIM(kode))'), $kelasMapelNames);
+                                        foreach ($kelasMapelNames as $km) {
+                                            $clean = trim(preg_replace('/\(.*?\)/', '', $km));
+                                            if (strlen($clean) >= 3) {
+                                                $subMq->orWhereRaw('LOWER(TRIM(nama)) LIKE ?', ['%'.strtolower($clean).'%']);
+                                            }
+                                        }
+                                    });
                                 })->orWhereHas('tp', function ($tq) use ($kelasMapelNames) {
-                                    $tq->whereIn(DB::raw('LOWER(TRIM(mapel))'), $kelasMapelNames);
+                                    $tq->where(function ($subTq) use ($kelasMapelNames) {
+                                        $subTq->whereIn(DB::raw('LOWER(TRIM(mapel))'), $kelasMapelNames);
+                                        foreach ($kelasMapelNames as $km) {
+                                            $clean = trim(preg_replace('/\(.*?\)/', '', $km));
+                                            if (strlen($clean) >= 3) {
+                                                $subTq->orWhereRaw('LOWER(TRIM(mapel)) LIKE ?', ['%'.strtolower($clean).'%']);
+                                            }
+                                        }
+                                    });
                                 });
                             });
                     });

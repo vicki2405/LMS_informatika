@@ -124,7 +124,7 @@ function fetchStudentData(siswaId) {
   if (!siswaId) return;
   router.reload({
     data: { siswa_id: siswaId },
-    only: ['tugasListProp', 'nilaiTpListProp', 'nilaiListProp'],
+    only: ['tugasListProp', 'nilaiTpListProp', 'nilaiListProp', 'cbtSesiListProp', 'cbtNilaiListProp'],
     preserveScroll: true,
     preserveState: true,
   });

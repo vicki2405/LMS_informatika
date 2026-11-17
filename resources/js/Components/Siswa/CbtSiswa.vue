@@ -100,7 +100,7 @@ const activeTab = ref('aktif');
 
 // Search & Filter in list view
 const searchQuery = ref('');
-const filterSiswaHistory = ref('');
+const filterSiswaHistory = ref(props.activeSiswa?.id || '');
 
 // Waiting Room & Identity Selection State (Single Unified Combobox)
 const showIdentityModal = ref(false);
@@ -110,8 +110,9 @@ const selectedSiswaId = ref(props.activeSiswa?.id || '');
 watch(() => props.activeSiswa, (newSiswa) => {
   if (newSiswa?.id) {
     selectedSiswaId.value = newSiswa.id;
+    filterSiswaHistory.value = newSiswa.id;
   }
-});
+}, { immediate: true });
 const studentSearchText = ref('');
 const isDropdownOpen = ref(false);
 

@@ -58,16 +58,11 @@ const selectedKelasFilter = ref('');
 // Available Kelas List strictly from teacher schedule
 const availableKelasList = computed(() => {
   const set = new Set();
-  (props.kelasList || props.masterKelasList || []).forEach((k) => {
-    if (k && k.nama_kelas) set.add(k.nama_kelas.trim());
-    else if (typeof k === 'string') set.add(k.trim());
+  (props.masterKelasList || props.kelasList || []).forEach((k) => {
+    const name = k?.namaKelas || k?.nama_kelas || (typeof k === 'string' ? k : null);
+    if (name) set.add(name.trim());
   });
-  if (set.size === 0) {
-    (props.students || []).forEach((s) => {
-      if (s.kelasNama && s.kelasNama !== '-') set.add(s.kelasNama.trim());
-    });
-  }
-  return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 });
 
 // Students scoped by selected class
