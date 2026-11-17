@@ -1172,22 +1172,47 @@ class GuruCbtController extends Controller
             'siswaMelanggar' => $sesis->where('jumlahPelanggaran', '>', 0)->count(),
         ];
 
-        // Filter daftar kelas: Kunci kelas SELALU diambil dari data jadwal guru (1 mapel dan kelasnya)
+        // Filter daftar kelas: Kunci kelas SELALU diambil dari data jadwal guru sesuai mapel ujian (Strict Sync)
         $guru = $this->resolveGuru($request);
         $guruId = $jadwal->guru_id ?? $guru?->id;
-        $mapelNama = $jadwal->bankSoal?->mataPelajaran?->nama;
 
         if ($jadwal->kelas_id) {
             $matchingKelasIds = [$jadwal->kelas_id];
         } else {
             $jadwalGuruQuery = Jadwal::query()
-                ->where('guru_id', $guruId)
                 ->whereNotNull('kelas_id');
 
+            if ($guruId) {
+                $jadwalGuruQuery->where('guru_id', $guruId);
+            }
+
+            $mapelNama = $jadwal->bankSoal?->mataPelajaran?->nama;
+            $mapelKode = $jadwal->bankSoal?->mataPelajaran?->kode;
+
+            $searchTerms = [];
             if (! empty($mapelNama)) {
-                $jadwalGuruQuery->where(function ($q) use ($mapelNama) {
-                    $q->where('mata_pelajaran', $mapelNama)
-                        ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [strtolower(trim((string) $mapelNama))]);
+                $searchTerms[] = strtolower(trim((string) $mapelNama));
+                $cleanNama = strtolower(trim(preg_replace('/\(.*?\)/', '', (string) $mapelNama)));
+                if (! empty($cleanNama) && strlen($cleanNama) >= 2) {
+                    $searchTerms[] = $cleanNama;
+                }
+            }
+            if (! empty($mapelKode)) {
+                $searchTerms[] = strtolower(trim((string) $mapelKode));
+                $cleanKode = strtolower(trim(preg_replace('/\(.*?\)/', '', (string) $mapelKode)));
+                if (! empty($cleanKode) && strlen($cleanKode) >= 2) {
+                    $searchTerms[] = $cleanKode;
+                }
+            }
+
+            $searchTerms = array_values(array_unique(array_filter($searchTerms)));
+
+            if (! empty($searchTerms)) {
+                $jadwalGuruQuery->where(function ($q) use ($searchTerms) {
+                    foreach ($searchTerms as $term) {
+                        $q->orWhereRaw('LOWER(TRIM(mata_pelajaran)) = ?', [$term])
+                            ->orWhereRaw('LOWER(TRIM(mata_pelajaran)) LIKE ?', ['%'.$term.'%']);
+                    }
                 });
             }
 
@@ -1196,12 +1221,6 @@ class GuruCbtController extends Controller
             }
 
             $matchingKelasIds = $jadwalGuruQuery->pluck('kelas_id')->unique()->values()->toArray();
-
-            // Sertakan juga kelas dari siswa yang sudah terdaftar di sesi ujian ini jika ada
-            $pesertaKelasIds = $sesisRaw->pluck('siswa.kelas_id')->filter()->unique()->values()->toArray();
-            if (! empty($pesertaKelasIds)) {
-                $matchingKelasIds = array_values(array_unique(array_merge($matchingKelasIds, $pesertaKelasIds)));
-            }
         }
 
         $masterKelasList = Kelas::whereIn('id', $matchingKelasIds)

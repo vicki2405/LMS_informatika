@@ -52,14 +52,11 @@ const searchQuery = ref('');
 const activeFilterTab = ref('semua'); // 'semua', 'mengerjakan', 'selesai', 'menunggu', 'melanggar'
 const selectedKelasFilter = ref('');
 
-// Computed unique classes from teacher schedule (masterKelasList) and active exam participants
+// Computed unique classes strictly from teacher schedule for this subject (masterKelasList)
 const availableKelasList = computed(() => {
   const set = new Set();
   (props.masterKelasList || []).forEach((k) => {
     if (k.namaKelas) set.add(k.namaKelas);
-  });
-  pesertaList.value.forEach((p) => {
-    if (p.kelas && p.kelas !== '-') set.add(p.kelas);
   });
   return Array.from(set).sort((a, b) =>
     a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })

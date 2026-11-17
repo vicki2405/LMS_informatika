@@ -888,7 +888,62 @@ class ComprehensiveInputAuditTest extends TestCase
             'jadwal' => ['id', 'judulUjian', 'token', 'status', 'durasiMenit'],
             'stats' => ['totalPeserta', 'menunggu', 'mengerjakan', 'selesai', 'terkunci'],
             'peserta',
+            'masterKelasList',
         ]);
+    }
+
+    /** Test 24: CBT monitoring strictly filters classes by teacher subject schedule */
+    public function test_cbt_monitoring_strictly_filters_classes_by_teacher_subject_schedule(): void
+    {
+        $mapelKka = MataPelajaran::firstOrCreate(['kode' => 'KKA'], ['nama' => 'Konsentrasi Keahlian Akuntansi']);
+        $mapelInfo = MataPelajaran::firstOrCreate(['kode' => 'INF'], ['nama' => 'Informatika']);
+
+        $kelasAkl = Kelas::create(['nama_kelas' => 'XII AKL 1', 'tingkat' => 'XII']);
+        $kelasRpl = Kelas::create(['nama_kelas' => 'X RPL 1', 'tingkat' => 'X']);
+
+        // Guru mengajar KKA di XII AKL 1 dan mengajar Informatika di X RPL 1
+        Jadwal::create([
+            'guru_id' => $this->guru->id,
+            'kelas_id' => $kelasAkl->id,
+            'mata_pelajaran' => 'KKA (Konsentrasi Keahlian Akuntansi)',
+            'hari' => 'Senin',
+            'jam_ke' => '1',
+        ]);
+        Jadwal::create([
+            'guru_id' => $this->guru->id,
+            'kelas_id' => $kelasRpl->id,
+            'mata_pelajaran' => 'Informatika',
+            'hari' => 'Selasa',
+            'jam_ke' => '1',
+        ]);
+
+        $bankKka = CbtBankSoal::create([
+            'guru_id' => $this->guru->id,
+            'mata_pelajaran_id' => $mapelKka->id,
+            'judul' => 'Bank Soal KKA',
+            'kode' => 'BS-KKA',
+        ]);
+
+        // Jadwal CBT untuk Semua Kelas (kelas_id = null)
+        $jadwalKka = CbtJadwal::create([
+            'bank_soal_id' => $bankKka->id,
+            'guru_id' => $this->guru->id,
+            'kelas_id' => null,
+            'judul_ujian' => 'Ujian Akhir KKA',
+            'token' => 'KKATOK',
+            'status' => 'aktif',
+        ]);
+
+        $res = $this->actingAs($this->guruUser)
+            ->json('GET', route('guru.cbt.jadwal.monitoring', $jadwalKka->id));
+
+        $res->assertOk();
+        $masterKelas = $res->json('masterKelasList');
+        $namaKelasList = collect($masterKelas)->pluck('namaKelas')->toArray();
+
+        // Harus ada XII AKL 1 (karena jadwal KKA) dan TIDAK BOLEH ada X RPL 1 (karena itu mapel Informatika)
+        $this->assertContains('XII AKL 1', $namaKelasList);
+        $this->assertNotContains('X RPL 1', $namaKelasList);
     }
 
     /** Test 24: Guru dapat mengatur jendela akses fleksibel untuk daring dan tidak ditimpa oleh durasi */
