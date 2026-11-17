@@ -152,7 +152,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/cbt/heartbeat', [SiswaDashboardController::class, 'heartbeatSesi'])->name('cbt.heartbeat');
         Route::post('/cbt/refresh', [SiswaDashboardController::class, 'refreshCbtExam'])->name('cbt.refresh');
         Route::post('/cbt/check-jawaban', [SiswaDashboardController::class, 'checkCbtJawaban'])->name('cbt.check-jawaban');
-        Route::post('/cbt/toggle-mode', [SiswaDashboardController::class, 'toggleModeUjian'])->name('cbt.toggle-mode');
         Route::post('/cbt/submit', [SiswaDashboardController::class, 'submitCbtExam'])->name('cbt.submit');
         Route::post('/materi/{id}/track-open', [SiswaDashboardController::class, 'trackMateriOpen'])->name('materi.track-open');
         Route::post('/materi/{id}/track-complete', [SiswaDashboardController::class, 'trackMateriComplete'])->name('materi.track-complete');

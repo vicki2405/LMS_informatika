@@ -167,35 +167,14 @@ class CbtInteractiveModeTest extends TestCase
             ]);
     }
 
-    public function test_toggle_mode_ujian_switches_between_game_and_formal(): void
+    public function test_student_cannot_toggle_exam_mode(): void
     {
         $response = $this->actingAs($this->studentUser)
-            ->postJson(route('siswa.cbt.toggle-mode'), [
+            ->postJson('/siswa/cbt/toggle-mode', [
                 'jadwal_id' => $this->jadwalGame->id,
                 'mode_ujian' => 'formal',
             ]);
 
-        $response->assertOk()
-            ->assertJson([
-                'success' => true,
-                'mode_ujian' => 'formal',
-            ]);
-
-        $this->assertEquals('formal', $this->jadwalGame->fresh()->mode_ujian);
-
-        // Switch back to game
-        $response2 = $this->actingAs($this->studentUser)
-            ->postJson(route('siswa.cbt.toggle-mode'), [
-                'jadwal_id' => $this->jadwalGame->id,
-                'mode_ujian' => 'game',
-            ]);
-
-        $response2->assertOk()
-            ->assertJson([
-                'success' => true,
-                'mode_ujian' => 'game',
-            ]);
-
-        $this->assertEquals('game', $this->jadwalGame->fresh()->mode_ujian);
+        $response->assertNotFound();
     }
 }

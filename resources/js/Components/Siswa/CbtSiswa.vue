@@ -813,29 +813,6 @@ function dismissGameFeedback() {
   gameFeedback.value.show = false;
 }
 
-const isTogglingMode = ref(false);
-async function toggleSelectedJadwalMode(newMode) {
-  if (!selectedJadwal.value?.id || isTogglingMode.value) return;
-  isTogglingMode.value = true;
-  try {
-    const res = await axios.post('/siswa/cbt/toggle-mode', {
-      jadwal_id: selectedJadwal.value.id,
-      mode_ujian: newMode,
-    });
-    if (res.data?.success) {
-      selectedJadwal.value.modeUjian = newMode;
-      selectedJadwal.value.mode_ujian = newMode;
-      showToast(`Mode ujian diatur ke: ${newMode === 'game' ? '🎮 Mode Interaktif' : '🏛️ CBT Formal'}`, 'success');
-    }
-  } catch (err) {
-    // Client-side fallback in case endpoint isn't reached
-    selectedJadwal.value.modeUjian = newMode;
-    selectedJadwal.value.mode_ujian = newMode;
-    showToast(`Mode ujian diatur ke: ${newMode === 'game' ? '🎮 Mode Interaktif' : '🏛️ CBT Formal'}`, 'info');
-  } finally {
-    isTogglingMode.value = false;
-  }
-}
 
 async function evaluateGameAnswer(soalId, answer) {
   if (!isGameMode.value || !activeExam.value?.id) return;
@@ -2359,8 +2336,8 @@ function submitExam(force = false) {
               </div>
             </div>
 
-            <!-- Mode Ujian Selector / Switcher Box -->
-            <div class="mt-3 p-4 rounded-2xl bg-slate-950/70 border border-white/10 space-y-2.5">
+            <!-- Mode Ujian Info Box (Otoritas Guru - Read Only) -->
+            <div class="mt-3 p-4 rounded-2xl bg-slate-950/70 border border-white/10 space-y-1.5">
               <div class="flex items-center justify-between gap-2">
                 <span class="text-[10px] sm:text-[11px] uppercase font-bold tracking-wider text-gray-400">Mode Pelaksanaan:</span>
                 <span
@@ -2368,7 +2345,7 @@ function submitExam(force = false) {
                     'text-[10px] sm:text-[11px] font-black px-2.5 py-0.5 rounded-full border',
                     (selectedJadwal.modeUjian === 'game' || selectedJadwal.mode_ujian === 'game')
                       ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
-                      : 'bg-white/10 border-white/20 text-gray-300'
+                      : 'bg-teal-500/20 border-teal-500/40 text-teal-300'
                   ]"
                 >
                   {{ (selectedJadwal.modeUjian === 'game' || selectedJadwal.mode_ujian === 'game') ? '🎮 Mode Interaktif' : '🏛️ CBT Formal' }}
@@ -2376,37 +2353,9 @@ function submitExam(force = false) {
               </div>
               <p class="text-[11px] text-gray-400">
                 {{ (selectedJadwal.modeUjian === 'game' || selectedJadwal.mode_ujian === 'game')
-                  ? '✨ Animasi selebrasi piala juara saat benar, ejekan motivasi saat salah, dan audio chiptune aktif.'
-                  : '📝 Format ujian resmi standar tanpa animasi feedback respon.' }}
+                  ? '✨ Format kuis interaktif dengan animasi capaian respon, ditetapkan oleh Guru pengampu.'
+                  : '📝 Format ujian resmi standar tanpa respon instan, ditetapkan oleh Guru pengampu.' }}
               </p>
-              <div class="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  type="button"
-                  @click="toggleSelectedJadwalMode('game')"
-                  :class="[
-                    'py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 min-h-[40px] cursor-pointer',
-                    (selectedJadwal.modeUjian === 'game' || selectedJadwal.mode_ujian === 'game')
-                      ? 'bg-indigo-600 text-white border-indigo-400 shadow-lg shadow-indigo-500/30'
-                      : 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
-                  ]"
-                >
-                  <span>🎮</span>
-                  <span>Mode Interaktif</span>
-                </button>
-                <button
-                  type="button"
-                  @click="toggleSelectedJadwalMode('formal')"
-                  :class="[
-                    'py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 min-h-[40px] cursor-pointer',
-                    (selectedJadwal.modeUjian !== 'game' && selectedJadwal.mode_ujian !== 'game')
-                      ? 'bg-slate-700 text-white border-slate-500 shadow-md'
-                      : 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
-                  ]"
-                >
-                  <span>🏛️</span>
-                  <span>CBT Formal</span>
-                </button>
-              </div>
             </div>
           </div>
 

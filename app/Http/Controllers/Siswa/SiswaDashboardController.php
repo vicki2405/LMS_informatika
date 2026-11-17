@@ -1232,25 +1232,6 @@ class SiswaDashboardController extends Controller
         ]);
     }
 
-    /**
-     * Quick toggle/switch exam mode between interactive and formal.
-     */
-    public function toggleModeUjian(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'jadwal_id' => 'required|integer|exists:cbt_jadwals,id',
-            'mode_ujian' => 'required|string|in:formal,game',
-        ]);
-
-        $jadwal = CbtJadwal::findOrFail($validated['jadwal_id']);
-        $jadwal->update(['mode_ujian' => $validated['mode_ujian']]);
-
-        return response()->json([
-            'success' => true,
-            'mode_ujian' => $jadwal->mode_ujian,
-            'message' => 'Mode ujian berhasil diubah ke ' . ($jadwal->mode_ujian === 'game' ? 'Mode Interaktif' : 'CBT Formal'),
-        ]);
-    }
 
     /**
      * Record or update when a student opens/reads learning material.
