@@ -124,8 +124,37 @@ function fetchStudentData(siswaId) {
   if (!siswaId) return;
   router.reload({
     data: { siswa_id: siswaId },
-    only: ['tugasListProp', 'nilaiTpListProp'],
+    only: ['tugasListProp', 'nilaiTpListProp', 'nilaiListProp'],
     preserveScroll: true,
+    preserveState: true,
+  });
+}
+
+// In-Place Real-Time Dashboard Sync without Full Browser Reload
+const isRefreshing = ref(false);
+
+function refreshDashboardData() {
+  if (isRefreshing.value) return;
+  isRefreshing.value = true;
+
+  const requestData = {};
+  if (activeSiswaId.value) {
+    requestData.siswa_id = activeSiswaId.value;
+  }
+
+  router.reload({
+    data: requestData,
+    preserveScroll: true,
+    preserveState: true,
+    onSuccess: () => {
+      showToast('Data berhasil diperbarui!', 'success');
+    },
+    onError: () => {
+      showToast('Gagal memuat pembaruan data.', 'error');
+    },
+    onFinish: () => {
+      isRefreshing.value = false;
+    },
   });
 }
 
@@ -261,11 +290,13 @@ function handleStartCbtWithToken(payload) {
       :notifications="notifications"
       :kelasSiswa="kelasSiswa"
       :activeSiswa="activeSiswa"
+      :isRefreshing="isRefreshing"
       @toggle-sidebar="sidebarOpen = !sidebarOpen"
       @logout="handleLogout"
       @change-view="v => !isLocked && (activeView = v)"
       @mark-read="markAllNotifRead"
       @switch-siswa="switchStudent"
+      @refresh-data="refreshDashboardData"
     />
 
     <!-- Main Container: BLURRED and LOCKED if isLocked is true -->

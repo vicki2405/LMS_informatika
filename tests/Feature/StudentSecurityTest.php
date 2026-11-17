@@ -282,6 +282,45 @@ class StudentSecurityTest extends TestCase
         ]);
     }
 
+    public function test_student_dashboard_in_place_refresh_returns_fresh_data(): void
+    {
+        $version = file_exists(public_path('build/manifest.json'))
+            ? md5_file(public_path('build/manifest.json'))
+            : null;
+
+        // 1. Initial dashboard request
+        $resInitial = $this->actingAs($this->studentUser)
+            ->withHeaders(array_filter([
+                'X-Inertia' => 'true',
+                'X-Inertia-Version' => $version,
+            ]))
+            ->get(route('siswa.dashboard', ['siswa_id' => $this->student->id]));
+
+        $resInitial->assertOk();
+        $this->assertEmpty($resInitial->json('props.tugasListProp'));
+
+        // 2. Guru adds a new task while student is on dashboard
+        \App\Models\Tugas::create([
+            'judul' => 'Tugas Baru Diberikan Guru',
+            'mata_pelajaran' => 'Informatika',
+            'kelas_id' => $this->kelas->id,
+            'tenggat' => now()->addDays(3),
+        ]);
+
+        // 3. In-place sync request (triggered by refresh button)
+        $resRefreshed = $this->actingAs($this->studentUser)
+            ->withHeaders(array_filter([
+                'X-Inertia' => 'true',
+                'X-Inertia-Version' => $version,
+            ]))
+            ->get(route('siswa.dashboard', ['siswa_id' => $this->student->id]));
+
+        $resRefreshed->assertOk();
+        $tugasList = $resRefreshed->json('props.tugasListProp');
+        $this->assertNotEmpty($tugasList);
+        $this->assertEquals('Tugas Baru Diberikan Guru', $tugasList[0]['judul']);
+    }
+
     private function makeCbtExam(): array
     {
         $bank = CbtBankSoal::create([

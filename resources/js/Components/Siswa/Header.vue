@@ -14,10 +14,14 @@ const props = defineProps({
   activeSiswa: {
     type: Object,
     default: () => null
+  },
+  isRefreshing: {
+    type: Boolean,
+    default: false
   }
 });
 
-const emit = defineEmits(['toggle-sidebar', 'logout', 'change-view', 'mark-read', 'switch-siswa']);
+const emit = defineEmits(['toggle-sidebar', 'logout', 'change-view', 'mark-read', 'switch-siswa', 'refresh-data']);
 
 const searchQuery = ref('');
 const userMenuOpen = ref(false);
@@ -146,9 +150,36 @@ function navigateTo(view) {
           </div>
         </div>
 
-        <!-- Right: Notifications & Profile Dropdown -->
-        <div class="flex items-center gap-3 shrink-0">
+        <!-- Right: Refresh, Notifications & Profile Dropdown -->
+        <div class="flex items-center gap-2 sm:gap-3 shrink-0">
           
+          <!-- In-Place Quick Refresh Button (Zero Page Flash) -->
+          <button
+            type="button"
+            @click="$emit('refresh-data')"
+            :disabled="isRefreshing"
+            title="Segarkan data terbaru tanpa reload browser"
+            class="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 active:bg-cyan-500/20 border border-white/10 hover:border-cyan-500/40 text-cyan-400 hover:text-cyan-300 transition-all duration-200 active:scale-95 disabled:opacity-50 cursor-pointer min-h-[40px] shrink-0 group focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+          >
+            <svg
+              class="w-4 h-4 transition-transform duration-700"
+              :class="isRefreshing ? 'animate-spin text-cyan-300' : 'group-hover:rotate-180'"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            <span class="hidden sm:inline text-xs font-bold text-gray-200">
+              {{ isRefreshing ? 'Menyegarkan...' : 'Segarkan' }}
+            </span>
+          </button>
+
           <!-- Notification Bell -->
           <div class="relative">
             <button @click="notifMenuOpen = !notifMenuOpen" class="relative p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all">
