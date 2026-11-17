@@ -807,6 +807,7 @@ watch(() => page.props.flash?.message, (msg) => { if (msg) showToast(msg); });
           :materiList="materiList"
           :kelasList="kelasListProp"
           :tpList="tpList"
+          :mapelList="props.mapelListProp"
           :teacherSubject="teacherSubject"
           @delete-materi="onDeleteMateri"
         />

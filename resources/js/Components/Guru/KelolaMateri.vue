@@ -9,6 +9,7 @@ const props = defineProps({
   materiList: { type: Array, default: () => [] },
   kelasList: { type: Array, default: () => [] },
   tpList: { type: Array, default: () => [] },
+  mapelList: { type: Array, default: () => [] },
   teacherSubject: { type: String, default: 'Informatika' }
 });
 
@@ -26,6 +27,7 @@ function getInitialSemester() {
 }
 
 // 1. Filter States
+const selectedMapelFilter = ref('Semua');
 const selectedSemester = ref(getInitialSemester());
 const selectedTpFilter = ref('Semua');
 const selectedTipeFilter = ref('Semua');
@@ -33,6 +35,36 @@ const selectedStatusFilter = ref('Semua'); // 'Semua', 'ON', 'OFF'
 const searchQuery = ref('');
 const debouncedSearchQuery = ref('');
 let searchTimer = null;
+
+// Dynamic Mapel list combined from props.mapelList and subjects in materiList
+const availableMapelList = computed(() => {
+  const mapels = new Map();
+  if (Array.isArray(props.mapelList)) {
+    props.mapelList.forEach((m) => {
+      if (m && m.id && m.nama) {
+        mapels.set(String(m.id), { id: String(m.id), nama: m.nama });
+      } else if (typeof m === 'string' && m.trim()) {
+        mapels.set(m.trim(), { id: m.trim(), nama: m.trim() });
+      }
+    });
+  }
+  if (Array.isArray(props.materiList)) {
+    props.materiList.forEach((m) => {
+      const id = m.mapelId ? String(m.mapelId) : null;
+      const nama = (m.mapel || m.mapelNama || '').trim();
+      if (id && nama) {
+        if (!mapels.has(id)) {
+          mapels.set(id, { id, nama });
+        }
+      } else if (nama && nama !== 'Semua' && nama !== '-') {
+        if (!mapels.has(nama)) {
+          mapels.set(nama, { id: nama, nama });
+        }
+      }
+    });
+  }
+  return Array.from(mapels.values()).sort((a, b) => a.nama.localeCompare(b.nama));
+});
 
 // Debounce Search 300ms for optimal UI responsiveness
 watch(searchQuery, (newVal) => {
@@ -47,11 +79,25 @@ onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer);
 });
 
-// Filter TP options based on active semester
+// Filter TP options based on active semester and selected mapel
 const availableTps = computed(() => {
   let list = props.tpList || [];
   if (selectedSemester.value !== 'Semua') {
     list = list.filter(t => (t.semester || 'Ganjil') === selectedSemester.value);
+  }
+  if (selectedMapelFilter.value !== 'Semua') {
+    const targetMapelObj = availableMapelList.value.find(m => String(m.id) === String(selectedMapelFilter.value));
+    const targetMapel = targetMapelObj ? targetMapelObj.nama : String(selectedMapelFilter.value);
+    const targetLower = targetMapel.toLowerCase().trim();
+    const cleanTarget = targetLower.replace(/\(.*?\)/g, '').trim();
+
+    list = list.filter(t => {
+      const tpMapel = (t.mapel || '').toLowerCase().trim();
+      const cleanTp = tpMapel.replace(/\(.*?\)/g, '').trim();
+      return tpMapel === targetLower ||
+        (cleanTarget && cleanTp.includes(cleanTarget)) ||
+        (cleanTp && cleanTarget.includes(cleanTp));
+    });
   }
   return list;
 });
@@ -77,6 +123,16 @@ watch(selectedSemester, (newSem) => {
   currentPage.value = 1;
 });
 
+watch(selectedMapelFilter, () => {
+  if (selectedTpFilter.value !== 'Semua') {
+    const exists = availableTps.value.some(t => t.id === Number(selectedTpFilter.value));
+    if (!exists) {
+      selectedTpFilter.value = 'Semua';
+    }
+  }
+  currentPage.value = 1;
+});
+
 watch([selectedTpFilter, selectedTipeFilter, selectedStatusFilter], () => {
   currentPage.value = 1;
 });
@@ -85,12 +141,30 @@ watch([selectedTpFilter, selectedTipeFilter, selectedStatusFilter], () => {
 const filteredMateriList = computed(() => {
   const q = debouncedSearchQuery.value;
   const sem = selectedSemester.value;
+  const mapelF = selectedMapelFilter.value;
   const tpF = selectedTpFilter.value;
   const tipeF = selectedTipeFilter.value;
   const statF = selectedStatusFilter.value;
   const raw = props.materiList || [];
 
   return raw.filter((m) => {
+    if (mapelF !== 'Semua') {
+      const targetMapelObj = availableMapelList.value.find(item => String(item.id) === String(mapelF));
+      const targetMapel = targetMapelObj ? targetMapelObj.nama : String(mapelF);
+      const targetLower = targetMapel.toLowerCase().trim();
+      const cleanTarget = targetLower.replace(/\(.*?\)/g, '').trim();
+
+      const mId = m.mapelId ? String(m.mapelId) : '';
+      const mNama = (m.mapel || m.mapelNama || '').toLowerCase().trim();
+      const cleanNama = mNama.replace(/\(.*?\)/g, '').trim();
+
+      const matchId = mId && String(mapelF) === mId;
+      const matchNama = mNama === targetLower ||
+        (cleanTarget && cleanNama.includes(cleanTarget)) ||
+        (cleanNama && cleanTarget.includes(cleanNama));
+
+      if (!matchId && !matchNama) return false;
+    }
     if (sem !== 'Semua') {
       const mSem = m.semester || m.tp?.semester || 'Ganjil';
       if (mSem !== sem) return false;
@@ -327,13 +401,13 @@ function getTypeBadge(tipe) {
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 p-4 rounded-2xl bg-slate-950/60 border border-white/10">
 
       <!-- Search Input (300ms Debounced) -->
-      <div class="lg:col-span-4 relative">
+      <div class="lg:col-span-3 relative">
         <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 text-xs">🔍</span>
         <input
           v-model="searchQuery"
           type="text"
           placeholder="Cari materi, mapel, kelas, TP..."
-          class="w-full pl-9 pr-8 py-2.5 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white placeholder-slate-400 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 outline-none transition"
+          class="w-full pl-9 pr-8 py-2.5 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white placeholder-slate-400 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 outline-none transition min-h-[40px]"
         />
         <button
           v-if="searchQuery"
@@ -342,11 +416,24 @@ function getTypeBadge(tipe) {
         >✕</button>
       </div>
 
+      <!-- Mapel Selector -->
+      <div class="lg:col-span-2">
+        <select
+          v-model="selectedMapelFilter"
+          class="w-full py-2.5 px-3 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition min-h-[40px] truncate"
+        >
+          <option value="Semua">Semua Mapel</option>
+          <option v-for="m in availableMapelList" :key="m.id" :value="m.id">
+            {{ m.nama }}
+          </option>
+        </select>
+      </div>
+
       <!-- Semester Selector -->
       <div class="lg:col-span-2">
         <select
           v-model="selectedSemester"
-          class="w-full py-2.5 px-3 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition"
+          class="w-full py-2.5 px-3 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition min-h-[40px]"
         >
           <option value="Semua">Semua Semester</option>
           <option value="Ganjil">Semester Ganjil</option>
@@ -355,12 +442,12 @@ function getTypeBadge(tipe) {
       </div>
 
       <!-- TP Filter Selector -->
-      <div class="lg:col-span-3">
+      <div class="lg:col-span-2">
         <select
           v-model="selectedTpFilter"
-          class="w-full py-2.5 px-3 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition truncate"
+          class="w-full py-2.5 px-3 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition min-h-[40px] truncate"
         >
-          <option value="Semua">Semua Tujuan Pembelajaran</option>
+          <option value="Semua">Semua TP</option>
           <option v-for="tp in availableTps" :key="tp.id" :value="tp.id">
             {{ formatTpOption(tp) }}
           </option>
@@ -371,7 +458,7 @@ function getTypeBadge(tipe) {
       <div class="lg:col-span-2">
         <select
           v-model="selectedTipeFilter"
-          class="w-full py-2.5 px-3 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition"
+          class="w-full py-2.5 px-3 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition min-h-[40px]"
         >
           <option value="Semua">Semua Format</option>
           <option value="Slider PPT">Slider Interaktif</option>
@@ -385,7 +472,7 @@ function getTypeBadge(tipe) {
       <div class="lg:col-span-1">
         <select
           v-model="selectedStatusFilter"
-          class="w-full py-2.5 px-2 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition text-center"
+          class="w-full py-2.5 px-2 bg-slate-900/90 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none transition text-center min-h-[40px]"
         >
           <option value="Semua">Semua</option>
           <option value="ON">Rilis (ON)</option>
