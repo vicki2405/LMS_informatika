@@ -408,6 +408,15 @@ class GuruMateriController extends Controller
                 }
             }
 
+            // Otomatis sinkronkan nilai CBT yang sudah selesai jika materi ditautkan ke CBT Jadwal & TP
+            if ($materi->cbt_jadwal_id && $materi->tp_id) {
+                $cbtNilais = \App\Models\CbtNilai::where('jadwal_id', $materi->cbt_jadwal_id)->get();
+                $cbtJadwal = \App\Models\CbtJadwal::find($materi->cbt_jadwal_id);
+                foreach ($cbtNilais as $cbtNilai) {
+                    GuruCbtController::syncCbtNilaiToTp($cbtNilai, $cbtJadwal);
+                }
+            }
+
             return redirect()->route('guru.dashboard', ['tab' => 'materi'])->with('message', 'Materi pembelajaran berhasil disimpan!');
         });
     }

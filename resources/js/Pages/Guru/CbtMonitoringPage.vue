@@ -281,6 +281,54 @@ function resetSesi(sesiId, namaSiswa) {
   });
 }
 
+// Manual Action: Sinkronkan Nilai CBT ke Lembar Nilai TP
+const isSyncingTp = ref(false);
+function sinkronkanNilaiKeTp() {
+  if (!props.jadwal.linkedTp) {
+    showToast('Jadwal ini belum ditautkan ke Tujuan Pembelajaran (TP) pada Materi!', 'warning');
+    return;
+  }
+
+  Swal.fire({
+    title: 'Sinkronkan Nilai ke Lembar Nilai TP?',
+    html: `Seluruh nilai peserta CBT ini akan ditransfer dan disinkronkan ke <b>${props.jadwal.linkedTp.kode} - ${props.jadwal.linkedTp.judul}</b>.`,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: '⚡ Ya, Sinkronkan Sekarang',
+    cancelButtonText: 'Batal',
+    confirmButtonColor: '#06b6d4',
+    cancelButtonColor: '#475569',
+    background: '#0f172a',
+    color: '#f8fafc',
+  }).then((res) => {
+    if (res.isConfirmed) {
+      isSyncingTp.value = true;
+      router.post(
+        route('guru.cbt.transfer-nilai-tp'),
+        {
+          jadwal_id: props.jadwal.id,
+          mode: 'existing_tp',
+          tp_id: props.jadwal.linkedTp.id,
+          overwrite: true,
+        },
+        {
+          preserveScroll: true,
+          onSuccess: () => {
+            showToast(`Nilai CBT berhasil masuk ke Lembar Nilai TP (${props.jadwal.linkedTp.kode})!`, 'success');
+            fetchMonitoringData(false);
+          },
+          onError: () => {
+            showToast('Gagal menyinkronkan nilai ke TP', 'error');
+          },
+          onFinish: () => {
+            isSyncingTp.value = false;
+          },
+        }
+      );
+    }
+  });
+}
+
 function deleteSesi(sesiId, namaSiswa) {
   confirmDelete({
     title: 'Hapus Peserta dari Monitoring?',
@@ -443,6 +491,16 @@ function getProgressPercent(terjawab) {
                 <span>🎮</span>
                 <span>{{ jadwal.modeUjian === 'game' ? 'Game Mode' : 'Formal CBT' }}</span>
               </span>
+
+              <!-- TP Link Badge -->
+              <span v-if="jadwal.linkedTp" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold flex items-center gap-1.5" :title="`Tertaut ke Materi: ${jadwal.linkedTp.materiJudul || '-'}`">
+                <span>🎯</span>
+                <span>TP: {{ jadwal.linkedTp.kode }} ({{ jadwal.linkedTp.judul }})</span>
+              </span>
+              <span v-else class="px-2.5 py-1 rounded-lg bg-gray-500/15 border border-gray-500/30 text-gray-400 font-medium flex items-center gap-1.5">
+                <span>ℹ️</span>
+                <span>Belum Ditautkan ke TP Materi</span>
+              </span>
             </div>
           </div>
 
@@ -470,6 +528,18 @@ function getProgressPercent(terjawab) {
                 title="Salin token ke clipboard"
               >
                 <span>{{ tokenCopied ? '✓ Tersalin!' : '📋 Salin Token' }}</span>
+              </button>
+
+              <!-- Sync to TP Action Button -->
+              <button
+                v-if="jadwal.linkedTp"
+                @click="sinkronkanNilaiKeTp"
+                :disabled="isSyncingTp"
+                type="button"
+                class="w-full px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 min-h-[38px] active:scale-95 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 disabled:opacity-50"
+                title="Sinkronkan nilai ujian peserta ke Lembar Nilai TP"
+              >
+                <span>{{ isSyncingTp ? '⏳ Menyinkronkan...' : '⚡ Sinkronkan ke Nilai TP' }}</span>
               </button>
             </div>
           </div>

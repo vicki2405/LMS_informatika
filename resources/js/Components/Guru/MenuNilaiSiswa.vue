@@ -245,8 +245,8 @@ onMounted(() => {
 // Filtered TP List for Current Academic Period (Semester, Tahun Ajaran & Mapel)
 const activeTpList = computed(() => {
   return props.tpList.filter(t => {
-    const semMatch = (t.semester || 'Ganjil') === selectedSemester.value;
-    const taMatch = !selectedTahunAjaran.value || (t.tahunAjaran || '2025/2026') === selectedTahunAjaran.value;
+    const semMatch = !selectedSemester.value || selectedSemester.value === 'Semua' || (t.semester || 'Ganjil').toLowerCase() === selectedSemester.value.toLowerCase();
+    const taMatch = !selectedTahunAjaran.value || selectedTahunAjaran.value === 'Semua' || (t.tahunAjaran || '').trim() === selectedTahunAjaran.value.trim();
     const curMapel = selectedMapelFilter.value;
     const mapelMatch = !curMapel || curMapel === 'Semua' || (t.mapel || '').toLowerCase() === curMapel.toLowerCase() || t.mapel === 'Umum';
     return semMatch && taMatch && mapelMatch;

@@ -1013,6 +1013,11 @@ class GuruCbtController extends Controller
             return;
         }
 
+        $finalGuruId = $jadwal?->guru_id;
+        if (! $finalGuruId && isset($linkedMateri)) {
+            $finalGuruId = $linkedMateri?->guru_id;
+        }
+
         NilaiTp::updateOrCreate(
             [
                 'tp_id' => $tp->id,
@@ -1021,7 +1026,7 @@ class GuruCbtController extends Controller
             [
                 'nilai' => floatval($cbtNilai->nilai),
                 'catatan' => "Nilai CBT ({$cbtNilai->jumlah_benar} Benar, {$cbtNilai->jumlah_salah} Salah)",
-                'guru_id' => $jadwal?->guru_id,
+                'guru_id' => $finalGuruId,
             ]
         );
     }
@@ -1031,20 +1036,50 @@ class GuruCbtController extends Controller
      */
     public static function syncAllPendingCbtScoresToTp(?int $guruId = null): int
     {
-        $query = CbtNilai::with(['jadwal' => fn ($q) => $q->withTrashed()->with('bankSoal.mataPelajaran'), 'bankSoal.mataPelajaran']);
-        if ($guruId) {
-            $query->whereHas('jadwal', function ($q) use ($guruId) {
-                $q->withTrashed()->where(function ($inner) use ($guruId) {
-                    $inner->where('guru_id', $guruId)->orWhereNull('guru_id');
-                });
-            });
-        }
+        // Cari seluruh Materi yang menautkan CBT Jadwal dengan TP
+        $materis = Materi::query()
+            ->whereNotNull('cbt_jadwal_id')
+            ->whereNotNull('tp_id')
+            ->with(['tp', 'cbtJadwal'])
+            ->get();
 
-        $allScores = $query->get();
         $synced = 0;
-        foreach ($allScores as $score) {
-            self::syncCbtNilaiToTp($score, $score->jadwal);
-            $synced++;
+        foreach ($materis as $materi) {
+            if (! $materi->cbt_jadwal_id || ! $materi->tp) {
+                continue;
+            }
+
+            $cbtJadwal = $materi->cbtJadwal;
+            if ($guruId) {
+                $isOwnerOfJadwal = $cbtJadwal && $cbtJadwal->guru_id === $guruId;
+                $isOwnerOfMateri = $materi->guru_id === $guruId;
+                if (! $isOwnerOfMateri && ! $isOwnerOfJadwal && $cbtJadwal?->guru_id !== null && $materi->guru_id !== null) {
+                    continue;
+                }
+            }
+
+            $cbtNilaisQuery = CbtNilai::where('jadwal_id', $materi->cbt_jadwal_id);
+            if ($materi->kelas_id) {
+                $cbtNilaisQuery->whereHas('siswa', function ($q) use ($materi) {
+                    $q->where('kelas_id', $materi->kelas_id);
+                });
+            }
+            $cbtNilais = $cbtNilaisQuery->get();
+
+            foreach ($cbtNilais as $cbtNilai) {
+                NilaiTp::updateOrCreate(
+                    [
+                        'tp_id' => $materi->tp_id,
+                        'siswa_id' => $cbtNilai->siswa_id,
+                    ],
+                    [
+                        'nilai' => floatval($cbtNilai->nilai),
+                        'catatan' => "Nilai CBT ({$cbtNilai->jumlah_benar} Benar, {$cbtNilai->jumlah_salah} Salah)",
+                        'guru_id' => $cbtJadwal?->guru_id ?? $materi->guru_id,
+                    ]
+                );
+                $synced++;
+            }
         }
 
         return $synced;
@@ -1122,7 +1157,7 @@ class GuruCbtController extends Controller
         }
 
         if ($cbtNilai) {
-            self::syncCbtNilaiToTp($cbtNilai);
+            self::syncCbtNilaiToTp($cbtNilai, $jadwal);
         }
 
         return redirect()->back()->with('message', $msg);
@@ -1158,6 +1193,11 @@ class GuruCbtController extends Controller
             ->get();
 
         $nilais = CbtNilai::where('jadwal_id', $id)->get()->keyBy('siswa_id');
+
+        // Otomatis sinkronkan nilai CBT yang sudah selesai ke NilaiTp jika jadwal ini tertaut ke Materi & TP
+        foreach ($nilais as $cbtNilai) {
+            self::syncCbtNilaiToTp($cbtNilai, $jadwal);
+        }
 
         $sesis = $sesisRaw->map(function ($s) use ($nilais) {
             $nilai = $nilais->get($s->siswa_id);
@@ -1259,6 +1299,19 @@ class GuruCbtController extends Controller
             ->values()
             ->toArray();
 
+        $linkedMateri = Materi::where('cbt_jadwal_id', $jadwal->id)
+            ->whereNotNull('tp_id')
+            ->with('tp')
+            ->first();
+
+        $linkedTp = $linkedMateri?->tp ? [
+            'id' => $linkedMateri->tp->id,
+            'kode' => $linkedMateri->tp->kode,
+            'judul' => $linkedMateri->tp->judul,
+            'materiId' => $linkedMateri->id,
+            'materiJudul' => $linkedMateri->judul,
+        ] : null;
+
         $payload = [
             'success' => true,
             'jadwal' => [
@@ -1273,6 +1326,7 @@ class GuruCbtController extends Controller
                 'modeUjian' => $jadwal->mode_ujian ?? 'formal',
                 'kelasNama' => $jadwal->kelas?->nama_kelas ?? 'Semua Kelas',
                 'jurusanKode' => $jadwal->jurusan?->kode ?? null,
+                'linkedTp' => $linkedTp,
             ],
             'stats' => $stats,
             'peserta' => $sesis->values(),
@@ -1297,6 +1351,10 @@ class GuruCbtController extends Controller
 
         // Delete submitted score if any so student can re-take cleanly
         CbtNilai::where('jadwal_id', $sesi->jadwal_id)->where('siswa_id', $sesi->siswa_id)->delete();
+        $linkedMateri = Materi::where('cbt_jadwal_id', $sesi->jadwal_id)->whereNotNull('tp_id')->first();
+        if ($linkedMateri) {
+            NilaiTp::where('tp_id', $linkedMateri->tp_id)->where('siswa_id', $sesi->siswa_id)->delete();
+        }
 
         $sesi->update([
             'status' => 'menunggu',
@@ -1369,6 +1427,10 @@ class GuruCbtController extends Controller
 
         // Also delete any existing exam result so student can rejoin anew
         CbtNilai::where('jadwal_id', $sesi->jadwal_id)->where('siswa_id', $sesi->siswa_id)->delete();
+        $linkedMateri = Materi::where('cbt_jadwal_id', $sesi->jadwal_id)->whereNotNull('tp_id')->first();
+        if ($linkedMateri) {
+            NilaiTp::where('tp_id', $linkedMateri->tp_id)->where('siswa_id', $sesi->siswa_id)->delete();
+        }
         $sesi->delete();
 
         $msg = "Sesi peserta ujian {$namaSiswa} berhasil dihapus dari monitoring!";
@@ -1437,11 +1499,22 @@ class GuruCbtController extends Controller
             $tpName = $tp->judul;
         } else {
             if (empty($validated['tp_id'])) {
-                return redirect()->back()->with('error', 'Silakan pilih Tujuan Pembelajaran tujuan transfer.');
+                $linkedMateri = Materi::where('cbt_jadwal_id', $jadwal->id)
+                    ->whereNotNull('tp_id')
+                    ->with('tp')
+                    ->first();
+                if ($linkedMateri && $linkedMateri->tp) {
+                    $targetTpId = $linkedMateri->tp_id;
+                    $tp = $linkedMateri->tp;
+                    $tpName = $tp->judul;
+                } else {
+                    return redirect()->back()->with('error', 'Silakan pilih Tujuan Pembelajaran tujuan transfer.');
+                }
+            } else {
+                $targetTpId = $validated['tp_id'];
+                $tp = TujuanPembelajaran::findOrFail($targetTpId);
+                $tpName = $tp->judul;
             }
-            $targetTpId = $validated['tp_id'];
-            $tp = TujuanPembelajaran::findOrFail($targetTpId);
-            $tpName = $tp->judul;
         }
 
         // Fetch CBT scores

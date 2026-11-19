@@ -86,6 +86,12 @@ const tabDataMap = {
 
 function reloadTabData(tab) {
   const neededProps = tabDataMap[tab] || [];
+  // Tab penilaian dan CBT nilai selalu dimuat ulang agar nilai ujian yang baru masuk langsung tampil
+  if (tab === 'nilai' || tab === 'cbt-nilai') {
+    isLoading.value = true;
+    router.reload({ only: ['nilaiListProp', 'cbtNilaiListProp', 'cbtJadwalListProp', 'tpListProp'], onFinish: () => { isLoading.value = false; } });
+    return;
+  }
   const missingProps = neededProps.filter(p => props[p] === undefined);
   if (missingProps.length > 0) {
     isLoading.value = true;

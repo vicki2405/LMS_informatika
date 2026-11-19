@@ -393,6 +393,9 @@ class GuruDashboardController extends Controller
 
     private function getNilaiData(?int $guruId = null, array $kelasIds = []): array
     {
+        // Otomatis sinkronkan nilai ujian CBT yang sudah selesai dan tertaut ke TP
+        GuruCbtController::syncAllPendingCbtScoresToTp($guruId);
+
         $query = NilaiTp::query()->with(['tp', 'siswa.kelas']);
         if (! empty($kelasIds)) {
             $query->whereHas('siswa', function ($q) use ($kelasIds) {
