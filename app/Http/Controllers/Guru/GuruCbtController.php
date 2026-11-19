@@ -1187,7 +1187,7 @@ class GuruCbtController extends Controller
             'jurusan',
         ])->findOrFail($id);
         $this->ensureJadwalAccess($request, $jadwal);
-        $sesisRaw = CbtSesi::with(['siswa.kelas'])
+        $sesisRaw = CbtSesi::with(['siswa.kelas', 'siswa.user'])
             ->where('jadwal_id', $id)
             ->orderBy('updated_at', 'desc')
             ->get();
@@ -1218,6 +1218,10 @@ class GuruCbtController extends Controller
                 'nilai' => $nilai ? floatval($nilai->nilai) : null,
                 'nilaiStatus' => $nilai?->status,
                 'isOnline' => $s->last_heartbeat && $s->last_heartbeat->diffInSeconds(now()) < 60,
+                'isDeviceActive' => $s->siswa?->user?->isDeviceSessionActive() ?? false,
+                'deviceIp' => $s->siswa?->user?->active_device_ip ?? null,
+                'deviceAgent' => $s->siswa?->user?->active_device_agent ?? null,
+                'lastLogin' => $s->siswa?->user?->last_activity_at ? $s->siswa->user->last_activity_at->format('H:i') : null,
             ];
         });
 
@@ -1345,7 +1349,7 @@ class GuruCbtController extends Controller
      */
     public function resetSesiSiswa(Request $request, int $id)
     {
-        $sesi = CbtSesi::with('jadwal')->findOrFail($id);
+        $sesi = CbtSesi::with(['jadwal', 'siswa.user'])->findOrFail($id);
         $this->ensureSesiAccess($request, $sesi);
         $namaSiswa = $sesi->siswa?->nama ?? 'Siswa';
 
@@ -1363,7 +1367,55 @@ class GuruCbtController extends Controller
             'last_heartbeat' => now(),
         ]);
 
-        $msg = "Sesi ujian untuk siswa {$namaSiswa} berhasil direset!";
+        if ($sesi->siswa?->user) {
+            $sesi->siswa->user->update([
+                'active_session_id' => 'RESET',
+                'active_device_token' => null,
+                'active_device_ip' => null,
+                'active_device_agent' => null,
+                'last_activity_at' => null,
+            ]);
+        }
+
+        $msg = "Sesi ujian dan kunci login untuk siswa {$namaSiswa} berhasil direset!";
+        if ($request->wantsJson() && ! $request->header('X-Inertia')) {
+            return response()->json(['success' => true, 'message' => $msg]);
+        }
+
+        return redirect()->back()->with('message', $msg);
+    }
+
+    /**
+     * Reset single-device login lock for student without modifying CBT answers or scores.
+     */
+    public function resetLoginSiswa(Request $request, int $id)
+    {
+        $siswa = Siswa::with('user')->find($id);
+        if (! $siswa) {
+            $sesi = CbtSesi::with('siswa.user')->find($id);
+            if ($sesi) {
+                $this->ensureSesiAccess($request, $sesi);
+                $siswa = $sesi->siswa;
+            }
+        }
+
+        if (! $siswa || ! $siswa->user) {
+            $errMsg = 'Data siswa atau akun pengguna tidak ditemukan.';
+            if ($request->wantsJson() && ! $request->header('X-Inertia')) {
+                return response()->json(['success' => false, 'message' => $errMsg], 404);
+            }
+            return redirect()->back()->with('error', $errMsg);
+        }
+
+        $siswa->user->update([
+            'active_session_id' => 'RESET',
+            'active_device_token' => null,
+            'active_device_ip' => null,
+            'active_device_agent' => null,
+            'last_activity_at' => null,
+        ]);
+
+        $msg = "Kunci login perangkat untuk {$siswa->nama} berhasil direset! Siswa dapat langsung login di perangkat baru.";
         if ($request->wantsJson() && ! $request->header('X-Inertia')) {
             return response()->json(['success' => true, 'message' => $msg]);
         }

@@ -67,6 +67,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/siswa/{id}', [AdminDashboardController::class, 'deleteSiswa'])->name('siswa.delete');
         Route::post('/user/store', [AdminDashboardController::class, 'storeUser'])->name('user.store');
         Route::post('/user/reset-password', [AdminDashboardController::class, 'resetPassword'])->name('user.reset-password');
+        Route::post('/user/reset-login', [AdminDashboardController::class, 'resetLoginUser'])->name('user.reset-login');
         Route::delete('/user/{id}', [AdminDashboardController::class, 'deleteUser'])->name('user.delete');
 
         // Backup & Restore
@@ -133,6 +134,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/cbt/jadwal/{id}', [GuruCbtController::class, 'deleteJadwal'])->name('cbt.jadwal.delete');
         Route::get('/cbt/jadwal/{id}/monitoring', [GuruCbtController::class, 'getMonitoringData'])->name('cbt.jadwal.monitoring');
         Route::post('/cbt/sesi/{id}/reset', [GuruCbtController::class, 'resetSesiSiswa'])->name('cbt.sesi.reset');
+        Route::post('/cbt/sesi/{id}/reset-login', [GuruCbtController::class, 'resetLoginSiswa'])->name('cbt.sesi.reset-login');
+        Route::post('/cbt/siswa/{id}/reset-login', [GuruCbtController::class, 'resetLoginSiswa'])->name('cbt.siswa.reset-login');
         Route::post('/cbt/sesi/{id}/kunci', [GuruCbtController::class, 'kunciSesiSiswa'])->name('cbt.sesi.kunci');
         Route::post('/cbt/sesi/{id}/buka-kunci', [GuruCbtController::class, 'bukaKunciSesiSiswa'])->name('cbt.sesi.buka-kunci');
         Route::delete('/cbt/sesi/{id}', [GuruCbtController::class, 'deleteSesiSiswa'])->name('cbt.sesi.delete');

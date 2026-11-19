@@ -33,6 +33,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/kelas', [AdminApiController::class, 'getKelas']);
             Route::get('/jurusan', [AdminApiController::class, 'getJurusan']);
             Route::get('/users', [AdminApiController::class, 'getUsers']);
+            Route::post('/users/{id}/reset-login', [AdminApiController::class, 'resetLoginUser']);
             Route::get('/tahun-ajaran', [AdminApiController::class, 'getTahunAjaran']);
             Route::post('/tahun-ajaran', [AdminApiController::class, 'storeTahunAjaran']);
             Route::post('/tahun-ajaran/{id}/set-default', [AdminApiController::class, 'setDefaultTahunAjaran']);
@@ -78,6 +79,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/cbt/nilai', [GuruApiController::class, 'getCbtNilai']);
             Route::get('/cbt/jadwal/{id}/monitoring', [GuruApiController::class, 'getMonitoringData']);
             Route::post('/cbt/sesi/{id}/reset', [GuruApiController::class, 'resetSesiSiswa']);
+            Route::post('/cbt/sesi/{id}/reset-login', [GuruApiController::class, 'resetLoginSiswa']);
+            Route::post('/cbt/siswa/{id}/reset-login', [GuruApiController::class, 'resetLoginSiswa']);
             Route::post('/cbt/sesi/{id}/kunci', [GuruApiController::class, 'kunciSesiSiswa']);
             Route::post('/cbt/sesi/{id}/buka-kunci', [GuruApiController::class, 'bukaKunciSesiSiswa']);
             Route::delete('/cbt/sesi/{id}', [GuruApiController::class, 'deleteSesiSiswa']);

@@ -796,7 +796,7 @@ class GuruApiController extends Controller
 
     public function resetSesiSiswa(Request $request, int $id): JsonResponse
     {
-        $sesi = CbtSesi::with('jadwal')->findOrFail($id);
+        $sesi = CbtSesi::with(['jadwal', 'siswa.user'])->findOrFail($id);
         $this->ensureSesiAccess($request, $sesi);
         CbtNilai::where('jadwal_id', $sesi->jadwal_id)->where('siswa_id', $sesi->siswa_id)->delete();
         $sesi->update([
@@ -806,7 +806,46 @@ class GuruApiController extends Controller
             'last_heartbeat' => now(),
         ]);
 
-        return response()->json(['success' => true, 'message' => 'Sesi siswa berhasil direset']);
+        if ($sesi->siswa?->user) {
+            $sesi->siswa->user->update([
+                'active_session_id' => 'RESET',
+                'active_device_token' => null,
+                'active_device_ip' => null,
+                'active_device_agent' => null,
+                'last_activity_at' => null,
+            ]);
+        }
+
+        return response()->json(['success' => true, 'message' => 'Sesi ujian dan kunci login siswa berhasil direset']);
+    }
+
+    public function resetLoginSiswa(Request $request, int $id): JsonResponse
+    {
+        $siswa = \App\Models\Siswa::with('user')->find($id);
+        if (! $siswa) {
+            $sesi = CbtSesi::with('siswa.user')->find($id);
+            if ($sesi) {
+                $this->ensureSesiAccess($request, $sesi);
+                $siswa = $sesi->siswa;
+            }
+        }
+
+        if (! $siswa || ! $siswa->user) {
+            return response()->json(['success' => false, 'message' => 'Data siswa atau akun tidak ditemukan'], 404);
+        }
+
+        $siswa->user->update([
+            'active_session_id' => 'RESET',
+            'active_device_token' => null,
+            'active_device_ip' => null,
+            'active_device_agent' => null,
+            'last_activity_at' => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Kunci login perangkat untuk {$siswa->nama} berhasil direset! Siswa dapat login di perangkat baru.",
+        ]);
     }
 
     public function kunciSesiSiswa(Request $request, int $id): JsonResponse

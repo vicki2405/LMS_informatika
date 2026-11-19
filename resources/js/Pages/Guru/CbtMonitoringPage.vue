@@ -281,6 +281,35 @@ function resetSesi(sesiId, namaSiswa) {
   });
 }
 
+function resetLoginPerangkat(siswaId, namaSiswa) {
+  Swal.fire({
+    title: 'Reset Kunci Perangkat?',
+    html: `Kunci login perangkat untuk <b class="text-cyan-400 font-bold">${namaSiswa}</b> akan dibuka.<br><span class="text-gray-400 mt-1.5 inline-block text-xs">Siswa dapat langsung login di perangkat/HP baru. Jawaban ujian dan nilai saat ini tidak akan dihapus.</span>`,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#06b6d4',
+    cancelButtonColor: '#475569',
+    confirmButtonText: 'Ya, Reset Perangkat!',
+    cancelButtonText: 'Batal',
+    background: '#1e293b',
+    color: '#fff',
+  }).then((res) => {
+    if (res.isConfirmed) {
+      router.post(
+        route('guru.cbt.siswa.reset-login', siswaId),
+        {},
+        {
+          preserveScroll: true,
+          onSuccess: () => {
+            showToast(`Kunci perangkat ${namaSiswa} berhasil direset!`, 'success');
+            fetchMonitoringData(false);
+          },
+        }
+      );
+    }
+  });
+}
+
 // Manual Action: Sinkronkan Nilai CBT ke Lembar Nilai TP
 const isSyncingTp = ref(false);
 function sinkronkanNilaiKeTp() {
@@ -889,7 +918,16 @@ function getProgressPercent(terjawab) {
                           LOCKED
                         </span>
                       </div>
-                      <div class="text-[11px] text-gray-400 font-mono">NIS: {{ p.nis }}</div>
+                      <div class="text-[11px] text-gray-400 font-mono flex items-center gap-1.5 mt-0.5">
+                        <span>NIS: {{ p.nis }}</span>
+                        <span
+                          v-if="p.isDeviceActive"
+                          class="inline-flex items-center gap-1 text-[10px] text-cyan-300 font-mono bg-cyan-500/15 px-1.5 py-0.5 rounded border border-cyan-500/30"
+                          :title="'Login aktif di IP: ' + (p.deviceIp || '-')"
+                        >
+                          📱 {{ p.deviceIp || 'HP/PC' }}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </td>
@@ -980,10 +1018,19 @@ function getProgressPercent(terjawab) {
                       🔒 Kunci
                     </button>
 
+                    <!-- Reset Kunci Perangkat (Single Device) -->
+                    <button
+                      @click="resetLoginPerangkat(p.siswaId, p.namaSiswa)"
+                      class="px-2 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold transition-all min-h-[32px] flex items-center gap-1 active:scale-95"
+                      title="Reset Kunci Login Perangkat (Izinkan HP/PC Baru)"
+                    >
+                      📱 Reset HP
+                    </button>
+
                     <!-- Reset Sesi -->
                     <button
                       @click="resetSesi(p.id, p.namaSiswa)"
-                      class="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-bold transition-all min-h-[32px] flex items-center gap-1 active:scale-95"
+                      class="px-2 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-bold transition-all min-h-[32px] flex items-center gap-1 active:scale-95"
                       title="Reset Sesi Ujian"
                     >
                       🔄 Reset
@@ -1040,8 +1087,14 @@ function getProgressPercent(terjawab) {
                       LOCKED
                     </span>
                   </h4>
-                  <div class="text-[11px] text-gray-400 font-mono mt-0.5">
-                    NIS: {{ p.nis }} • <span class="text-cyan-300 font-medium">{{ p.kelas }}</span>
+                  <div class="text-[11px] text-gray-400 font-mono mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <span>NIS: {{ p.nis }} • <span class="text-cyan-300 font-medium">{{ p.kelas }}</span></span>
+                    <span
+                      v-if="p.isDeviceActive"
+                      class="inline-flex items-center gap-1 text-[10px] text-cyan-300 font-mono bg-cyan-500/15 px-1.5 py-0.5 rounded border border-cyan-500/30"
+                    >
+                      📱 {{ p.deviceIp || 'HP/PC' }}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1096,37 +1149,45 @@ function getProgressPercent(terjawab) {
             </div>
 
             <!-- Card Action Buttons (Spaced out for touch ergonomics) -->
-            <div class="grid grid-cols-3 gap-2 pt-1">
+            <div class="grid grid-cols-2 gap-2 pt-1">
               <button
                 v-if="p.status === 'terkunci'"
                 @click="bukaKunciSesi(p.id, p.namaSiswa)"
                 class="py-2.5 px-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold min-h-[42px] flex items-center justify-center gap-1 active:scale-95"
               >
-                🔓 Buka
+                🔓 Buka Kunci
               </button>
               <button
                 v-else-if="p.status === 'mengerjakan' || p.status === 'menunggu'"
                 @click="kunciSesi(p.id, p.namaSiswa)"
                 class="py-2.5 px-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-bold min-h-[42px] flex items-center justify-center gap-1 active:scale-95"
               >
-                🔒 Kunci
+                🔒 Kunci Layar
               </button>
-              <div v-else class="text-center py-2 text-xs text-gray-500 flex items-center justify-center min-h-[42px]">
-                -
+              <div v-else class="text-center py-2 text-xs text-gray-500 flex items-center justify-center min-h-[42px] bg-white/5 rounded-xl border border-white/5">
+                {{ p.status }}
               </div>
+
+              <!-- Reset Kunci Perangkat (Single Device) -->
+              <button
+                @click="resetLoginPerangkat(p.siswaId, p.namaSiswa)"
+                class="py-2.5 px-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold min-h-[42px] flex items-center justify-center gap-1 active:scale-95"
+              >
+                📱 Reset HP
+              </button>
 
               <button
                 @click="resetSesi(p.id, p.namaSiswa)"
                 class="py-2.5 px-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-bold min-h-[42px] flex items-center justify-center gap-1 active:scale-95"
               >
-                🔄 Reset
+                🔄 Reset Sesi
               </button>
 
               <button
                 @click="deleteSesi(p.id, p.namaSiswa)"
                 class="py-2.5 px-2 rounded-xl bg-white/5 hover:bg-rose-500/20 text-gray-400 hover:text-rose-300 border border-white/10 text-xs font-bold min-h-[42px] flex items-center justify-center gap-1 active:scale-95"
               >
-                🗑️ Hapus
+                🗑️ Hapus Peserta
               </button>
             </div>
           </div>

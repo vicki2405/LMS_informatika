@@ -16,11 +16,17 @@ class AuthApiController extends Controller
     public function login(Request $request): JsonResponse
     {
         $request->validate([
-            'email' => 'required|email',
+            'email' => 'required|string',
             'password' => 'required|string',
         ]);
 
-        $user = User::with('roles')->where('email', $request->email)->first();
+        $loginInput = $request->email;
+        $user = User::with('roles')
+            ->where(function ($query) use ($loginInput) {
+                $query->where('email', $loginInput)
+                    ->orWhere('username', $loginInput);
+            })
+            ->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
@@ -35,6 +41,22 @@ class AuthApiController extends Controller
                 'success' => false,
                 'message' => 'Akun Anda belum memiliki peran aktif dalam sistem. Hubungi administrator.',
             ], 403);
+        }
+
+        // Enforce single-device active session for students
+        if ($user->isStudent() && $user->isDeviceSessionActive()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Akun Anda sedang aktif di perangkat lain. Harap logout dari perangkat sebelumnya atau hubungi pengawas/guru untuk me-reset login perangkat Anda.',
+            ], 422);
+        }
+
+        if ($user->isStudent()) {
+            $user->update([
+                'active_device_ip' => $request->ip(),
+                'active_device_agent' => substr((string) $request->userAgent(), 0, 255),
+                'last_activity_at' => now(),
+            ]);
         }
 
         $token = $user->createToken('auth-token')->plainTextToken;
@@ -87,7 +109,12 @@ class AuthApiController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()?->delete();
+        $user = $request->user();
+        if ($user && $user->isStudent()) {
+            $user->resetDeviceSession();
+        }
+
+        $user?->currentAccessToken()?->delete();
 
         return response()->json([
             'success' => true,

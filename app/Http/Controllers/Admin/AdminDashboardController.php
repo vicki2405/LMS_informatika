@@ -716,6 +716,33 @@ class AdminDashboardController extends Controller
     }
 
     /**
+     * Reset active single-device login session for a user.
+     */
+    public function resetLoginUser(Request $request): RedirectResponse|\Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'userId' => 'required|integer|exists:users,id',
+        ]);
+
+        $user = User::findOrFail($validated['userId']);
+        $user->update([
+            'active_session_id' => 'RESET',
+            'active_device_token' => null,
+            'active_device_ip' => null,
+            'active_device_agent' => null,
+            'last_activity_at' => null,
+        ]);
+
+        $msg = "Kunci login perangkat untuk {$user->name} berhasil direset! Pengguna dapat login di perangkat baru.";
+
+        if ($request->wantsJson() && ! $request->header('X-Inertia')) {
+            return response()->json(['success' => true, 'message' => $msg]);
+        }
+
+        return redirect()->back()->with('message', $msg);
+    }
+
+    /**
      * Delete User Account from database.
      */
     public function deleteUser(int $id): RedirectResponse

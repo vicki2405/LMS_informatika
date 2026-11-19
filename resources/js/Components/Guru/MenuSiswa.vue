@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { router } from '@inertiajs/vue3';
+import Swal, { showToast } from '@/Utils/sweetalert';
 
 const props = defineProps({
   siswaList: { type: Array, default: () => [] },
@@ -40,6 +41,34 @@ const siswaForm = ref({ nis: '', nama: '', jenisKelamin: 'Laki-laki', kelas: '',
 
 const showImportModal = ref(false);
 const importFile = ref(null);
+
+function resetLoginPerangkat(siswa) {
+  Swal.fire({
+    title: 'Reset Kunci Perangkat?',
+    html: `Kunci login perangkat untuk <b class="text-cyan-400 font-bold">${siswa.nama}</b> akan dibuka.<br><span class="text-gray-400 mt-1.5 inline-block text-xs">Siswa dapat langsung login di perangkat/HP baru.</span>`,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#06b6d4',
+    cancelButtonColor: '#475569',
+    confirmButtonText: 'Ya, Reset Perangkat!',
+    cancelButtonText: 'Batal',
+    background: '#1e293b',
+    color: '#fff',
+  }).then((res) => {
+    if (res.isConfirmed) {
+      router.post(
+        route('guru.cbt.siswa.reset-login', siswa.id),
+        {},
+        {
+          preserveScroll: true,
+          onSuccess: () => {
+            showToast(`Kunci perangkat ${siswa.nama} berhasil direset!`, 'success');
+          },
+        }
+      );
+    }
+  });
+}
 
 function getTingkatFromKelas(namaKelas) {
   if (!namaKelas || typeof namaKelas !== 'string') return 'X';
@@ -916,6 +945,7 @@ function processImport() {
                 </div>
               </td>
               <td v-if="canManage" class="px-6 py-4 text-right space-x-2">
+                <button @click="resetLoginPerangkat(siswa)" class="text-cyan-300 hover:text-white font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-2.5 py-1.5 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[36px]" title="Reset Sesi/Kunci Login Perangkat">📱 Reset Login</button>
                 <button @click="openEditSiswa(siswa)" class="text-cyan-300 hover:text-white font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-3 py-1.5 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[36px]">✏️ Edit</button>
                 <button @click="$emit('delete-siswa', siswa.id)" class="text-red-400 hover:text-red-300 font-bold text-xs bg-red-500/15 hover:bg-red-500/30 px-3 py-1.5 rounded-xl border border-red-500/30 active:scale-95 transition-all min-h-[36px]">🗑️ Hapus</button>
               </td>
@@ -1013,11 +1043,14 @@ function processImport() {
             </div>
           </div>
 
-          <div v-if="canManage" class="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
-            <button @click="openEditSiswa(siswa)" class="flex-1 py-2.5 text-center text-cyan-300 font-bold text-xs bg-cyan-500/15 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[44px]">
+          <div v-if="canManage" class="grid grid-cols-3 gap-2 pt-2 border-t border-white/10">
+            <button @click="resetLoginPerangkat(siswa)" class="py-2.5 text-center text-cyan-300 font-bold text-xs bg-cyan-500/15 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[44px]">
+              📱 Reset HP
+            </button>
+            <button @click="openEditSiswa(siswa)" class="py-2.5 text-center text-cyan-300 font-bold text-xs bg-cyan-500/15 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[44px]">
               ✏️ Edit
             </button>
-            <button @click="$emit('delete-siswa', siswa.id)" class="flex-1 py-2.5 text-center text-red-400 font-bold text-xs bg-red-500/15 rounded-xl border border-red-500/30 active:scale-95 transition-all min-h-[44px]">
+            <button @click="$emit('delete-siswa', siswa.id)" class="py-2.5 text-center text-red-400 font-bold text-xs bg-red-500/15 rounded-xl border border-red-500/30 active:scale-95 transition-all min-h-[44px]">
               🗑️ Hapus
             </button>
           </div>

@@ -237,4 +237,21 @@ class AdminApiController extends Controller
             'message' => 'Tahun Pelajaran berhasil dihapus',
         ]);
     }
+
+    public function resetLoginUser(int $id): JsonResponse
+    {
+        $user = \App\Models\User::findOrFail($id);
+        $user->update([
+            'active_session_id' => 'RESET',
+            'active_device_token' => null,
+            'active_device_ip' => null,
+            'active_device_agent' => null,
+            'last_activity_at' => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Kunci login perangkat untuk {$user->name} berhasil direset!",
+        ]);
+    }
 }
