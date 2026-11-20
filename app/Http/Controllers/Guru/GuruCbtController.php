@@ -18,6 +18,7 @@ use App\Models\NilaiTp;
 use App\Models\Siswa;
 use App\Models\TahunAjaran;
 use App\Models\TujuanPembelajaran;
+use App\Models\User;
 use App\Services\Cbt\CbtDocExportService;
 use App\Services\Security\FileSecurityService;
 use App\Services\Security\TeacherAccessService;
@@ -1199,42 +1200,6 @@ class GuruCbtController extends Controller
             self::syncCbtNilaiToTp($cbtNilai, $jadwal);
         }
 
-        $sesis = $sesisRaw->map(function ($s) use ($nilais) {
-            $nilai = $nilais->get($s->siswa_id);
-
-            return [
-                'id' => $s->id,
-                'siswaId' => $s->siswa_id,
-                'namaSiswa' => $s->siswa?->nama ?? 'Siswa',
-                'nis' => $s->siswa?->nis ?? ('100'.$s->siswa_id),
-                'kelas' => $s->siswa?->kelas?->nama_kelas ?? '-',
-                'status' => $s->status,
-                'jumlahPelanggaran' => $s->jumlah_pelanggaran,
-                'soalTerjawab' => $s->soal_terjawab,
-                'sisaWaktuDetik' => $s->sisa_waktu_detik,
-                'waktuGabung' => $s->waktu_gabung ? $s->waktu_gabung->format('H:i:s') : '-',
-                'waktuMulai' => $s->waktu_mulai ? $s->waktu_mulai->format('H:i:s') : '-',
-                'waktuSelesai' => $s->waktu_selesai ? $s->waktu_selesai->format('H:i:s') : '-',
-                'nilai' => $nilai ? floatval($nilai->nilai) : null,
-                'nilaiStatus' => $nilai?->status,
-                'isOnline' => $s->last_heartbeat && $s->last_heartbeat->diffInSeconds(now()) < 60,
-                'isDeviceActive' => $s->siswa?->user?->isDeviceSessionActive() ?? false,
-                'deviceIp' => $s->siswa?->user?->active_device_ip ?? null,
-                'deviceAgent' => $s->siswa?->user?->active_device_agent ?? null,
-                'lastLogin' => $s->siswa?->user?->last_activity_at ? $s->siswa->user->last_activity_at->format('H:i') : null,
-            ];
-        });
-
-        $stats = [
-            'totalPeserta' => $sesis->count(),
-            'menunggu' => $sesis->where('status', 'menunggu')->count(),
-            'mengerjakan' => $sesis->where('status', 'mengerjakan')->count(),
-            'selesai' => $sesis->where('status', 'selesai')->count(),
-            'terkunci' => $sesis->where('status', 'terkunci')->count(),
-            'totalPelanggaran' => $sesis->sum('jumlahPelanggaran'),
-            'siswaMelanggar' => $sesis->where('jumlahPelanggaran', '>', 0)->count(),
-        ];
-
         // Filter daftar kelas: Kunci kelas SELALU diambil dari data jadwal guru sesuai mapel ujian (Strict Sync)
         $guru = $this->resolveGuru($request);
         $guruId = $jadwal->guru_id ?? $guru?->id;
@@ -1286,6 +1251,103 @@ class GuruCbtController extends Controller
             $matchingKelasIds = $jadwalGuruQuery->pluck('kelas_id')->unique()->values()->toArray();
         }
 
+        // Ambil data seluruh siswa aktif yang terdaftar di kelas target
+        $targetSiswaRaw = Siswa::whereIn('kelas_id', $matchingKelasIds)
+            ->with(['kelas:id,nama_kelas,tingkat', 'user'])
+            ->orderBy('nama', 'asc')
+            ->get();
+
+        $sesisBySiswaId = $sesisRaw->keyBy('siswa_id');
+
+        $peserta = $targetSiswaRaw->map(function ($s) use ($sesisBySiswaId, $nilais) {
+            $sesi = $sesisBySiswaId->get($s->id);
+            $nilai = $nilais->get($s->id);
+
+            if ($sesi) {
+                return [
+                    'id' => $sesi->id,
+                    'sesiId' => $sesi->id,
+                    'siswaId' => $s->id,
+                    'namaSiswa' => $s->nama,
+                    'nis' => $s->nis ?? ('100'.$s->id),
+                    'kelas' => $s->kelas?->nama_kelas ?? '-',
+                    'kelasId' => $s->kelas_id,
+                    'status' => $sesi->status,
+                    'hasStarted' => true,
+                    'jumlahPelanggaran' => $sesi->jumlah_pelanggaran,
+                    'soalTerjawab' => $sesi->soal_terjawab,
+                    'sisaWaktuDetik' => $sesi->sisa_waktu_detik,
+                    'waktuGabung' => $sesi->waktu_gabung ? $sesi->waktu_gabung->format('H:i:s') : '-',
+                    'waktuMulai' => $sesi->waktu_mulai ? $sesi->waktu_mulai->format('H:i:s') : '-',
+                    'waktuSelesai' => $sesi->waktu_selesai ? $sesi->waktu_selesai->format('H:i:s') : '-',
+                    'nilai' => $nilai ? floatval($nilai->nilai) : null,
+                    'nilaiStatus' => $nilai?->status,
+                    'isOnline' => $sesi->last_heartbeat && $sesi->last_heartbeat->diffInSeconds(now()) < 60,
+                    'isDeviceActive' => $s->user?->isDeviceSessionActive() ?? false,
+                    'deviceIp' => $s->user?->active_device_ip ?? null,
+                    'deviceAgent' => $s->user?->active_device_agent ?? null,
+                    'lastLogin' => $s->user?->last_activity_at ? $s->user->last_activity_at->format('H:i') : null,
+                ];
+            }
+
+            return [
+                'id' => 'belum-'.$s->id,
+                'sesiId' => null,
+                'siswaId' => $s->id,
+                'namaSiswa' => $s->nama,
+                'nis' => $s->nis ?? ('100'.$s->id),
+                'kelas' => $s->kelas?->nama_kelas ?? '-',
+                'kelasId' => $s->kelas_id,
+                'status' => 'belum_mulai',
+                'hasStarted' => false,
+                'jumlahPelanggaran' => 0,
+                'soalTerjawab' => 0,
+                'sisaWaktuDetik' => null,
+                'waktuGabung' => '-',
+                'waktuMulai' => '-',
+                'waktuSelesai' => '-',
+                'nilai' => null,
+                'nilaiStatus' => 'Belum Mengerjakan',
+                'isOnline' => false,
+                'isDeviceActive' => $s->user?->isDeviceSessionActive() ?? false,
+                'deviceIp' => $s->user?->active_device_ip ?? null,
+                'deviceAgent' => $s->user?->active_device_agent ?? null,
+                'lastLogin' => $s->user?->last_activity_at ? $s->user->last_activity_at->format('H:i') : null,
+            ];
+        });
+
+        // Sertakan peserta dari sesi di luar target matchingKelasIds jika ada
+        $existingSiswaIds = $targetSiswaRaw->pluck('id')->toArray();
+        foreach ($sesisRaw as $sesiLuar) {
+            if (! in_array($sesiLuar->siswa_id, $existingSiswaIds, true)) {
+                $nilai = $nilais->get($sesiLuar->siswa_id);
+                $peserta->push([
+                    'id' => $sesiLuar->id,
+                    'sesiId' => $sesiLuar->id,
+                    'siswaId' => $sesiLuar->siswa_id,
+                    'namaSiswa' => $sesiLuar->siswa?->nama ?? 'Siswa',
+                    'nis' => $sesiLuar->siswa?->nis ?? ('100'.$sesiLuar->siswa_id),
+                    'kelas' => $sesiLuar->siswa?->kelas?->nama_kelas ?? '-',
+                    'kelasId' => $sesiLuar->siswa?->kelas_id,
+                    'status' => $sesiLuar->status,
+                    'hasStarted' => true,
+                    'jumlahPelanggaran' => $sesiLuar->jumlah_pelanggaran,
+                    'soalTerjawab' => $sesiLuar->soal_terjawab,
+                    'sisaWaktuDetik' => $sesiLuar->sisa_waktu_detik,
+                    'waktuGabung' => $sesiLuar->waktu_gabung ? $sesiLuar->waktu_gabung->format('H:i:s') : '-',
+                    'waktuMulai' => $sesiLuar->waktu_mulai ? $sesiLuar->waktu_mulai->format('H:i:s') : '-',
+                    'waktuSelesai' => $sesiLuar->waktu_selesai ? $sesiLuar->waktu_selesai->format('H:i:s') : '-',
+                    'nilai' => $nilai ? floatval($nilai->nilai) : null,
+                    'nilaiStatus' => $nilai?->status,
+                    'isOnline' => $sesiLuar->last_heartbeat && $sesiLuar->last_heartbeat->diffInSeconds(now()) < 60,
+                    'isDeviceActive' => $sesiLuar->siswa?->user?->isDeviceSessionActive() ?? false,
+                    'deviceIp' => $sesiLuar->siswa?->user?->active_device_ip ?? null,
+                    'deviceAgent' => $sesiLuar->siswa?->user?->active_device_agent ?? null,
+                    'lastLogin' => $sesiLuar->siswa?->user?->last_activity_at ? $sesiLuar->siswa->user->last_activity_at->format('H:i') : null,
+                ]);
+            }
+        }
+
         $masterKelasList = Kelas::whereIn('id', $matchingKelasIds)
             ->get(['id', 'nama_kelas', 'tingkat'])
             ->sort(function ($a, $b) {
@@ -1296,25 +1358,88 @@ class GuruCbtController extends Controller
 
                 return strnatcasecmp($a->nama_kelas, $b->nama_kelas);
             })
-            ->map(fn ($k) => [
-                'id' => $k->id,
-                'namaKelas' => $k->nama_kelas,
-            ])
+            ->map(function ($k) use ($peserta) {
+                $inKelas = $peserta->filter(fn ($p) => ($p['kelasId'] ?? null) == $k->id || ($p['kelas'] ?? '') === $k->nama_kelas);
+                $total = $inKelas->count();
+                $sudah = $inKelas->where('status', 'selesai')->count();
+                $sedang = $inKelas->where('status', 'mengerjakan')->count();
+                $menunggu = $inKelas->where('status', 'menunggu')->count();
+                $belumMulai = $inKelas->where('status', 'belum_mulai')->count();
+                $terkunci = $inKelas->where('status', 'terkunci')->count();
+                $belum = $total - $sudah;
+                $persen = $total > 0 ? (int) round(($sudah / $total) * 100) : 0;
+
+                return [
+                    'id' => $k->id,
+                    'namaKelas' => $k->nama_kelas,
+                    'totalSiswa' => $total,
+                    'sudahMengerjakan' => $sudah,
+                    'belumMengerjakan' => $belum,
+                    'sedangMengerjakan' => $sedang,
+                    'menunggu' => $menunggu,
+                    'belumMulai' => $belumMulai,
+                    'terkunci' => $terkunci,
+                    'persenSelesai' => $persen,
+                ];
+            })
             ->values()
             ->toArray();
+
+        $totalTarget = $peserta->count();
+        $totalSudah = $peserta->where('status', 'selesai')->count();
+        $totalSedang = $peserta->where('status', 'mengerjakan')->count();
+        $totalMenunggu = $peserta->where('status', 'menunggu')->count();
+        $totalBelumMulai = $peserta->where('status', 'belum_mulai')->count();
+        $totalTerkunci = $peserta->where('status', 'terkunci')->count();
+        $totalBelum = $totalTarget - $totalSudah;
+
+        $stats = [
+            'totalPeserta' => $totalTarget,
+            'sudahMengerjakan' => $totalSudah,
+            'belumMengerjakan' => $totalBelum,
+            'belumMulai' => $totalBelumMulai,
+            'mengerjakan' => $totalSedang,
+            'menunggu' => $totalMenunggu,
+            'selesai' => $totalSudah,
+            'terkunci' => $totalTerkunci,
+            'totalPelanggaran' => $peserta->sum('jumlahPelanggaran'),
+            'siswaMelanggar' => $peserta->where('jumlahPelanggaran', '>', 0)->count(),
+        ];
 
         $linkedMateri = Materi::where('cbt_jadwal_id', $jadwal->id)
             ->whereNotNull('tp_id')
             ->with('tp')
             ->first();
 
-        $linkedTp = $linkedMateri?->tp ? [
-            'id' => $linkedMateri->tp->id,
-            'kode' => $linkedMateri->tp->kode,
-            'judul' => $linkedMateri->tp->judul,
-            'materiId' => $linkedMateri->id,
-            'materiJudul' => $linkedMateri->judul,
+        $tp = $linkedMateri?->tp;
+        $mapelNama = $jadwal->bankSoal?->mataPelajaran?->nama;
+
+        // Fallback: jika belum ada materi tertaut, cari TP kurikulum yang judulnya cocok
+        if (! $tp && $mapelNama) {
+            $tp = TujuanPembelajaran::where('mapel', $mapelNama)
+                ->where('judul', $jadwal->judul_ujian)
+                ->first();
+        }
+
+        $linkedTp = $tp ? [
+            'id' => $tp->id,
+            'kode' => $tp->kode,
+            'judul' => $tp->judul,
+            'mapel' => $tp->mapel,
+            'jenis' => $tp->jenis ?? 'Sumatif',
+            'kktp' => $tp->kktp ?? 75,
+            'semester' => $tp->semester ?? 'Ganjil',
+            'materiId' => $linkedMateri?->id,
+            'materiJudul' => $linkedMateri?->judul,
         ] : null;
+
+        $availableTps = [];
+        if ($mapelNama) {
+            $availableTps = TujuanPembelajaran::where('mapel', $mapelNama)
+                ->orderBy('kode', 'asc')
+                ->get(['id', 'kode', 'judul', 'jenis', 'kktp', 'semester'])
+                ->toArray();
+        }
 
         $payload = [
             'success' => true,
@@ -1333,8 +1458,9 @@ class GuruCbtController extends Controller
                 'linkedTp' => $linkedTp,
             ],
             'stats' => $stats,
-            'peserta' => $sesis->values(),
+            'peserta' => $peserta->values(),
             'masterKelasList' => $masterKelasList,
+            'availableTps' => $availableTps,
         ];
 
         if ($request->wantsJson() && ! $request->header('X-Inertia')) {
@@ -1342,6 +1468,54 @@ class GuruCbtController extends Controller
         }
 
         return Inertia::render('Guru/CbtMonitoringPage', $payload);
+    }
+
+    /**
+     * Tautkan Capaian Pembelajaran (CP / TP) langsung ke Jadwal CBT.
+     */
+    public function tautkanTp(Request $request, int $id): RedirectResponse|JsonResponse
+    {
+        $jadwal = CbtJadwal::with(['bankSoal.mataPelajaran'])->findOrFail($id);
+        $this->ensureJadwalAccess($request, $jadwal);
+
+        $validated = $request->validate([
+            'tp_id' => 'required|integer|exists:tujuan_pembelajarans,id',
+        ]);
+
+        $tp = TujuanPembelajaran::findOrFail($validated['tp_id']);
+
+        $materi = Materi::where('cbt_jadwal_id', $jadwal->id)->first();
+        if ($materi) {
+            $materi->update(['tp_id' => $tp->id]);
+        } else {
+            $guru = $this->resolveGuru($request);
+            Materi::create([
+                'guru_id' => $guru?->id ?? $jadwal->guru_id,
+                'tp_id' => $tp->id,
+                'mapel_id' => $jadwal->bankSoal?->mata_pelajaran_id,
+                'kelas_id' => $jadwal->kelas_id,
+                'cbt_jadwal_id' => $jadwal->id,
+                'judul' => 'Evaluasi CBT - '.$jadwal->judul_ujian,
+                'tipe' => 'dokumen',
+                'is_published' => true,
+                'semester' => $tp->semester ?? 'Ganjil',
+            ]);
+        }
+
+        // Sinkronkan nilai yang sudah tuntas ke TP
+        $nilais = CbtNilai::where('jadwal_id', $jadwal->id)->get();
+        foreach ($nilais as $cbtNilai) {
+            self::syncCbtNilaiToTp($cbtNilai, $jadwal);
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Capaian Pembelajaran (CP) berhasil ditautkan ke jadwal ujian!',
+            ]);
+        }
+
+        return redirect()->back()->with('message', 'Capaian Pembelajaran (CP) berhasil ditautkan ke jadwal ujian!');
     }
 
     /**
@@ -1386,6 +1560,51 @@ class GuruCbtController extends Controller
     }
 
     /**
+     * Helper to resolve User instance from Siswa model (robust fallback if user_id relationship is unlinked).
+     */
+    private function resolveStudentUser(Siswa $siswa): ?User
+    {
+        if ($siswa->user) {
+            return $siswa->user;
+        }
+
+        if (! empty($siswa->user_id)) {
+            $user = User::find($siswa->user_id);
+            if ($user) return $user;
+        }
+
+        if (! empty($siswa->nis)) {
+            $user = User::where('username', $siswa->nis)
+                ->orWhere('email', 'like', $siswa->nis . '@%')
+                ->first();
+            if ($user) {
+                // Auto-link user_id for future queries
+                try {
+                    $siswa->update(['user_id' => $user->id]);
+                } catch (\Throwable $e) {}
+                return $user;
+            }
+        }
+
+        $user = User::whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(trim($siswa->nama))])
+            ->where(function ($q) use ($siswa) {
+                if ($siswa->kelas_id) {
+                    $q->where('kelas_id', $siswa->kelas_id)->orWhereNull('kelas_id');
+                }
+            })
+            ->first();
+
+        if ($user) {
+            try {
+                $siswa->update(['user_id' => $user->id]);
+            } catch (\Throwable $e) {}
+            return $user;
+        }
+
+        return null;
+    }
+
+    /**
      * Reset single-device login lock for student without modifying CBT answers or scores.
      */
     public function resetLoginSiswa(Request $request, int $id)
@@ -1399,15 +1618,25 @@ class GuruCbtController extends Controller
             }
         }
 
-        if (! $siswa || ! $siswa->user) {
-            $errMsg = 'Data siswa atau akun pengguna tidak ditemukan.';
+        if (! $siswa) {
+            $errMsg = 'Data siswa tidak ditemukan.';
             if ($request->wantsJson() && ! $request->header('X-Inertia')) {
                 return response()->json(['success' => false, 'message' => $errMsg], 404);
             }
             return redirect()->back()->with('error', $errMsg);
         }
 
-        $siswa->user->update([
+        $user = $this->resolveStudentUser($siswa);
+
+        if (! $user) {
+            $errMsg = "Akun login untuk siswa {$siswa->nama} (NIS: {$siswa->nis}) belum terdaftar di tabel user.";
+            if ($request->wantsJson() && ! $request->header('X-Inertia')) {
+                return response()->json(['success' => false, 'message' => $errMsg], 404);
+            }
+            return redirect()->back()->with('error', $errMsg);
+        }
+
+        $user->update([
             'active_session_id' => 'RESET',
             'active_device_token' => null,
             'active_device_ip' => null,
@@ -1415,7 +1644,51 @@ class GuruCbtController extends Controller
             'last_activity_at' => null,
         ]);
 
+        try {
+            DB::table('sessions')->where('user_id', $user->id)->delete();
+        } catch (\Throwable $e) {}
+
         $msg = "Kunci login perangkat untuk {$siswa->nama} berhasil direset! Siswa dapat langsung login di perangkat baru.";
+        if ($request->wantsJson() && ! $request->header('X-Inertia')) {
+            return response()->json(['success' => true, 'message' => $msg]);
+        }
+
+        return redirect()->back()->with('message', $msg);
+    }
+
+    /**
+     * Reset single-device login lock for multiple selected students in bulk.
+     */
+    public function resetLoginSiswaBulk(Request $request)
+    {
+        $ids = $request->input('ids') ?? $request->input('siswa_ids') ?? [];
+        if (empty($ids) || ! is_array($ids)) {
+            return redirect()->back()->with('error', 'Pilih minimal satu siswa untuk direset loginnya.');
+        }
+
+        $siswas = Siswa::with('user')->whereIn('id', $ids)->get();
+        $resetCount = 0;
+
+        foreach ($siswas as $siswa) {
+            $user = $this->resolveStudentUser($siswa);
+            if ($user) {
+                $user->update([
+                    'active_session_id' => 'RESET',
+                    'active_device_token' => null,
+                    'active_device_ip' => null,
+                    'active_device_agent' => null,
+                    'last_activity_at' => null,
+                ]);
+
+                try {
+                    DB::table('sessions')->where('user_id', $user->id)->delete();
+                } catch (\Throwable $e) {}
+
+                $resetCount++;
+            }
+        }
+
+        $msg = "Berhasil mereset kunci login untuk {$resetCount} siswa terpilih! Siswa dapat langsung login sekarang.";
         if ($request->wantsJson() && ! $request->header('X-Inertia')) {
             return response()->json(['success' => true, 'message' => $msg]);
         }

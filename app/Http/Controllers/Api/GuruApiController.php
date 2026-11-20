@@ -794,6 +794,19 @@ class GuruApiController extends Controller
         return app(GuruCbtController::class)->getMonitoringData($request, $id);
     }
 
+    public function tautkanCbtTp(Request $request, int $id): JsonResponse
+    {
+        $res = app(GuruCbtController::class)->tautkanTp($request, $id);
+        if ($res instanceof JsonResponse) {
+            return $res;
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Capaian Pembelajaran (CP) berhasil ditautkan!',
+        ]);
+    }
+
     public function resetSesiSiswa(Request $request, int $id): JsonResponse
     {
         $sesi = CbtSesi::with(['jadwal', 'siswa.user'])->findOrFail($id);

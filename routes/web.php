@@ -133,8 +133,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::patch('/cbt/jadwal/{id}/toggle-status', [GuruCbtController::class, 'toggleJadwalStatus'])->name('cbt.jadwal.toggle-status');
         Route::delete('/cbt/jadwal/{id}', [GuruCbtController::class, 'deleteJadwal'])->name('cbt.jadwal.delete');
         Route::get('/cbt/jadwal/{id}/monitoring', [GuruCbtController::class, 'getMonitoringData'])->name('cbt.jadwal.monitoring');
+        Route::post('/cbt/jadwal/{id}/tautkan-tp', [GuruCbtController::class, 'tautkanTp'])->name('cbt.jadwal.tautkan-tp');
         Route::post('/cbt/sesi/{id}/reset', [GuruCbtController::class, 'resetSesiSiswa'])->name('cbt.sesi.reset');
         Route::post('/cbt/sesi/{id}/reset-login', [GuruCbtController::class, 'resetLoginSiswa'])->name('cbt.sesi.reset-login');
+        Route::post('/cbt/siswa/reset-login-bulk', [GuruCbtController::class, 'resetLoginSiswaBulk'])->name('cbt.siswa.reset-login-bulk');
         Route::post('/cbt/siswa/{id}/reset-login', [GuruCbtController::class, 'resetLoginSiswa'])->name('cbt.siswa.reset-login');
         Route::post('/cbt/sesi/{id}/kunci', [GuruCbtController::class, 'kunciSesiSiswa'])->name('cbt.sesi.kunci');
         Route::post('/cbt/sesi/{id}/buka-kunci', [GuruCbtController::class, 'bukaKunciSesiSiswa'])->name('cbt.sesi.buka-kunci');

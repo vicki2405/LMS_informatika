@@ -70,6 +70,37 @@ function resetLoginPerangkat(siswa) {
   });
 }
 
+function handleBulkResetLogin() {
+  if (selectedSiswaIds.value.length === 0) return;
+  const count = selectedSiswaIds.value.length;
+  Swal.fire({
+    title: 'Reset Login Siswa Terpilih?',
+    html: `Kunci login untuk <b class="text-cyan-400 font-bold">${count} siswa</b> yang dipilih akan dibuka.<br><span class="text-gray-400 mt-1.5 inline-block text-xs">Semua siswa yang dicentang dapat langsung login di perangkat/HP baru.</span>`,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#06b6d4',
+    cancelButtonColor: '#475569',
+    confirmButtonText: `Ya, Reset ${count} Siswa!`,
+    cancelButtonText: 'Batal',
+    background: '#1e293b',
+    color: '#fff',
+  }).then((res) => {
+    if (res.isConfirmed) {
+      router.post(
+        route('guru.cbt.siswa.reset-login-bulk'),
+        { ids: selectedSiswaIds.value },
+        {
+          preserveScroll: true,
+          onSuccess: () => {
+            showToast(`Kunci login ${count} siswa terpilih berhasil direset!`, 'success');
+            selectedSiswaIds.value = [];
+          },
+        }
+      );
+    }
+  });
+}
+
 function getTingkatFromKelas(namaKelas) {
   if (!namaKelas || typeof namaKelas !== 'string') return 'X';
   const upper = namaKelas.trim().toUpperCase();
@@ -539,6 +570,16 @@ function processImport() {
       </div>
       
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+        <!-- Bulk Reset Login Button (Available for both Guru and Admin when students are selected) -->
+        <button
+          v-if="selectedSiswaIds.length > 0"
+          @click="handleBulkResetLogin"
+          class="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white px-4 py-2.5 rounded-2xl font-extrabold text-xs sm:text-sm shadow-lg shadow-cyan-500/25 active:scale-95 transition-all duration-200 min-h-[44px]"
+        >
+          <span>📱</span>
+          <span>Reset Login Terpilih ({{ selectedSiswaIds.length }} Siswa)</span>
+        </button>
+
         <!-- Read-Only Badge for Subject Teachers -->
         <div v-if="!canManage" class="px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-400 text-xs font-bold flex items-center gap-2">
           <span>🛡️ Data Siswa Terverifikasi Wali Kelas (Read-Only)</span>
@@ -827,12 +868,12 @@ function processImport() {
         <table class="w-full text-left text-xs sm:text-sm text-gray-300">
           <thead class="bg-slate-950/60 text-gray-400 uppercase text-[11px] font-extrabold tracking-wider border-b border-white/10">
             <tr>
-              <th v-if="canManage" class="px-4 py-4 text-center w-12">
+              <th class="px-4 py-4 text-center w-12">
                 <input
                   type="checkbox"
                   :checked="isAllSiswaSelected"
                   @change="toggleSelectAllSiswa"
-                  class="w-4 h-4 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-400"
+                  class="w-4 h-4 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-400 cursor-pointer"
                   title="Pilih Semua Siswa"
                 />
               </th>
@@ -843,7 +884,7 @@ function processImport() {
               <th class="px-6 py-4">Wali Kelas</th>
               <th class="px-6 py-4">No. WhatsApp</th>
               <th class="px-6 py-4">Status</th>
-              <th v-if="canManage" class="px-6 py-4 text-right">Aksi</th>
+              <th class="px-6 py-4 text-right">Aksi</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5 font-medium">
@@ -858,12 +899,12 @@ function processImport() {
                 'hover:bg-white/5'
               ]"
             >
-              <td v-if="canManage" class="px-4 py-4 text-center">
+              <td class="px-4 py-4 text-center">
                 <input
                   type="checkbox"
                   :checked="selectedSiswaIds.includes(siswa.id)"
                   @change="toggleSelectSiswa(siswa.id)"
-                  class="w-4 h-4 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-400"
+                  class="w-4 h-4 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-400 cursor-pointer"
                 />
               </td>
               <td class="px-4 py-4 text-center font-mono text-gray-400 text-xs">{{ startItem + index }}</td>
@@ -944,14 +985,16 @@ function processImport() {
                   </span>
                 </div>
               </td>
-              <td v-if="canManage" class="px-6 py-4 text-right space-x-2">
+              <td class="px-6 py-4 text-right space-x-2">
                 <button @click="resetLoginPerangkat(siswa)" class="text-cyan-300 hover:text-white font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-2.5 py-1.5 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[36px]" title="Reset Sesi/Kunci Login Perangkat">📱 Reset Login</button>
-                <button @click="openEditSiswa(siswa)" class="text-cyan-300 hover:text-white font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-3 py-1.5 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[36px]">✏️ Edit</button>
-                <button @click="$emit('delete-siswa', siswa.id)" class="text-red-400 hover:text-red-300 font-bold text-xs bg-red-500/15 hover:bg-red-500/30 px-3 py-1.5 rounded-xl border border-red-500/30 active:scale-95 transition-all min-h-[36px]">🗑️ Hapus</button>
+                <template v-if="canManage">
+                  <button @click="openEditSiswa(siswa)" class="text-cyan-300 hover:text-white font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-3 py-1.5 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[36px]">✏️ Edit</button>
+                  <button @click="$emit('delete-siswa', siswa.id)" class="text-red-400 hover:text-red-300 font-bold text-xs bg-red-500/15 hover:bg-red-500/30 px-3 py-1.5 rounded-xl border border-red-500/30 active:scale-95 transition-all min-h-[36px]">🗑️ Hapus</button>
+                </template>
               </td>
             </tr>
             <tr v-if="sortedFilteredSiswa.length === 0">
-              <td :colspan="canManage ? 9 : 7" class="px-6 py-12 text-center text-gray-400 font-medium">Tidak ada data siswa yang cocok.</td>
+              <td :colspan="9" class="px-6 py-12 text-center text-gray-400 font-medium">Tidak ada data siswa yang cocok.</td>
             </tr>
           </tbody>
         </table>
@@ -998,11 +1041,10 @@ function processImport() {
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
               <input
-                v-if="canManage"
                 type="checkbox"
                 :checked="selectedSiswaIds.includes(siswa.id)"
                 @change="toggleSelectSiswa(siswa.id)"
-                class="w-5 h-5 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-400"
+                class="w-5 h-5 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-400 cursor-pointer"
               />
               <span class="font-mono text-xs font-bold text-gray-400">#{{ startItem + index }}</span>
             </div>
@@ -1043,16 +1085,18 @@ function processImport() {
             </div>
           </div>
 
-          <div v-if="canManage" class="grid grid-cols-3 gap-2 pt-2 border-t border-white/10">
-            <button @click="resetLoginPerangkat(siswa)" class="py-2.5 text-center text-cyan-300 font-bold text-xs bg-cyan-500/15 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[44px]">
-              📱 Reset HP
+          <div class="flex items-center gap-2 pt-2 border-t border-white/10">
+            <button @click="resetLoginPerangkat(siswa)" class="flex-1 py-2.5 text-center text-cyan-300 font-bold text-xs bg-cyan-500/15 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[44px]">
+              📱 Reset Login
             </button>
-            <button @click="openEditSiswa(siswa)" class="py-2.5 text-center text-cyan-300 font-bold text-xs bg-cyan-500/15 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[44px]">
-              ✏️ Edit
-            </button>
-            <button @click="$emit('delete-siswa', siswa.id)" class="py-2.5 text-center text-red-400 font-bold text-xs bg-red-500/15 rounded-xl border border-red-500/30 active:scale-95 transition-all min-h-[44px]">
-              🗑️ Hapus
-            </button>
+            <template v-if="canManage">
+              <button @click="openEditSiswa(siswa)" class="flex-1 py-2.5 text-center text-cyan-300 font-bold text-xs bg-cyan-500/15 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[44px]">
+                ✏️ Edit
+              </button>
+              <button @click="$emit('delete-siswa', siswa.id)" class="flex-1 py-2.5 text-center text-red-400 font-bold text-xs bg-red-500/15 rounded-xl border border-red-500/30 active:scale-95 transition-all min-h-[44px]">
+                🗑️ Hapus
+              </button>
+            </template>
           </div>
         </div>
 

@@ -78,6 +78,7 @@ Route::prefix('v1')->group(function () {
             Route::patch('/cbt/jadwal/{id}/status', [GuruApiController::class, 'toggleCbtJadwal']);
             Route::get('/cbt/nilai', [GuruApiController::class, 'getCbtNilai']);
             Route::get('/cbt/jadwal/{id}/monitoring', [GuruApiController::class, 'getMonitoringData']);
+            Route::post('/cbt/jadwal/{id}/tautkan-tp', [GuruApiController::class, 'tautkanCbtTp']);
             Route::post('/cbt/sesi/{id}/reset', [GuruApiController::class, 'resetSesiSiswa']);
             Route::post('/cbt/sesi/{id}/reset-login', [GuruApiController::class, 'resetLoginSiswa']);
             Route::post('/cbt/siswa/{id}/reset-login', [GuruApiController::class, 'resetLoginSiswa']);

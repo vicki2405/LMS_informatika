@@ -19,6 +19,9 @@ const props = defineProps({
       terkunci: 0,
       totalPelanggaran: 0,
       siswaMelanggar: 0,
+      sudahMengerjakan: 0,
+      belumMengerjakan: 0,
+      belumMulai: 0,
     }),
   },
   peserta: {
@@ -26,6 +29,10 @@ const props = defineProps({
     default: () => [],
   },
   masterKelasList: {
+    type: Array,
+    default: () => [],
+  },
+  availableTps: {
     type: Array,
     default: () => [],
   },
@@ -49,23 +56,144 @@ let pollingTimer = null;
 
 // Search & Filter Tabs
 const searchQuery = ref('');
-const activeFilterTab = ref('semua'); // 'semua', 'mengerjakan', 'selesai', 'menunggu', 'melanggar'
+const activeFilterTab = ref('semua'); // 'semua', 'selesai', 'belum', 'mengerjakan', 'menunggu', 'melanggar'
 const selectedKelasFilter = ref('');
+const sortBy = ref('nilai_desc'); // 'nilai_desc' (Nilai Tertinggi - Ranking), 'nilai_asc', 'nama_asc', 'nis_asc'
 
-// Computed unique classes strictly from teacher schedule for this subject (masterKelasList)
+// KKM / KKTP Value (dari Capaian Pembelajaran atau default 75)
+const kkmValue = computed(() => {
+  if (props.jadwal.linkedTp?.kktp) {
+    return Number(props.jadwal.linkedTp.kktp);
+  }
+  if (props.jadwal.kktp) {
+    return Number(props.jadwal.kktp);
+  }
+  return 75;
+});
+
+// Modal Tautkan Capaian Pembelajaran (CP / TP) State
+const showModalCp = ref(false);
+const selectedTpId = ref(props.jadwal.linkedTp?.id || '');
+const isSubmittingCp = ref(false);
+
+const selectedTpDetail = computed(() => {
+  return (props.availableTps || []).find((t) => String(t.id) === String(selectedTpId.value));
+});
+
+function openModalCp() {
+  selectedTpId.value = props.jadwal.linkedTp?.id || (props.availableTps?.[0]?.id || '');
+  showModalCp.value = true;
+}
+
+function simpanTautkanCp() {
+  if (!selectedTpId.value) {
+    showToast('Silakan pilih Capaian Pembelajaran terlebih dahulu.', 'warning');
+    return;
+  }
+  isSubmittingCp.value = true;
+  router.post(
+    route('guru.cbt.jadwal.tautkan-tp', props.jadwal.id),
+    { tp_id: selectedTpId.value },
+    {
+      preserveScroll: true,
+      onSuccess: () => {
+        showModalCp.value = false;
+        showToast('Capaian Pembelajaran (CP) berhasil ditautkan!', 'success');
+        fetchMonitoringData(false);
+      },
+      onError: () => {
+        showToast('Gagal menautkan Capaian Pembelajaran.', 'error');
+      },
+      onFinish: () => {
+        isSubmittingCp.value = false;
+      },
+    }
+  );
+}
+
+// Computed classes with live breakdown per class
 const availableKelasList = computed(() => {
-  const set = new Set();
-  (props.masterKelasList || []).forEach((k) => {
-    if (k.namaKelas) set.add(k.namaKelas);
-  });
-  return Array.from(set).sort((a, b) =>
-    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+  return (props.masterKelasList || []).map((k) => {
+    const inKelas = pesertaList.value.filter(
+      (p) => (p.kelasId && String(p.kelasId) === String(k.id)) || p.kelas === k.namaKelas
+    );
+    const total = inKelas.length || k.totalSiswa || 0;
+    const sudah = inKelas.filter((p) => p.status === 'selesai').length;
+    const belum = total - sudah;
+    return {
+      id: k.id,
+      namaKelas: k.namaKelas,
+      totalSiswa: total,
+      sudahMengerjakan: sudah,
+      belumMengerjakan: belum,
+    };
+  }).sort((a, b) =>
+    a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true, sensitivity: 'base' })
   );
 });
 
-// Filtered Participants
-const filteredPeserta = computed(() => {
+// Active class statistics (dynamically recalculates based on selectedKelasFilter!)
+const activeClassStats = computed(() => {
   let list = pesertaList.value;
+
+  if (selectedKelasFilter.value) {
+    list = list.filter((p) => p.kelas === selectedKelasFilter.value);
+  }
+
+  const total = list.length;
+  const sudah = list.filter((p) => p.status === 'selesai').length;
+  const mengerjakan = list.filter((p) => p.status === 'mengerjakan').length;
+  const menunggu = list.filter((p) => p.status === 'menunggu').length;
+  const terkunci = list.filter((p) => p.status === 'terkunci').length;
+  const belumMulai = list.filter((p) => p.status === 'belum_mulai').length;
+  const belum = total - sudah;
+  const persen = total > 0 ? Math.round((sudah / total) * 100) : 0;
+  const workingPersen = total > 0 ? Math.round((mengerjakan / total) * 100) : 0;
+  const waitingPersen = total > 0 ? Math.round((menunggu / total) * 100) : 0;
+  const unstartedPersen = total > 0 ? Math.round((belumMulai / total) * 100) : 0;
+  const lockedPersen = total > 0 ? Math.round((terkunci / total) * 100) : 0;
+  const melanggarCount = list.filter(
+    (p) => (p.jumlahPelanggaran && p.jumlahPelanggaran > 0) || p.status === 'terkunci'
+  ).length;
+
+  return {
+    totalSiswa: total,
+    sudahMengerjakan: sudah,
+    belumMengerjakan: belum,
+    sedangUjian: mengerjakan,
+    menunggu,
+    belumMulai,
+    terkunci,
+    siswaMelanggar: melanggarCount,
+    persenSelesai: persen,
+    workingPercentage: workingPersen,
+    waitingPercentage: waitingPersen,
+    unstartedPercentage: unstartedPersen,
+    lockedPercentage: lockedPersen,
+  };
+});
+
+// Tab counts (reflects current class filter)
+const tabCounts = computed(() => {
+  let list = pesertaList.value;
+  if (selectedKelasFilter.value) {
+    list = list.filter((p) => p.kelas === selectedKelasFilter.value);
+  }
+  return {
+    semua: list.length,
+    selesai: list.filter((p) => p.status === 'selesai').length,
+    belumMengerjakan: list.filter((p) => p.status !== 'selesai').length,
+    mengerjakan: list.filter((p) => p.status === 'mengerjakan').length,
+    menunggu: list.filter((p) => p.status === 'menunggu').length,
+    melanggar: list.filter(
+      (p) => (p.jumlahPelanggaran && p.jumlahPelanggaran > 0) || p.status === 'terkunci'
+    ).length,
+  };
+});
+
+// Filtered & Auto-Ranked Participants
+const filteredPeserta = computed(() => {
+  let list = [...pesertaList.value];
 
   // Filter Rombel Kelas
   if (selectedKelasFilter.value) {
@@ -75,8 +203,14 @@ const filteredPeserta = computed(() => {
   if (activeFilterTab.value !== 'semua') {
     if (activeFilterTab.value === 'melanggar') {
       list = list.filter((p) => (p.jumlahPelanggaran && p.jumlahPelanggaran > 0) || p.status === 'terkunci');
-    } else {
-      list = list.filter((p) => p.status === activeFilterTab.value);
+    } else if (activeFilterTab.value === 'selesai') {
+      list = list.filter((p) => p.status === 'selesai');
+    } else if (activeFilterTab.value === 'belum') {
+      list = list.filter((p) => p.status !== 'selesai');
+    } else if (activeFilterTab.value === 'mengerjakan') {
+      list = list.filter((p) => p.status === 'mengerjakan');
+    } else if (activeFilterTab.value === 'menunggu') {
+      list = list.filter((p) => p.status === 'menunggu');
     }
   }
 
@@ -89,6 +223,44 @@ const filteredPeserta = computed(() => {
         (p.kelas && p.kelas.toLowerCase().includes(q))
     );
   }
+
+  // Auto-Rank & Dynamic Sorting: Siswa nilai tertinggi langsung di atas, nilai terendah di bawah, yang belum selesai di paling akhir
+  list.sort((a, b) => {
+    if (sortBy.value === 'nilai_desc') {
+      const hasNilaiA = a.nilai !== null && a.nilai !== undefined;
+      const hasNilaiB = b.nilai !== null && b.nilai !== undefined;
+
+      if (hasNilaiA && hasNilaiB) {
+        const diff = Number(b.nilai) - Number(a.nilai);
+        if (diff !== 0) return diff;
+        return (a.jumlahPelanggaran || 0) - (b.jumlahPelanggaran || 0);
+      }
+
+      if (hasNilaiA && !hasNilaiB) return -1;
+      if (!hasNilaiA && hasNilaiB) return 1;
+
+      const statusWeight = { mengerjakan: 1, menunggu: 2, belum_mulai: 3, terkunci: 4 };
+      const weightA = statusWeight[a.status] || 5;
+      const weightB = statusWeight[b.status] || 5;
+      if (weightA !== weightB) return weightA - weightB;
+
+      return (a.namaSiswa || '').localeCompare(b.namaSiswa || '');
+    } else if (sortBy.value === 'nilai_asc') {
+      const hasNilaiA = a.nilai !== null && a.nilai !== undefined;
+      const hasNilaiB = b.nilai !== null && b.nilai !== undefined;
+
+      if (hasNilaiA && hasNilaiB) {
+        return Number(a.nilai) - Number(b.nilai);
+      }
+      if (hasNilaiA && !hasNilaiB) return -1;
+      if (!hasNilaiA && hasNilaiB) return 1;
+      return (a.namaSiswa || '').localeCompare(b.namaSiswa || '');
+    } else if (sortBy.value === 'nis_asc') {
+      return String(a.nis || '').localeCompare(String(b.nis || ''), undefined, { numeric: true });
+    } else {
+      return (a.namaSiswa || '').localeCompare(b.namaSiswa || '');
+    }
+  });
 
   return list;
 });
@@ -131,6 +303,9 @@ async function fetchMonitoringData(isManual = false) {
     if (res.data && res.data.success) {
       pesertaList.value = res.data.peserta || [];
       statsData.value = res.data.stats || statsData.value;
+      if (res.data.jadwal && res.data.jadwal.linkedTp !== undefined) {
+        props.jadwal.linkedTp = res.data.jadwal.linkedTp;
+      }
       lastUpdatedAt.value = new Date().toLocaleTimeString('id-ID', {
         hour: '2-digit',
         minute: '2-digit',
@@ -521,15 +696,28 @@ function getProgressPercent(terjawab) {
                 <span>{{ jadwal.modeUjian === 'game' ? 'Game Mode' : 'Formal CBT' }}</span>
               </span>
 
-              <!-- TP Link Badge -->
-              <span v-if="jadwal.linkedTp" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold flex items-center gap-1.5" :title="`Tertaut ke Materi: ${jadwal.linkedTp.materiJudul || '-'}`">
+              <!-- CP Badge Pill (Compact & Interactive) -->
+              <button
+                v-if="jadwal.linkedTp"
+                @click="openModalCp"
+                type="button"
+                class="px-2.5 py-1 rounded-lg bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/40 text-teal-300 font-semibold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                :title="`Klik untuk ganti CP. KKTP: ≥ ${jadwal.linkedTp.kktp || 75}`"
+              >
                 <span>🎯</span>
-                <span>TP: {{ jadwal.linkedTp.kode }} ({{ jadwal.linkedTp.judul }})</span>
-              </span>
-              <span v-else class="px-2.5 py-1 rounded-lg bg-gray-500/15 border border-gray-500/30 text-gray-400 font-medium flex items-center gap-1.5">
-                <span>ℹ️</span>
-                <span>Belum Ditautkan ke TP Materi</span>
-              </span>
+                <span>CP: {{ jadwal.linkedTp.kode }} ({{ jadwal.linkedTp.judul }})</span>
+                <span class="text-[10px] text-teal-400 font-normal underline ml-0.5">Ubah</span>
+              </button>
+              <button
+                v-else
+                @click="openModalCp"
+                type="button"
+                class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-medium flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                title="Tautkan Capaian Pembelajaran ke jadwal ini"
+              >
+                <span>🎯</span>
+                <span>+ Tautkan CP</span>
+              </button>
             </div>
           </div>
 
@@ -574,37 +762,50 @@ function getProgressPercent(terjawab) {
           </div>
         </div>
 
-        <!-- Multi-Segmented Exam Completion Bar (At a glance overview) -->
+        <!-- Multi-Segmented Exam Completion Bar (Reactively adapts to selected class filter!) -->
         <div class="mt-6 pt-5 border-t border-white/10 space-y-2.5">
-          <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center justify-between text-xs flex-wrap gap-2">
             <div class="flex items-center gap-2">
               <span class="font-bold text-white">Status Penyelesaian Kelas:</span>
-              <span class="text-emerald-400 font-mono font-bold">{{ completionPercentage }}% Tuntas</span>
+              <span v-if="selectedKelasFilter" class="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-bold text-[11px]">
+                Kelas {{ selectedKelasFilter }}
+              </span>
+              <span v-else class="px-2 py-0.5 rounded-md bg-white/10 text-gray-300 font-medium text-[11px]">
+                Semua Rombel Terjadwal
+              </span>
+              <span class="text-emerald-400 font-mono font-bold">{{ activeClassStats.persenSelesai }}% Tuntas</span>
             </div>
             <span class="text-gray-400 font-mono text-[11px]">
-              {{ statsData.selesai || 0 }} dari {{ statsData.totalPeserta || 0 }} Siswa
+              <strong class="text-emerald-400 font-bold">{{ activeClassStats.sudahMengerjakan }} Selesai</strong> •
+              <strong class="text-amber-300 font-bold">{{ activeClassStats.belumMengerjakan }} Belum Selesai</strong>
+              <span class="text-gray-500"> / {{ activeClassStats.totalSiswa }} Siswa</span>
             </span>
           </div>
 
           <!-- Segmented Progress Bar -->
           <div class="h-2.5 w-full bg-slate-950 rounded-full overflow-hidden flex border border-white/10">
             <div
-              :style="{ width: `${completionPercentage}%` }"
+              :style="{ width: `${activeClassStats.persenSelesai}%` }"
               class="h-full bg-emerald-500 transition-all duration-500"
-              title="Telah Selesai"
+              title="Sudah Selesai Mengerjakan"
             ></div>
             <div
-              :style="{ width: `${workingPercentage}%` }"
+              :style="{ width: `${activeClassStats.workingPercentage}%` }"
               class="h-full bg-teal-400 transition-all duration-500"
               title="Sedang Mengerjakan"
             ></div>
             <div
-              :style="{ width: `${waitingPercentage}%` }"
+              :style="{ width: `${activeClassStats.waitingPercentage}%` }"
               class="h-full bg-cyan-400 transition-all duration-500"
               title="Di Ruang Tunggu"
             ></div>
             <div
-              :style="{ width: `${lockedPercentage}%` }"
+              :style="{ width: `${activeClassStats.unstartedPercentage}%` }"
+              class="h-full bg-amber-500/40 transition-all duration-500"
+              title="Belum Masuk Ujian"
+            ></div>
+            <div
+              :style="{ width: `${activeClassStats.lockedPercentage}%` }"
               class="h-full bg-rose-500 transition-all duration-500"
               title="Terkunci"
             ></div>
@@ -614,74 +815,84 @@ function getProgressPercent(terjawab) {
           <div class="flex items-center gap-4 flex-wrap text-[11px] text-gray-400 pt-1">
             <div class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span>Selesai: <strong class="text-white">{{ statsData.selesai || 0 }}</strong></span>
+              <span>Sudah Selesai: <strong class="text-white font-mono">{{ activeClassStats.sudahMengerjakan }}</strong></span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+              <span class="text-amber-200">Belum Selesai: <strong class="text-white font-mono">{{ activeClassStats.belumMengerjakan }}</strong></span>
             </div>
             <div class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-teal-400"></span>
-              <span>Mengerjakan: <strong class="text-white">{{ statsData.mengerjakan || 0 }}</strong></span>
+              <span>Sedang Ujian: <strong class="text-white font-mono">{{ activeClassStats.sedangUjian }}</strong></span>
             </div>
             <div class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
-              <span>Ruang Tunggu: <strong class="text-white">{{ statsData.menunggu || 0 }}</strong></span>
+              <span>Ruang Tunggu: <strong class="text-white font-mono">{{ activeClassStats.menunggu }}</strong></span>
             </div>
-            <div v-if="(statsData.terkunci || 0) > 0" class="flex items-center gap-1.5">
+            <div v-if="activeClassStats.belumMulai > 0" class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-gray-500"></span>
+              <span>Belum Masuk: <strong class="text-gray-300 font-mono">{{ activeClassStats.belumMulai }}</strong></span>
+            </div>
+            <div v-if="activeClassStats.terkunci > 0" class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-rose-500"></span>
-              <span class="text-rose-300">Terkunci: <strong class="text-rose-200">{{ statsData.terkunci }}</strong></span>
+              <span class="text-rose-300">Terkunci: <strong class="text-rose-200 font-mono">{{ activeClassStats.terkunci }}</strong></span>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- 4 KPI SUMMARY CARDS -->
+      <!-- 4 KPI SUMMARY CARDS (Dynamically Calculated per Selected Class Filter!) -->
       <section class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <!-- 1. Total Peserta -->
+        <!-- 1. Total Siswa (Per Kelas / Semua Kelas) -->
         <div class="p-4 sm:p-5 rounded-2xl bg-slate-900 border border-white/10 space-y-1 shadow-sm hover:border-white/20 transition-all">
           <div class="flex items-center justify-between text-gray-400">
-            <span class="text-[11px] font-bold uppercase tracking-wider">Total Siswa</span>
+            <span class="text-[11px] font-bold uppercase tracking-wider truncate">
+              {{ selectedKelasFilter ? `Total Siswa (${selectedKelasFilter})` : 'Total Siswa (Semua Kelas)' }}
+            </span>
             <span class="text-lg">👥</span>
           </div>
           <div class="flex items-baseline gap-2">
             <span class="text-2xl sm:text-3xl font-black text-white font-mono">
-              {{ statsData.totalPeserta || 0 }}
+              {{ activeClassStats.totalSiswa }}
             </span>
-            <span class="text-xs text-gray-400">Peserta</span>
+            <span class="text-xs text-gray-400">Siswa</span>
           </div>
           <span class="text-[11px] text-teal-400 font-medium block truncate">
-            {{ statsData.menunggu || 0 }} siswa di ruang tunggu
+            {{ activeClassStats.belumMulai }} siswa belum masuk ujian
           </span>
         </div>
 
-        <!-- 2. Sedang Mengerjakan -->
-        <div class="p-4 sm:p-5 rounded-2xl bg-slate-900 border border-teal-500/30 space-y-1 shadow-sm hover:border-teal-500/50 transition-all">
-          <div class="flex items-center justify-between text-teal-300">
-            <span class="text-[11px] font-bold uppercase tracking-wider">Sedang Ujian</span>
-            <span class="text-lg">✍️</span>
-          </div>
-          <div class="flex items-baseline gap-2">
-            <span class="text-2xl sm:text-3xl font-black text-teal-300 font-mono">
-              {{ statsData.mengerjakan || 0 }}
-            </span>
-            <span class="text-xs text-gray-400">Aktif</span>
-          </div>
-          <span class="text-[11px] text-gray-400 font-medium block truncate">
-            {{ workingPercentage }}% dari total siswa
-          </span>
-        </div>
-
-        <!-- 3. Telah Selesai -->
+        <!-- 2. Sudah Mengerjakan (Tuntas) -->
         <div class="p-4 sm:p-5 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1 shadow-sm hover:border-emerald-500/50 transition-all">
           <div class="flex items-center justify-between text-emerald-300">
-            <span class="text-[11px] font-bold uppercase tracking-wider">Telah Selesai</span>
+            <span class="text-[11px] font-bold uppercase tracking-wider">Sudah Mengerjakan</span>
             <span class="text-lg">✅</span>
           </div>
           <div class="flex items-baseline gap-2">
             <span class="text-2xl sm:text-3xl font-black text-emerald-300 font-mono">
-              {{ statsData.selesai || 0 }}
+              {{ activeClassStats.sudahMengerjakan }}
             </span>
             <span class="text-xs text-gray-400">Tuntas</span>
           </div>
-          <span class="text-[11px] text-gray-400 font-medium block truncate">
-            Nilai otomatis terekam
+          <span class="text-[11px] text-emerald-400/90 font-medium block truncate">
+            {{ activeClassStats.persenSelesai }}% tuntas dari total siswa
+          </span>
+        </div>
+
+        <!-- 3. Belum Mengerjakan (Belum Selesai / Belum Masuk) -->
+        <div class="p-4 sm:p-5 rounded-2xl bg-slate-900 border border-amber-500/30 space-y-1 shadow-sm hover:border-amber-500/50 transition-all">
+          <div class="flex items-center justify-between text-amber-300">
+            <span class="text-[11px] font-bold uppercase tracking-wider">Belum Mengerjakan</span>
+            <span class="text-lg">⏳</span>
+          </div>
+          <div class="flex items-baseline gap-2">
+            <span class="text-2xl sm:text-3xl font-black text-amber-300 font-mono">
+              {{ activeClassStats.belumMengerjakan }}
+            </span>
+            <span class="text-xs text-gray-400">Siswa</span>
+          </div>
+          <span class="text-[11px] text-amber-200/80 font-medium block truncate">
+            {{ activeClassStats.belumMulai }} belum masuk • {{ activeClassStats.sedangUjian }} sedang ujian
           </span>
         </div>
 
@@ -689,31 +900,31 @@ function getProgressPercent(terjawab) {
         <div
           :class="[
             'p-4 sm:p-5 rounded-2xl border space-y-1 shadow-sm transition-all',
-            (statsData.siswaMelanggar || 0) > 0 || (statsData.terkunci || 0) > 0
+            activeClassStats.siswaMelanggar > 0 || activeClassStats.terkunci > 0
               ? 'bg-rose-950/30 border-rose-500/60 shadow-rose-950/20'
               : 'bg-slate-900 border-white/10 hover:border-white/20'
           ]"
         >
-          <div class="flex items-center justify-between" :class="(statsData.siswaMelanggar || 0) > 0 || (statsData.terkunci || 0) > 0 ? 'text-rose-300' : 'text-gray-400'">
+          <div class="flex items-center justify-between" :class="activeClassStats.siswaMelanggar > 0 || activeClassStats.terkunci > 0 ? 'text-rose-300' : 'text-gray-400'">
             <span class="text-[11px] font-bold uppercase tracking-wider">Anti-Cheat</span>
-            <span class="text-lg">{{ (statsData.siswaMelanggar || 0) > 0 ? '🚨' : '🛡️' }}</span>
+            <span class="text-lg">{{ activeClassStats.siswaMelanggar > 0 ? '🚨' : '🛡️' }}</span>
           </div>
           <div class="flex items-baseline gap-2">
             <span
               class="text-2xl sm:text-3xl font-black font-mono"
-              :class="(statsData.siswaMelanggar || 0) > 0 || (statsData.terkunci || 0) > 0 ? 'text-rose-400' : 'text-emerald-400'"
+              :class="activeClassStats.siswaMelanggar > 0 || activeClassStats.terkunci > 0 ? 'text-rose-400' : 'text-emerald-400'"
             >
-              {{ statsData.siswaMelanggar || 0 }}
+              {{ activeClassStats.siswaMelanggar }}
             </span>
             <span class="text-xs text-gray-400">
-              {{ (statsData.siswaMelanggar || 0) > 0 ? 'Siswa Melanggar' : 'Pelanggaran' }}
+              {{ activeClassStats.siswaMelanggar > 0 ? 'Siswa Melanggar' : 'Pelanggaran' }}
             </span>
           </div>
           <span
             class="text-[11px] font-medium block truncate"
-            :class="(statsData.siswaMelanggar || 0) > 0 || (statsData.terkunci || 0) > 0 ? 'text-rose-300 font-bold' : 'text-emerald-400'"
+            :class="activeClassStats.siswaMelanggar > 0 || activeClassStats.terkunci > 0 ? 'text-rose-300 font-bold' : 'text-emerald-400'"
           >
-            {{ (statsData.terkunci || 0) > 0 ? `🔒 ${statsData.terkunci} Sesi Terkunci` : '✓ Semua Siswa Tertib' }}
+            {{ activeClassStats.terkunci > 0 ? `🔒 ${activeClassStats.terkunci} Sesi Terkunci` : '✓ Semua Siswa Tertib' }}
           </span>
         </div>
       </section>
@@ -735,7 +946,37 @@ function getProgressPercent(terjawab) {
                   : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
               ]"
             >
-              Semua ({{ pesertaList.length }})
+              Semua ({{ tabCounts.semua }})
+            </button>
+
+            <!-- Sudah Mengerjakan (Selesai) -->
+            <button
+              @click="activeFilterTab = 'selesai'"
+              type="button"
+              :class="[
+                'px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap min-h-[38px] flex items-center gap-1.5',
+                activeFilterTab === 'selesai'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
+              ]"
+            >
+              <span>✅ Sudah Mengerjakan</span>
+              <span class="px-1.5 py-0.2 rounded-md bg-white/10 text-[10px] font-mono">{{ tabCounts.selesai }}</span>
+            </button>
+
+            <!-- Belum Mengerjakan (Belum Selesai / Belum Masuk) -->
+            <button
+              @click="activeFilterTab = 'belum'"
+              type="button"
+              :class="[
+                'px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap min-h-[38px] flex items-center gap-1.5',
+                activeFilterTab === 'belum'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
+              ]"
+            >
+              <span>⏳ Belum Mengerjakan</span>
+              <span class="px-1.5 py-0.2 rounded-md bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold">{{ tabCounts.belumMengerjakan }}</span>
             </button>
 
             <!-- Sedang Ujian -->
@@ -750,22 +991,7 @@ function getProgressPercent(terjawab) {
               ]"
             >
               <span>✍️ Sedang Ujian</span>
-              <span class="px-1.5 py-0.2 rounded-md bg-white/10 text-[10px] font-mono">{{ statsData.mengerjakan || 0 }}</span>
-            </button>
-
-            <!-- Selesai -->
-            <button
-              @click="activeFilterTab = 'selesai'"
-              type="button"
-              :class="[
-                'px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap min-h-[38px] flex items-center gap-1.5',
-                activeFilterTab === 'selesai'
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                  : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
-              ]"
-            >
-              <span>✅ Selesai</span>
-              <span class="px-1.5 py-0.2 rounded-md bg-white/10 text-[10px] font-mono">{{ statsData.selesai || 0 }}</span>
+              <span class="px-1.5 py-0.2 rounded-md bg-white/10 text-[10px] font-mono">{{ tabCounts.mengerjakan }}</span>
             </button>
 
             <!-- Ruang Tunggu -->
@@ -780,7 +1006,7 @@ function getProgressPercent(terjawab) {
               ]"
             >
               <span>⏳ Ruang Tunggu</span>
-              <span class="px-1.5 py-0.2 rounded-md bg-white/10 text-[10px] font-mono">{{ statsData.menunggu || 0 }}</span>
+              <span class="px-1.5 py-0.2 rounded-md bg-white/10 text-[10px] font-mono">{{ tabCounts.menunggu }}</span>
             </button>
 
             <!-- Melanggar / Terkunci -->
@@ -791,7 +1017,7 @@ function getProgressPercent(terjawab) {
                 'px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap min-h-[38px] flex items-center gap-1.5',
                 activeFilterTab === 'melanggar'
                   ? 'bg-rose-500/25 text-rose-300 border border-rose-500/50'
-                  : (statsData.siswaMelanggar || 0) > 0 || (statsData.terkunci || 0) > 0
+                  : activeClassStats.siswaMelanggar > 0 || activeClassStats.terkunci > 0
                     ? 'bg-rose-950/30 text-rose-400 hover:bg-rose-950/50 border border-rose-500/30'
                     : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
               ]"
@@ -799,47 +1025,66 @@ function getProgressPercent(terjawab) {
               <span>🚨 Melanggar / Terkunci</span>
               <span
                 class="px-1.5 py-0.2 rounded-md text-[10px] font-mono"
-                :class="(statsData.siswaMelanggar || 0) > 0 || (statsData.terkunci || 0) > 0 ? 'bg-rose-600 text-white font-bold' : 'bg-white/10'"
+                :class="activeClassStats.siswaMelanggar > 0 || activeClassStats.terkunci > 0 ? 'bg-rose-600 text-white font-bold' : 'bg-white/10'"
               >
-                {{ (statsData.siswaMelanggar || 0) + (statsData.terkunci || 0) }}
+                {{ tabCounts.melanggar }}
               </span>
             </button>
           </div>
 
-          <!-- Dropdown Filter Rombel Kelas (Untuk Membedakan Antar Kelas saat Ujian Semua Kelas) -->
-          <div v-if="jadwal.kelasNama === 'Semua Kelas' || availableKelasList.length > 1" class="shrink-0">
-            <select
-              v-model="selectedKelasFilter"
-              class="w-full sm:w-auto px-3 py-2 rounded-xl bg-slate-950 border border-cyan-500/30 text-cyan-300 text-xs font-bold focus:outline-none focus:border-cyan-400 transition-colors min-h-[38px]"
-              title="Pilih kelas tertentu untuk menyaring siswa"
-            >
-              <option value="">🏢 Semua Rombel Kelas ({{ availableKelasList.length }})</option>
-              <option v-for="k in availableKelasList" :key="k" :value="k">
-                Kelas: {{ k }}
-              </option>
-            </select>
-          </div>
+          <!-- Controls: Filter Kelas, Sort & Search -->
+          <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
+            <!-- Dropdown Filter Rombel Kelas (Bersih, Rapi & Standar) -->
+            <div v-if="jadwal.kelasNama === 'Semua Kelas' || availableKelasList.length > 1" class="shrink-0">
+              <select
+                v-model="selectedKelasFilter"
+                class="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-slate-950 border border-cyan-500/40 text-cyan-300 text-xs font-bold focus:outline-none focus:border-cyan-400 transition-colors min-h-[38px] cursor-pointer"
+                title="Pilih kelas untuk menyaring data siswa dan statistik"
+              >
+                <option value="">Semua Kelas</option>
+                <option v-for="k in availableKelasList" :key="k.id" :value="k.namaKelas">
+                  Kelas {{ k.namaKelas }}
+                </option>
+              </select>
+            </div>
 
-          <!-- Search Input -->
-          <div class="relative w-full md:w-72 shrink-0">
-            <input
-              v-model="searchQuery"
-              type="text"
-              placeholder="Cari siswa, NIS, kelas..."
-              class="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-cyan-400 transition-colors min-h-[38px]"
-            />
-            <span class="absolute left-3 top-2.5 text-gray-500 text-xs">🔍</span>
-            <button
-              v-if="searchQuery"
-              @click="searchQuery = ''"
-              class="absolute right-2.5 top-2 text-gray-400 hover:text-white p-0.5 rounded-full"
-              title="Bersihkan pencarian"
-            >
-              ✕
-            </button>
+            <!-- Sort By Selector (Ranking / Urutan) -->
+            <div class="shrink-0">
+              <select
+                v-model="sortBy"
+                class="w-full sm:w-auto px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-xs font-semibold focus:outline-none focus:border-cyan-400 transition-colors min-h-[38px] cursor-pointer"
+                title="Pilih pengurutan peserta"
+              >
+                <option value="nilai_desc">🏆 Nilai Tertinggi (Rank)</option>
+                <option value="nilai_asc">📉 Nilai Terendah</option>
+                <option value="nama_asc">🔤 Nama (A - Z)</option>
+                <option value="nis_asc">🔢 NIS Siswa</option>
+              </select>
+            </div>
+
+            <!-- Search Input -->
+            <div class="relative w-full sm:w-60 shrink-0">
+              <input
+                v-model="searchQuery"
+                type="text"
+                placeholder="Cari siswa, NIS, kelas..."
+                class="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-cyan-400 transition-colors min-h-[38px]"
+              />
+              <span class="absolute left-3 top-2.5 text-gray-500 text-xs">🔍</span>
+              <button
+                v-if="searchQuery"
+                @click="searchQuery = ''"
+                class="absolute right-2.5 top-2 text-gray-400 hover:text-white p-0.5 rounded-full"
+                title="Bersihkan pencarian"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
         </div>
+
+
       </section>
 
       <!-- 5. PARTICIPANTS ROSTER (DESKTOP TABLE + MOBILE CARDS) -->
@@ -873,18 +1118,19 @@ function getProgressPercent(terjawab) {
           <table class="w-full text-left border-collapse text-xs">
             <thead>
               <tr class="border-b border-white/10 bg-white/5 text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">
+                <th class="py-3.5 px-3 text-center w-14">No</th>
                 <th class="py-3.5 px-4">Peserta Ujian</th>
                 <th class="py-3.5 px-3">Kelas</th>
                 <th class="py-3.5 px-3 text-center">Status</th>
                 <th class="py-3.5 px-3">Progress Pengerjaan</th>
                 <th class="py-3.5 px-3 text-center">Anti-Cheat</th>
-                <th class="py-3.5 px-3 text-center">Nilai</th>
+                <th class="py-3.5 px-3 text-center">Nilai (KKM: {{ kkmValue }})</th>
                 <th class="py-3.5 px-4 text-right">Aksi Kontrol</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-white/5">
               <tr
-                v-for="p in filteredPeserta"
+                v-for="(p, index) in filteredPeserta"
                 :key="p.id"
                 :class="[
                   'transition-colors',
@@ -895,6 +1141,34 @@ function getProgressPercent(terjawab) {
                       : 'hover:bg-white/[0.02]'
                 ]"
               >
+                <!-- Nomor Urut / Peringkat Column -->
+                <td class="py-3 px-3 text-center font-mono font-bold whitespace-nowrap">
+                  <span
+                    v-if="sortBy === 'nilai_desc' && index === 0 && p.nilai !== null && Number(p.nilai) > 0"
+                    class="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black shadow-sm"
+                    title="Peringkat 1 (Tertinggi)"
+                  >
+                    🥇1
+                  </span>
+                  <span
+                    v-else-if="sortBy === 'nilai_desc' && index === 1 && p.nilai !== null && Number(p.nilai) > 0"
+                    class="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-slate-300/20 text-slate-200 border border-slate-300/40 text-xs font-black"
+                    title="Peringkat 2"
+                  >
+                    🥈2
+                  </span>
+                  <span
+                    v-else-if="sortBy === 'nilai_desc' && index === 2 && p.nilai !== null && Number(p.nilai) > 0"
+                    class="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-amber-700/25 text-amber-400 border border-amber-600/40 text-xs font-black"
+                    title="Peringkat 3"
+                  >
+                    🥉3
+                  </span>
+                  <span v-else class="text-xs text-gray-400 font-mono">
+                    {{ index + 1 }}
+                  </span>
+                </td>
+
                 <!-- Peserta Column -->
                 <td class="py-3 px-4">
                   <div class="flex items-center gap-3">
@@ -940,6 +1214,13 @@ function getProgressPercent(terjawab) {
                 <!-- Status Column -->
                 <td class="py-3 px-3 text-center whitespace-nowrap">
                   <span
+                    v-if="p.status === 'belum_mulai'"
+                    class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase font-mono border inline-flex items-center gap-1 bg-amber-500/15 border-amber-500/30 text-amber-300"
+                  >
+                    <span>⏳ Belum Masuk</span>
+                  </span>
+                  <span
+                    v-else
                     :class="[
                       'px-2.5 py-1 rounded-full text-[10px] font-bold uppercase font-mono border inline-flex items-center gap-1',
                       p.status === 'terkunci' ? 'bg-rose-600/20 border-rose-500/40 text-rose-300' :
@@ -954,7 +1235,10 @@ function getProgressPercent(terjawab) {
 
                 <!-- Progress Column -->
                 <td class="py-3 px-3 min-w-[140px]">
-                  <div class="space-y-1">
+                  <div v-if="p.status === 'belum_mulai'" class="text-[11px] text-gray-400 font-mono">
+                    <span>Belum Mulai (0/{{ jadwal.totalSoal || 0 }})</span>
+                  </div>
+                  <div v-else class="space-y-1">
                     <div class="flex items-center justify-between text-[11px] font-mono">
                       <span class="text-white font-bold">{{ p.soalTerjawab || 0 }}<span v-if="jadwal.totalSoal" class="text-gray-400">/{{ jadwal.totalSoal }}</span> Butir</span>
                       <span v-if="jadwal.totalSoal" class="text-teal-400 font-bold">{{ getProgressPercent(p.soalTerjawab) }}%</span>
@@ -973,7 +1257,10 @@ function getProgressPercent(terjawab) {
 
                 <!-- Anti-Cheat Column -->
                 <td class="py-3 px-3 text-center whitespace-nowrap">
-                  <div v-if="p.jumlahPelanggaran > 3 || (p.status === 'terkunci' && p.jumlahPelanggaran > 0)" class="space-y-0.5">
+                  <span v-if="p.status === 'belum_mulai'" class="text-gray-500 text-[11px] font-mono">
+                    -
+                  </span>
+                  <div v-else-if="p.jumlahPelanggaran > 3 || (p.status === 'terkunci' && p.jumlahPelanggaran > 0)" class="space-y-0.5">
                     <span class="px-2.5 py-1 rounded-full bg-rose-600/30 border border-rose-500 text-rose-200 font-mono font-bold text-[10px] inline-flex items-center gap-1 shadow-sm shadow-rose-950">
                       🚨 {{ p.jumlahPelanggaran }}x Keluar (BLOKIR)
                     </span>
@@ -989,17 +1276,48 @@ function getProgressPercent(terjawab) {
                   </span>
                 </td>
 
-                <!-- Nilai Column -->
+                <!-- Nilai Column (Warna Merah untuk di bawah KKM) -->
                 <td class="py-3 px-3 text-center font-mono whitespace-nowrap">
-                  <span v-if="p.nilai !== null" class="font-black text-emerald-300 text-sm">
-                    {{ p.nilai }}
-                  </span>
-                  <span v-else class="text-gray-500">-</span>
+                  <div v-if="p.nilai !== null && p.nilai !== undefined">
+                    <span
+                      v-if="Number(p.nilai) >= kkmValue"
+                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-black text-sm"
+                      :title="`Tuntas (KKM: ${kkmValue})`"
+                    >
+                      <span>{{ p.nilai }}</span>
+                      <span class="text-[9px] text-emerald-400 font-sans font-bold uppercase">Tuntas</span>
+                    </span>
+                    <span
+                      v-else
+                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-400 font-black text-sm"
+                      :title="`Di bawah KKM (${kkmValue}) — Remedial`"
+                    >
+                      <span>{{ p.nilai }}</span>
+                      <span class="text-[9px] text-rose-300 font-sans font-bold uppercase">Remedial</span>
+                    </span>
+                  </div>
+                  <span v-else class="text-gray-500 text-xs">-</span>
                 </td>
 
                 <!-- Aksi Kontrol (Contextual & Clean) -->
                 <td class="py-3 px-4 text-right whitespace-nowrap">
-                  <div class="inline-flex items-center gap-1.5">
+                  <!-- Belum Mulai State Actions -->
+                  <div v-if="p.status === 'belum_mulai'" class="inline-flex items-center gap-1.5">
+                    <span class="text-[10.5px] text-gray-400 font-medium px-2 py-1 rounded-lg bg-white/5 border border-white/5">
+                      Menunggu Siswa
+                    </span>
+                    <button
+                      v-if="p.isDeviceActive"
+                      @click="resetLoginPerangkat(p.siswaId, p.namaSiswa)"
+                      class="px-2 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold transition-all min-h-[32px] flex items-center gap-1 active:scale-95"
+                      title="Reset Kunci Login Perangkat (Izinkan HP/PC Baru)"
+                    >
+                      📱 Reset HP
+                    </button>
+                  </div>
+
+                  <!-- Active Session Actions -->
+                  <div v-else class="inline-flex items-center gap-1.5">
                     <!-- Toggle Kunci / Buka Kunci -->
                     <button
                       v-if="p.status === 'terkunci'"
@@ -1054,7 +1372,7 @@ function getProgressPercent(terjawab) {
         <!-- Mobile Card View (md:hidden - Tailored for Smartphone Screens) -->
         <div v-if="filteredPeserta.length > 0" class="md:hidden space-y-3.5">
           <div
-            v-for="p in filteredPeserta"
+            v-for="(p, index) in filteredPeserta"
             :key="'mob-' + p.id"
             :class="[
               'p-4 rounded-2xl border space-y-3 shadow-md transition-all',
@@ -1065,9 +1383,25 @@ function getProgressPercent(terjawab) {
                   : 'bg-slate-900 border-white/10'
             ]"
           >
-            <!-- Card Header: Student Avatar, Name, NIS, Status -->
+            <!-- Card Header: Student Avatar, Rank Badge, Name, NIS, Status -->
             <div class="flex items-start justify-between gap-2.5 border-b border-white/5 pb-3">
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                <!-- Rank Badge -->
+                <span
+                  class="inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 rounded-lg font-mono text-xs font-black shrink-0"
+                  :class="[
+                    sortBy === 'nilai_desc' && index === 0 && p.nilai !== null && Number(p.nilai) > 0
+                      ? 'bg-amber-500/25 text-amber-300 border border-amber-500/50'
+                      : sortBy === 'nilai_desc' && index === 1 && p.nilai !== null && Number(p.nilai) > 0
+                        ? 'bg-slate-300/20 text-slate-200 border border-slate-300/40'
+                        : sortBy === 'nilai_desc' && index === 2 && p.nilai !== null && Number(p.nilai) > 0
+                          ? 'bg-amber-700/25 text-amber-400 border border-amber-600/40'
+                          : 'bg-white/10 text-gray-400 border border-white/10'
+                  ]"
+                >
+                  {{ sortBy === 'nilai_desc' && index < 3 && p.nilai !== null && Number(p.nilai) > 0 ? (index === 0 ? '🥇1' : index === 1 ? '🥈2' : '🥉3') : `#${index + 1}` }}
+                </span>
+
                 <div class="relative shrink-0">
                   <div class="w-10 h-10 rounded-full bg-slate-800 border border-white/10 text-cyan-400 font-black text-sm flex items-center justify-center">
                     {{ getInitials(p.namaSiswa) }}
@@ -1077,12 +1411,12 @@ function getProgressPercent(terjawab) {
                     :class="p.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'"
                   ></span>
                 </div>
-                <div>
-                  <h4 class="font-bold text-white text-sm flex items-center gap-1.5">
-                    <span>{{ p.namaSiswa }}</span>
+                <div class="min-w-0 flex-1">
+                  <h4 class="font-bold text-white text-sm flex items-center gap-1.5 truncate">
+                    <span class="truncate">{{ p.namaSiswa }}</span>
                     <span
                       v-if="p.status === 'terkunci'"
-                      class="px-1.5 py-0.2 rounded bg-rose-600 text-white text-[9px] font-mono font-black uppercase"
+                      class="px-1.5 py-0.2 rounded bg-rose-600 text-white text-[9px] font-mono font-black uppercase shrink-0"
                     >
                       LOCKED
                     </span>
@@ -1101,6 +1435,13 @@ function getProgressPercent(terjawab) {
 
               <!-- Status Badge -->
               <span
+                v-if="p.status === 'belum_mulai'"
+                class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase font-mono border shrink-0 bg-amber-500/15 border-amber-500/30 text-amber-300"
+              >
+                ⏳ Belum Masuk
+              </span>
+              <span
+                v-else
                 :class="[
                   'px-2.5 py-1 rounded-full text-[10px] font-bold uppercase font-mono border shrink-0',
                   p.status === 'terkunci' ? 'bg-rose-600/20 border-rose-500/40 text-rose-300' :
@@ -1117,12 +1458,15 @@ function getProgressPercent(terjawab) {
             <div class="space-y-2 bg-slate-950/60 p-3 rounded-xl border border-white/5 font-mono text-xs">
               <div class="flex items-center justify-between text-[11px]">
                 <span class="text-gray-400">Progress Soal:</span>
-                <span class="text-white font-bold">
+                <span v-if="p.status === 'belum_mulai'" class="text-gray-400">
+                  Belum Mulai (0/{{ jadwal.totalSoal || 0 }})
+                </span>
+                <span v-else class="text-white font-bold">
                   {{ p.soalTerjawab || 0 }}<span v-if="jadwal.totalSoal" class="text-gray-400">/{{ jadwal.totalSoal }}</span> Butir
                   <span v-if="jadwal.totalSoal" class="text-teal-400">({{ getProgressPercent(p.soalTerjawab) }}%)</span>
                 </span>
               </div>
-              <div v-if="jadwal.totalSoal" class="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
+              <div v-if="jadwal.totalSoal && p.status !== 'belum_mulai'" class="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
                 <div
                   :style="{ width: `${getProgressPercent(p.soalTerjawab)}%` }"
                   class="h-full bg-teal-400 rounded-full"
@@ -1140,16 +1484,42 @@ function getProgressPercent(terjawab) {
                   </span>
                 </div>
                 <div>
-                  <span class="text-gray-400 block text-[10px] font-sans">Nilai:</span>
-                  <span class="text-emerald-300 font-bold">
-                    {{ p.nilai !== null ? p.nilai : '-' }}
-                  </span>
+                  <span class="text-gray-400 block text-[10px] font-sans">Nilai (KKM: {{ kkmValue }}):</span>
+                  <div v-if="p.nilai !== null && p.nilai !== undefined">
+                    <span
+                      v-if="Number(p.nilai) >= kkmValue"
+                      class="text-emerald-300 font-black text-sm flex items-center gap-1"
+                    >
+                      <span>{{ p.nilai }}</span>
+                      <span class="text-[9px] text-emerald-400 font-sans font-bold uppercase">(Tuntas)</span>
+                    </span>
+                    <span
+                      v-else
+                      class="text-rose-400 font-black text-sm flex items-center gap-1"
+                    >
+                      <span>{{ p.nilai }}</span>
+                      <span class="text-[9px] text-rose-300 font-sans font-bold uppercase">(Remedial)</span>
+                    </span>
+                  </div>
+                  <span v-else class="text-gray-500 font-bold">-</span>
                 </div>
               </div>
             </div>
 
             <!-- Card Action Buttons (Spaced out for touch ergonomics) -->
-            <div class="grid grid-cols-2 gap-2 pt-1">
+            <div v-if="p.status === 'belum_mulai'" class="space-y-2 pt-1">
+              <div class="text-center py-2 px-3 text-xs text-amber-300 font-medium bg-amber-500/10 border border-amber-500/20 rounded-xl min-h-[38px] flex items-center justify-center">
+                ⏳ Siswa Belum Masuk Ujian (Token: {{ jadwal.token }})
+              </div>
+              <button
+                v-if="p.isDeviceActive"
+                @click="resetLoginPerangkat(p.siswaId, p.namaSiswa)"
+                class="w-full py-2.5 px-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold min-h-[42px] flex items-center justify-center gap-1 active:scale-95"
+              >
+                📱 Reset Kunci HP/Perangkat Siswa
+              </button>
+            </div>
+            <div v-else class="grid grid-cols-2 gap-2 pt-1">
               <button
                 v-if="p.status === 'terkunci'"
                 @click="bukaKunciSesi(p.id, p.namaSiswa)"
@@ -1193,6 +1563,81 @@ function getProgressPercent(terjawab) {
           </div>
         </div>
       </section>
+
+      <!-- MODAL TAUTKAN / GANTI CAPAIAN PEMBELAJARAN (CP / TP) -->
+      <div
+        v-if="showModalCp"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md"
+      >
+        <div class="relative w-full max-w-lg rounded-3xl bg-slate-900 border border-teal-500/40 p-5 sm:p-6 shadow-2xl space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-white/10">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">🎯</span>
+              <div>
+                <h3 class="text-base font-black text-white">Tautkan Capaian Pembelajaran (CP)</h3>
+                <p class="text-[11px] text-gray-400">Pilih Capaian Pembelajaran untuk jadwal ujian ini</p>
+              </div>
+            </div>
+            <button
+              @click="showModalCp = false"
+              type="button"
+              class="text-gray-400 hover:text-white p-1 rounded-xl hover:bg-white/10 transition min-w-[32px] min-h-[32px] flex items-center justify-center"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div class="space-y-3">
+            <div v-if="!availableTps || availableTps.length === 0" class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs leading-relaxed">
+              Belum ada Capaian Pembelajaran (CP / TP) terdaftar untuk mata pelajaran <strong>{{ jadwal.mapel }}</strong>. Silakan buat atau input CP/TP pada menu <em>Kelola TP</em> terlebih dahulu.
+            </div>
+
+            <div v-else class="space-y-2">
+              <label class="block text-xs font-bold text-gray-300">
+                Pilih Capaian Pembelajaran (CP / TP) <span class="text-rose-400">*</span>
+              </label>
+              <select
+                v-model="selectedTpId"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 focus:border-teal-400 text-white text-xs outline-none min-h-[44px]"
+              >
+                <option value="" disabled>-- Pilih Capaian Pembelajaran --</option>
+                <option v-for="tp in availableTps" :key="tp.id" :value="tp.id">
+                  {{ tp.kode }} - {{ tp.judul }} (KKTP: {{ tp.kktp }} • {{ tp.jenis }})
+                </option>
+              </select>
+
+              <div v-if="selectedTpDetail" class="p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/30 text-xs space-y-1.5 mt-2">
+                <div class="flex items-center justify-between text-teal-300 font-bold">
+                  <span>{{ selectedTpDetail.kode }}</span>
+                  <span>KKTP: ≥ {{ selectedTpDetail.kktp }}</span>
+                </div>
+                <p class="text-white text-xs leading-relaxed">{{ selectedTpDetail.judul }}</p>
+                <div class="text-[10px] text-teal-200/80 pt-1 border-t border-teal-500/20">
+                  Tipe: {{ selectedTpDetail.jenis }} • Semester {{ selectedTpDetail.semester }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-3 border-t border-white/10">
+            <button
+              @click="showModalCp = false"
+              type="button"
+              class="px-4 py-2 rounded-xl text-xs font-semibold text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 transition min-h-[38px]"
+            >
+              Batal
+            </button>
+            <button
+              @click="simpanTautkanCp"
+              :disabled="!selectedTpId || isSubmittingCp"
+              type="button"
+              class="px-5 py-2 rounded-xl text-xs font-bold text-slate-950 bg-teal-400 hover:bg-teal-300 transition shadow-lg shadow-teal-500/20 disabled:opacity-50 min-h-[38px] flex items-center gap-1.5"
+            >
+              <span>{{ isSubmittingCp ? 'Menyimpan...' : '✓ Simpan & Tautkan' }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
     </main>
   </div>
