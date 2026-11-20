@@ -26,16 +26,16 @@ class BackupController extends Controller
         $modelHasPermissionsTable = $spatieConfig['model_has_permissions'] ?? 'model_has_permissions';
 
         return [
+            'tahun_ajarans',
+            'jurusans',
+            'kelases',
             'users',
             $rolesTable,
             $permissionsTable,
             $modelHasRolesTable,
             $roleHasPermissionsTable,
             $modelHasPermissionsTable,
-            'tahun_ajarans',
-            'jurusans',
             'gurus',
-            'kelases',
             'guru_kelas',
             'siswas',
             'mata_pelajarans',
@@ -120,11 +120,10 @@ class BackupController extends Controller
             return redirect()->back()->withErrors(['backup_file' => 'File backup tidak cocok dengan skema database sistem sekolah.']);
         }
 
+        Schema::disableForeignKeyConstraints();
         DB::beginTransaction();
 
         try {
-            Schema::disableForeignKeyConstraints();
-
             // 1. Delete existing records in reverse order
             foreach (array_reverse($tables) as $table) {
                 if (Schema::hasTable($table)) {

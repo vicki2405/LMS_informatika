@@ -244,7 +244,7 @@ class GuruDashboardController extends Controller
         }
 
         $query = Siswa::query()
-            ->select(['id', 'nis', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status'])
+            ->select(['id', 'nis', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status', 'device_id', 'device_name', 'device_locked_at'])
             ->with(['kelas:id,nama_kelas,tingkat,guru_id', 'kelas.waliKelas:id,nama'])
             ->orderBy('nama', 'asc');
 
@@ -265,6 +265,10 @@ class GuruDashboardController extends Controller
                 'telepon' => $s->telepon ?? '-',
                 'status' => $s->status ?? 'Aktif',
                 'tanggal_status' => $s->tanggal_status,
+                'deviceId' => $s->device_id,
+                'deviceName' => $s->device_name,
+                'deviceLockedAt' => $s->device_locked_at?->format('d/m/Y H:i'),
+                'isDeviceLocked' => ! empty($s->device_id),
             ];
         })->toArray();
     }
@@ -1366,5 +1370,54 @@ HTML;
         }
 
         return Inertia::render('Guru/MateriMonitoringPage', $payload);
+    }
+
+    /**
+     * Reset client device lock for a specific student.
+     */
+    public function resetDeviceSiswa(Request $request, int $id)
+    {
+        $siswa = Siswa::findOrFail($id);
+        $this->ensureKelasAccess($request, $siswa->kelas_id, true);
+
+        $nama = $siswa->nama;
+        $siswa->unlockDevice();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Sesi perangkat {$nama} berhasil di-reset.",
+            ]);
+        }
+
+        return back()->with('success', "Sesi perangkat {$nama} berhasil di-reset. Siswa kini dapat login di HP baru.");
+    }
+
+    /**
+     * Bulk reset client device locks for multiple students.
+     */
+    public function resetDevicesSiswaBulk(Request $request)
+    {
+        $validated = $request->validate([
+            'siswa_ids' => 'required|array',
+            'siswa_ids.*' => 'integer|exists:siswas,id',
+        ]);
+
+        $siswas = Siswa::whereIn('id', $validated['siswa_ids'])->get();
+        foreach ($siswas as $siswa) {
+            $this->ensureKelasAccess($request, $siswa->kelas_id, true);
+            $siswa->unlockDevice();
+        }
+
+        $count = count($siswas);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "{$count} sesi perangkat siswa berhasil di-reset.",
+            ]);
+        }
+
+        return back()->with('success', "{$count} sesi perangkat siswa berhasil di-reset.");
     }
 }

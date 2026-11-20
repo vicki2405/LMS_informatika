@@ -33,17 +33,6 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        /** @var \App\Models\User $user */
-        $user = Auth::user();
-        if ($user && $user->isStudent()) {
-            $user->update([
-                'active_session_id' => $request->session()->getId(),
-                'active_device_ip' => $request->ip(),
-                'active_device_agent' => substr((string) $request->userAgent(), 0, 255),
-                'last_activity_at' => now(),
-            ]);
-        }
-
         return redirect()->intended(route('dashboard', absolute: false));
     }
 
@@ -52,12 +41,6 @@ class AuthenticatedSessionController extends Controller
      */
     public function destroy(Request $request): RedirectResponse
     {
-        /** @var \App\Models\User $user */
-        $user = Auth::user();
-        if ($user && $user->isStudent()) {
-            $user->resetDeviceSession();
-        }
-
         Auth::guard('web')->logout();
 
         $request->session()->invalidate();

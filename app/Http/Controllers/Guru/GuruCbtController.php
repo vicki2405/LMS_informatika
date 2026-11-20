@@ -1283,10 +1283,6 @@ class GuruCbtController extends Controller
                     'nilai' => $nilai ? floatval($nilai->nilai) : null,
                     'nilaiStatus' => $nilai?->status,
                     'isOnline' => $sesi->last_heartbeat && $sesi->last_heartbeat->diffInSeconds(now()) < 60,
-                    'isDeviceActive' => $s->user?->isDeviceSessionActive() ?? false,
-                    'deviceIp' => $s->user?->active_device_ip ?? null,
-                    'deviceAgent' => $s->user?->active_device_agent ?? null,
-                    'lastLogin' => $s->user?->last_activity_at ? $s->user->last_activity_at->format('H:i') : null,
                 ];
             }
 
@@ -1309,10 +1305,6 @@ class GuruCbtController extends Controller
                 'nilai' => null,
                 'nilaiStatus' => 'Belum Mengerjakan',
                 'isOnline' => false,
-                'isDeviceActive' => $s->user?->isDeviceSessionActive() ?? false,
-                'deviceIp' => $s->user?->active_device_ip ?? null,
-                'deviceAgent' => $s->user?->active_device_agent ?? null,
-                'lastLogin' => $s->user?->last_activity_at ? $s->user->last_activity_at->format('H:i') : null,
             ];
         });
 
@@ -1340,10 +1332,6 @@ class GuruCbtController extends Controller
                     'nilai' => $nilai ? floatval($nilai->nilai) : null,
                     'nilaiStatus' => $nilai?->status,
                     'isOnline' => $sesiLuar->last_heartbeat && $sesiLuar->last_heartbeat->diffInSeconds(now()) < 60,
-                    'isDeviceActive' => $sesiLuar->siswa?->user?->isDeviceSessionActive() ?? false,
-                    'deviceIp' => $sesiLuar->siswa?->user?->active_device_ip ?? null,
-                    'deviceAgent' => $sesiLuar->siswa?->user?->active_device_agent ?? null,
-                    'lastLogin' => $sesiLuar->siswa?->user?->last_activity_at ? $sesiLuar->siswa->user->last_activity_at->format('H:i') : null,
                 ]);
             }
         }
@@ -1541,17 +1529,7 @@ class GuruCbtController extends Controller
             'last_heartbeat' => now(),
         ]);
 
-        if ($sesi->siswa?->user) {
-            $sesi->siswa->user->update([
-                'active_session_id' => 'RESET',
-                'active_device_token' => null,
-                'active_device_ip' => null,
-                'active_device_agent' => null,
-                'last_activity_at' => null,
-            ]);
-        }
-
-        $msg = "Sesi ujian dan kunci login untuk siswa {$namaSiswa} berhasil direset!";
+        $msg = "Sesi ujian untuk siswa {$namaSiswa} berhasil direset!";
         if ($request->wantsJson() && ! $request->header('X-Inertia')) {
             return response()->json(['success' => true, 'message' => $msg]);
         }
@@ -1602,98 +1580,6 @@ class GuruCbtController extends Controller
         }
 
         return null;
-    }
-
-    /**
-     * Reset single-device login lock for student without modifying CBT answers or scores.
-     */
-    public function resetLoginSiswa(Request $request, int $id)
-    {
-        $siswa = Siswa::with('user')->find($id);
-        if (! $siswa) {
-            $sesi = CbtSesi::with('siswa.user')->find($id);
-            if ($sesi) {
-                $this->ensureSesiAccess($request, $sesi);
-                $siswa = $sesi->siswa;
-            }
-        }
-
-        if (! $siswa) {
-            $errMsg = 'Data siswa tidak ditemukan.';
-            if ($request->wantsJson() && ! $request->header('X-Inertia')) {
-                return response()->json(['success' => false, 'message' => $errMsg], 404);
-            }
-            return redirect()->back()->with('error', $errMsg);
-        }
-
-        $user = $this->resolveStudentUser($siswa);
-
-        if (! $user) {
-            $errMsg = "Akun login untuk siswa {$siswa->nama} (NIS: {$siswa->nis}) belum terdaftar di tabel user.";
-            if ($request->wantsJson() && ! $request->header('X-Inertia')) {
-                return response()->json(['success' => false, 'message' => $errMsg], 404);
-            }
-            return redirect()->back()->with('error', $errMsg);
-        }
-
-        $user->update([
-            'active_session_id' => 'RESET',
-            'active_device_token' => null,
-            'active_device_ip' => null,
-            'active_device_agent' => null,
-            'last_activity_at' => null,
-        ]);
-
-        try {
-            DB::table('sessions')->where('user_id', $user->id)->delete();
-        } catch (\Throwable $e) {}
-
-        $msg = "Kunci login perangkat untuk {$siswa->nama} berhasil direset! Siswa dapat langsung login di perangkat baru.";
-        if ($request->wantsJson() && ! $request->header('X-Inertia')) {
-            return response()->json(['success' => true, 'message' => $msg]);
-        }
-
-        return redirect()->back()->with('message', $msg);
-    }
-
-    /**
-     * Reset single-device login lock for multiple selected students in bulk.
-     */
-    public function resetLoginSiswaBulk(Request $request)
-    {
-        $ids = $request->input('ids') ?? $request->input('siswa_ids') ?? [];
-        if (empty($ids) || ! is_array($ids)) {
-            return redirect()->back()->with('error', 'Pilih minimal satu siswa untuk direset loginnya.');
-        }
-
-        $siswas = Siswa::with('user')->whereIn('id', $ids)->get();
-        $resetCount = 0;
-
-        foreach ($siswas as $siswa) {
-            $user = $this->resolveStudentUser($siswa);
-            if ($user) {
-                $user->update([
-                    'active_session_id' => 'RESET',
-                    'active_device_token' => null,
-                    'active_device_ip' => null,
-                    'active_device_agent' => null,
-                    'last_activity_at' => null,
-                ]);
-
-                try {
-                    DB::table('sessions')->where('user_id', $user->id)->delete();
-                } catch (\Throwable $e) {}
-
-                $resetCount++;
-            }
-        }
-
-        $msg = "Berhasil mereset kunci login untuk {$resetCount} siswa terpilih! Siswa dapat langsung login sekarang.";
-        if ($request->wantsJson() && ! $request->header('X-Inertia')) {
-            return response()->json(['success' => true, 'message' => $msg]);
-        }
-
-        return redirect()->back()->with('message', $msg);
     }
 
     /**

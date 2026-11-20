@@ -31,15 +31,20 @@ Route::get('/dashboard', function (Request $request) {
         return redirect()->route('guru.dashboard');
     }
 
-    if ($user && $user->hasRole('murid')) {
+    if ($user && ($user->hasRole('murid') || $user->hasRole('siswa') || $user->isStudent())) {
         return redirect()->route('siswa.dashboard');
     }
 
     return Inertia::render('Dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+})->middleware(['auth'])->name('dashboard');
 
 // Protected Routes per Role
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth'])->group(function () {
+    // Shortcuts / Redirections for base prefix URLs
+    Route::get('/siswa', fn () => redirect()->route('siswa.dashboard'));
+    Route::get('/guru', fn () => redirect()->route('guru.dashboard'));
+    Route::get('/wali-kelas', fn () => redirect()->route('wali-kelas.dashboard'));
+    Route::get('/admin', fn () => redirect()->route('admin.dashboard'));
     // 1. Admin Routes
     Route::prefix('admin')->middleware('role:admin')->name('admin.')->group(function () {
         Route::get('/dashboard', [AdminDashboardController::class, 'index'])->name('dashboard');
@@ -64,10 +69,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/siswa/import-file', [AdminDashboardController::class, 'importSiswaFile'])->name('siswa.import-file');
         Route::get('/siswa/template', [AdminDashboardController::class, 'downloadSiswaTemplate'])->name('siswa.template');
         Route::post('/siswa/bulk-delete', [AdminDashboardController::class, 'deleteSiswaBulk'])->name('siswa.bulk-delete');
+        Route::post('/siswa/{id}/reset-device', [AdminDashboardController::class, 'resetDeviceSiswa'])->name('siswa.reset-device');
+        Route::post('/siswa/reset-devices-bulk', [AdminDashboardController::class, 'resetDevicesSiswaBulk'])->name('siswa.reset-devices-bulk');
         Route::delete('/siswa/{id}', [AdminDashboardController::class, 'deleteSiswa'])->name('siswa.delete');
         Route::post('/user/store', [AdminDashboardController::class, 'storeUser'])->name('user.store');
         Route::post('/user/reset-password', [AdminDashboardController::class, 'resetPassword'])->name('user.reset-password');
-        Route::post('/user/reset-login', [AdminDashboardController::class, 'resetLoginUser'])->name('user.reset-login');
         Route::delete('/user/{id}', [AdminDashboardController::class, 'deleteUser'])->name('user.delete');
 
         // Backup & Restore
@@ -79,6 +85,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('wali-kelas')->middleware('role:wali_kelas|admin')->name('wali-kelas.')->group(function () {
         Route::get('/dashboard', [WaliKelasDashboardController::class, 'index'])->name('dashboard');
         Route::post('/siswa/store', [WaliKelasDashboardController::class, 'storeSiswa'])->name('siswa.store');
+        Route::post('/siswa/{id}/reset-device', [WaliKelasDashboardController::class, 'resetDeviceSiswa'])->name('siswa.reset-device');
+        Route::post('/siswa/reset-devices-bulk', [WaliKelasDashboardController::class, 'resetDevicesSiswaBulk'])->name('siswa.reset-devices-bulk');
         Route::delete('/siswa/{id}', [WaliKelasDashboardController::class, 'deleteSiswa'])->name('siswa.delete');
         Route::post('/jadwal/store', [WaliKelasDashboardController::class, 'storeJadwal'])->name('jadwal.store');
         Route::delete('/jadwal/{id}', [WaliKelasDashboardController::class, 'deleteJadwal'])->name('jadwal.delete');
@@ -117,6 +125,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // Kelas Ampuan — pivot sync & detach
         Route::post('/kelas-ampuan/save', [GuruDashboardController::class, 'saveKelasAmpuan'])->name('kelas-ampuan.save');
         Route::delete('/kelas-ampuan/{kelas_id}', [GuruDashboardController::class, 'removeKelasAmpuan'])->name('kelas-ampuan.remove');
+        Route::post('/siswa/{id}/reset-device', [GuruDashboardController::class, 'resetDeviceSiswa'])->name('siswa.reset-device');
+        Route::post('/siswa/reset-devices-bulk', [GuruDashboardController::class, 'resetDevicesSiswaBulk'])->name('siswa.reset-devices-bulk');
 
         // CBT Routes
         Route::post('/cbt/bank-soal/store', [GuruCbtController::class, 'storeBankSoal'])->name('cbt.bank-soal.store');
@@ -135,9 +145,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/cbt/jadwal/{id}/monitoring', [GuruCbtController::class, 'getMonitoringData'])->name('cbt.jadwal.monitoring');
         Route::post('/cbt/jadwal/{id}/tautkan-tp', [GuruCbtController::class, 'tautkanTp'])->name('cbt.jadwal.tautkan-tp');
         Route::post('/cbt/sesi/{id}/reset', [GuruCbtController::class, 'resetSesiSiswa'])->name('cbt.sesi.reset');
-        Route::post('/cbt/sesi/{id}/reset-login', [GuruCbtController::class, 'resetLoginSiswa'])->name('cbt.sesi.reset-login');
-        Route::post('/cbt/siswa/reset-login-bulk', [GuruCbtController::class, 'resetLoginSiswaBulk'])->name('cbt.siswa.reset-login-bulk');
-        Route::post('/cbt/siswa/{id}/reset-login', [GuruCbtController::class, 'resetLoginSiswa'])->name('cbt.siswa.reset-login');
         Route::post('/cbt/sesi/{id}/kunci', [GuruCbtController::class, 'kunciSesiSiswa'])->name('cbt.sesi.kunci');
         Route::post('/cbt/sesi/{id}/buka-kunci', [GuruCbtController::class, 'bukaKunciSesiSiswa'])->name('cbt.sesi.buka-kunci');
         Route::delete('/cbt/sesi/{id}', [GuruCbtController::class, 'deleteSesiSiswa'])->name('cbt.sesi.delete');
@@ -149,6 +156,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // 4. Siswa Routes
     Route::prefix('siswa')->middleware('role:murid|admin')->name('siswa.')->group(function () {
         Route::get('/dashboard', [SiswaDashboardController::class, 'index'])->name('dashboard');
+        Route::post('/bind-identity', [SiswaDashboardController::class, 'bindIdentity'])->name('bind-identity');
+        Route::post('/unbind-identity', [SiswaDashboardController::class, 'unbindIdentity'])->name('unbind-identity');
         Route::post('/tugas/submit', [SiswaDashboardController::class, 'submitTugas'])->name('tugas.submit');
         Route::post('/cbt/start', [SiswaDashboardController::class, 'startCbtExam'])->middleware('throttle:15,1')->name('cbt.start');
         Route::post('/cbt/gabung-ruang-tunggu', [SiswaDashboardController::class, 'gabungRuangTunggu'])->name('cbt.gabung-ruang-tunggu');

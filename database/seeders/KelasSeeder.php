@@ -44,5 +44,22 @@ class KelasSeeder extends Seeder
         foreach ($siswas as $s) {
             Siswa::firstOrCreate(['nama' => $s['nama']], $s);
         }
+
+        // 4. Buat Akun Bersama (Shared Classroom Account) per Rombel/Kelas untuk Siswa
+        $semuaKelas = Kelas::all();
+        foreach ($semuaKelas as $k) {
+            $cleanKelas = strtolower(preg_replace('/[^a-z0-9]/i', '', $k->nama_kelas));
+            $userKelas = \App\Models\User::firstOrCreate(
+                ['username' => 'siswa_' . $cleanKelas],
+                [
+                    'name' => 'Siswa Kelas ' . $k->nama_kelas,
+                    'email' => 'siswa.' . $cleanKelas . '@sekolah.sch.id',
+                    'kelas_id' => $k->id,
+                    'password' => \Illuminate\Support\Facades\Hash::make('123456'),
+                    'email_verified_at' => now(),
+                ]
+            );
+            $userKelas->syncRoles(['murid']);
+        }
     }
 }

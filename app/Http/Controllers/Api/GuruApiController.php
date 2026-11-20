@@ -819,46 +819,7 @@ class GuruApiController extends Controller
             'last_heartbeat' => now(),
         ]);
 
-        if ($sesi->siswa?->user) {
-            $sesi->siswa->user->update([
-                'active_session_id' => 'RESET',
-                'active_device_token' => null,
-                'active_device_ip' => null,
-                'active_device_agent' => null,
-                'last_activity_at' => null,
-            ]);
-        }
-
-        return response()->json(['success' => true, 'message' => 'Sesi ujian dan kunci login siswa berhasil direset']);
-    }
-
-    public function resetLoginSiswa(Request $request, int $id): JsonResponse
-    {
-        $siswa = \App\Models\Siswa::with('user')->find($id);
-        if (! $siswa) {
-            $sesi = CbtSesi::with('siswa.user')->find($id);
-            if ($sesi) {
-                $this->ensureSesiAccess($request, $sesi);
-                $siswa = $sesi->siswa;
-            }
-        }
-
-        if (! $siswa || ! $siswa->user) {
-            return response()->json(['success' => false, 'message' => 'Data siswa atau akun tidak ditemukan'], 404);
-        }
-
-        $siswa->user->update([
-            'active_session_id' => 'RESET',
-            'active_device_token' => null,
-            'active_device_ip' => null,
-            'active_device_agent' => null,
-            'last_activity_at' => null,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => "Kunci login perangkat untuk {$siswa->nama} berhasil direset! Siswa dapat login di perangkat baru.",
-        ]);
+        return response()->json(['success' => true, 'message' => 'Sesi ujian siswa berhasil direset']);
     }
 
     public function kunciSesiSiswa(Request $request, int $id): JsonResponse
@@ -1263,6 +1224,39 @@ class GuruApiController extends Controller
         return response()->json([
             'success' => true,
             'message' => $validated['mode'] === 'swap' ? 'Nilai kedua TP berhasil ditukar.' : 'Nilai TP berhasil dipindahkan.',
+        ]);
+    }
+
+    public function resetDeviceSiswa(Request $request, int $id): JsonResponse
+    {
+        $siswa = Siswa::findOrFail($id);
+        $this->ensureKelasAccess($request, $siswa->kelas_id);
+
+        $nama = $siswa->nama;
+        $siswa->unlockDevice();
+
+        return response()->json([
+            'success' => true,
+            'message' => "Sesi perangkat {$nama} berhasil di-reset.",
+        ]);
+    }
+
+    public function resetDevicesSiswaBulk(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'siswa_ids' => 'required|array',
+            'siswa_ids.*' => 'integer|exists:siswas,id',
+        ]);
+
+        $siswas = Siswa::whereIn('id', $validated['siswa_ids'])->get();
+        foreach ($siswas as $siswa) {
+            $this->ensureKelasAccess($request, $siswa->kelas_id);
+            $siswa->unlockDevice();
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => count($siswas).' sesi perangkat siswa berhasil di-reset.',
         ]);
     }
 }

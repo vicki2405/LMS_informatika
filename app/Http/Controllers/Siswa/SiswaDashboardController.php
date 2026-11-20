@@ -114,13 +114,16 @@ class SiswaDashboardController extends Controller
         return Siswa::where('kelas_id', $kelasId)
             ->where('status', 'Aktif')
             ->orderBy('nama', 'asc')
-            ->get(['id', 'nama', 'jenis_kelamin', 'kelas_id'])
+            ->get(['id', 'nama', 'jenis_kelamin', 'kelas_id', 'device_id', 'device_name', 'device_locked_at'])
             ->map(function ($s) {
                 return [
                     'id' => $s->id,
                     'nama' => $s->nama,
                     'nis' => '100'.$s->id,
                     'jenisKelamin' => $s->jenis_kelamin,
+                    'deviceId' => $s->device_id,
+                    'deviceName' => $s->device_name,
+                    'isDeviceLocked' => ! empty($s->device_id),
                 ];
             })
             ->toArray();
@@ -1366,5 +1369,84 @@ class SiswaDashboardController extends Controller
             'status' => 'selesai',
             'progress_persen' => 100,
         ]);
+    }
+
+    /**
+     * Bind a student identity to the client device.
+     */
+    public function bindIdentity(Request $request)
+    {
+        $validated = $request->validate([
+            'siswa_id' => 'required|integer|exists:siswas,id',
+            'device_id' => 'required|string|max:100',
+            'device_name' => 'nullable|string|max:150',
+        ]);
+
+        $siswa = $this->resolveAuthorizedSiswa($request, (int) $validated['siswa_id']);
+        if (! $siswa) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki hak akses untuk memilih siswa ini.',
+                ], 403);
+            }
+
+            return back()->withErrors(['siswa_id' => 'Anda tidak memiliki hak akses untuk memilih siswa ini.']);
+        }
+
+        if ($siswa->isDeviceLockedToOther($validated['device_id'])) {
+            $deviceName = $siswa->device_name ?: 'perangkat lain';
+            $msg = "Nama {$siswa->nama} sedang aktif di {$deviceName}. Minta Guru untuk me-reset sesi HP Anda jika Anda berganti perangkat.";
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $msg,
+                ], 422);
+            }
+
+            return back()->withErrors(['siswa_id' => $msg]);
+        }
+
+        $siswa->lockToDevice($validated['device_id'], $validated['device_name'] ?? null);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Identitas {$siswa->nama} berhasil dihubungkan.",
+                'siswa' => [
+                    'id' => $siswa->id,
+                    'nama' => $siswa->nama,
+                    'deviceId' => $siswa->device_id,
+                    'deviceName' => $siswa->device_name,
+                ],
+            ]);
+        }
+
+        return back()->with('success', "Identitas {$siswa->nama} berhasil dihubungkan.");
+    }
+
+    /**
+     * Release client device binding for student identity.
+     */
+    public function unbindIdentity(Request $request)
+    {
+        $validated = $request->validate([
+            'siswa_id' => 'required|integer|exists:siswas,id',
+            'device_id' => 'required|string|max:100',
+        ]);
+
+        $siswa = $this->resolveAuthorizedSiswa($request, (int) $validated['siswa_id']);
+        if ($siswa && $siswa->device_id === $validated['device_id']) {
+            $siswa->unlockDevice();
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Identitas berhasil dilepas.',
+            ]);
+        }
+
+        return back()->with('success', 'Identitas berhasil dilepas.');
     }
 }

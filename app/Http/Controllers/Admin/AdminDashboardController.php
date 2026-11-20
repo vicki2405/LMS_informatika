@@ -79,7 +79,7 @@ class AdminDashboardController extends Controller
     private function getSiswaList(): array
     {
         return Siswa::query()
-            ->select(['id', 'nis', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status'])
+            ->select(['id', 'nis', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status', 'device_id', 'device_name', 'device_locked_at'])
             ->with(['kelas:id,nama_kelas,tingkat,guru_id', 'kelas.waliKelas:id,nama'])
             ->orderBy('nama', 'asc')
             ->get()
@@ -99,6 +99,10 @@ class AdminDashboardController extends Controller
                 'linkMaps' => 'https://maps.google.com/?q=-6.200000,106.816666',
                 'status' => $s->status ?? 'Aktif',
                 'tanggal_status' => $s->tanggal_status,
+                'deviceId' => $s->device_id,
+                'deviceName' => $s->device_name,
+                'deviceLockedAt' => $s->device_locked_at?->format('d/m/Y H:i'),
+                'isDeviceLocked' => ! empty($s->device_id),
             ];
         })->toArray();
     }
@@ -716,33 +720,6 @@ class AdminDashboardController extends Controller
     }
 
     /**
-     * Reset active single-device login session for a user.
-     */
-    public function resetLoginUser(Request $request): RedirectResponse|\Illuminate\Http\JsonResponse
-    {
-        $validated = $request->validate([
-            'userId' => 'required|integer|exists:users,id',
-        ]);
-
-        $user = User::findOrFail($validated['userId']);
-        $user->update([
-            'active_session_id' => 'RESET',
-            'active_device_token' => null,
-            'active_device_ip' => null,
-            'active_device_agent' => null,
-            'last_activity_at' => null,
-        ]);
-
-        $msg = "Kunci login perangkat untuk {$user->name} berhasil direset! Pengguna dapat login di perangkat baru.";
-
-        if ($request->wantsJson() && ! $request->header('X-Inertia')) {
-            return response()->json(['success' => true, 'message' => $msg]);
-        }
-
-        return redirect()->back()->with('message', $msg);
-    }
-
-    /**
      * Delete User Account from database.
      */
     public function deleteUser(int $id): RedirectResponse
@@ -1017,5 +994,50 @@ class AdminDashboardController extends Controller
         $ta->delete();
 
         return redirect()->back()->with('message', 'Tahun Pelajaran berhasil dihapus!');
+    }
+
+    /**
+     * Reset client device lock for a specific student (Admin).
+     */
+    public function resetDeviceSiswa(Request $request, int $id)
+    {
+        $siswa = Siswa::findOrFail($id);
+        $nama = $siswa->nama;
+        $siswa->unlockDevice();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Sesi perangkat {$nama} berhasil di-reset.",
+            ]);
+        }
+
+        return back()->with('message', "Sesi perangkat {$nama} berhasil di-reset. Siswa kini dapat login di HP baru.");
+    }
+
+    /**
+     * Bulk reset client device locks for multiple students (Admin).
+     */
+    public function resetDevicesSiswaBulk(Request $request)
+    {
+        $validated = $request->validate([
+            'siswa_ids' => 'required|array',
+            'siswa_ids.*' => 'integer|exists:siswas,id',
+        ]);
+
+        $count = Siswa::whereIn('id', $validated['siswa_ids'])->update([
+            'device_id' => null,
+            'device_name' => null,
+            'device_locked_at' => null,
+        ]);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "{$count} sesi perangkat siswa berhasil di-reset.",
+            ]);
+        }
+
+        return back()->with('message', "{$count} sesi perangkat siswa berhasil di-reset.");
     }
 }

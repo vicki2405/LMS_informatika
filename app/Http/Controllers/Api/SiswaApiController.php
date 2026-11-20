@@ -588,4 +588,61 @@ class SiswaApiController extends Controller
 
         return response()->json(['success' => true, 'message' => 'Tugas berhasil dikumpulkan', 'data' => $pengumpulan]);
     }
+
+    public function bindIdentity(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'siswa_id' => 'required|integer|exists:siswas,id',
+            'device_id' => 'required|string|max:100',
+            'device_name' => 'nullable|string|max:150',
+        ]);
+
+        $siswa = $this->resolveAuthorizedSiswa($request->user(), (int) $validated['siswa_id']);
+        if (! $siswa) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki hak akses untuk memilih siswa ini.',
+            ], 403);
+        }
+
+        if ($siswa->isDeviceLockedToOther($validated['device_id'])) {
+            $deviceName = $siswa->device_name ?: 'perangkat lain';
+
+            return response()->json([
+                'success' => false,
+                'message' => "Nama {$siswa->nama} sedang aktif di {$deviceName}. Hubungi Guru untuk mereset sesi HP jika Anda berganti perangkat.",
+            ], 422);
+        }
+
+        $siswa->lockToDevice($validated['device_id'], $validated['device_name'] ?? null);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Identitas {$siswa->nama} berhasil diaktifkan.",
+            'siswa' => [
+                'id' => $siswa->id,
+                'nama' => $siswa->nama,
+                'deviceId' => $siswa->device_id,
+                'deviceName' => $siswa->device_name,
+            ],
+        ]);
+    }
+
+    public function unbindIdentity(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'siswa_id' => 'required|integer|exists:siswas,id',
+            'device_id' => 'required|string|max:100',
+        ]);
+
+        $siswa = $this->resolveAuthorizedSiswa($request->user(), (int) $validated['siswa_id']);
+        if ($siswa && $siswa->device_id === $validated['device_id']) {
+            $siswa->unlockDevice();
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Identitas berhasil dilepas.',
+        ]);
+    }
 }

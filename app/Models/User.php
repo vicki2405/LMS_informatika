@@ -28,11 +28,6 @@ class User extends Authenticatable
         'email',
         'kelas_id',
         'password',
-        'active_session_id',
-        'active_device_token',
-        'active_device_ip',
-        'active_device_agent',
-        'last_activity_at',
     ];
 
     public function kelas()
@@ -69,7 +64,6 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
-            'last_activity_at' => 'datetime',
             'password' => 'hashed',
         ];
     }
@@ -80,40 +74,5 @@ class User extends Authenticatable
     public function isStudent(): bool
     {
         return $this->hasRole('murid') || $this->siswa()->exists();
-    }
-
-    /**
-     * Check if user has an active session from another device.
-     */
-    public function isDeviceSessionActive(?string $currentSessionId = null): bool
-    {
-        if (empty($this->active_session_id) || $this->active_session_id === 'RESET') {
-            return false;
-        }
-
-        if ($currentSessionId !== null && $this->active_session_id === $currentSessionId) {
-            return false;
-        }
-
-        $lifetimeMinutes = (int) config('session.lifetime', 120);
-        if ($this->last_activity_at && $this->last_activity_at->diffInMinutes(now()) >= $lifetimeMinutes) {
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Reset active device session.
-     */
-    public function resetDeviceSession(): void
-    {
-        $this->update([
-            'active_session_id' => null,
-            'active_device_token' => null,
-            'active_device_ip' => null,
-            'active_device_agent' => null,
-            'last_activity_at' => null,
-        ]);
     }
 }

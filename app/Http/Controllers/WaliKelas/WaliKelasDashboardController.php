@@ -104,7 +104,7 @@ class WaliKelasDashboardController extends Controller
 
         return Siswa::query()
             ->where('kelas_id', '=', $kelasId)
-            ->select(['id', 'nis', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status'])
+            ->select(['id', 'nis', 'nama', 'jenis_kelamin', 'kelas_id', 'telepon', 'status', 'tanggal_status', 'device_id', 'device_name', 'device_locked_at'])
             ->with(['kelas:id,nama_kelas,tingkat,guru_id', 'kelas.waliKelas:id,nama'])
             ->orderBy('nama', 'asc')
             ->get()
@@ -124,6 +124,10 @@ class WaliKelasDashboardController extends Controller
                 'linkMaps' => 'https://maps.google.com/?q=-6.200000,106.816666',
                 'status' => $s->status ?? 'Aktif',
                 'tanggal_status' => $s->tanggal_status,
+                'deviceId' => $s->device_id,
+                'deviceName' => $s->device_name,
+                'deviceLockedAt' => $s->device_locked_at?->format('d/m/Y H:i'),
+                'isDeviceLocked' => ! empty($s->device_id),
             ];
         });
     }
@@ -766,5 +770,57 @@ class WaliKelasDashboardController extends Controller
         $kasus->delete();
 
         return redirect()->back()->with('message', 'Data kasus siswa berhasil dihapus!');
+    }
+
+    /**
+     * Reset client device lock for a specific student (Wali Kelas).
+     */
+    public function resetDeviceSiswa(Request $request, int $id)
+    {
+        $siswa = Siswa::findOrFail($id);
+        $this->ensureAssignedKelas($request, $siswa->kelas_id);
+
+        $nama = $siswa->nama;
+        $siswa->unlockDevice();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Sesi perangkat {$nama} berhasil di-reset.",
+            ]);
+        }
+
+        return back()->with('message', "Sesi perangkat {$nama} berhasil di-reset. Siswa kini dapat login di HP baru.");
+    }
+
+    /**
+     * Bulk reset client device locks for multiple students (Wali Kelas).
+     */
+    public function resetDevicesSiswaBulk(Request $request)
+    {
+        $validated = $request->validate([
+            'siswa_ids' => 'required|array',
+            'siswa_ids.*' => 'integer|exists:siswas,id',
+        ]);
+
+        $assignedKelas = $this->resolveKelasBinaan($request);
+        $kelasId = $assignedKelas?->id;
+
+        $count = Siswa::whereIn('id', $validated['siswa_ids'])
+            ->when($kelasId, fn ($q) => $q->where('kelas_id', $kelasId))
+            ->update([
+                'device_id' => null,
+                'device_name' => null,
+                'device_locked_at' => null,
+            ]);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "{$count} sesi perangkat siswa berhasil di-reset.",
+            ]);
+        }
+
+        return back()->with('message', "{$count} sesi perangkat siswa berhasil di-reset.");
     }
 }

@@ -212,34 +212,6 @@ function handleResetPassword() {
   emit('reset-password', { userId: resetUserTarget.value.id, newPassword: newPasswordForm.value.newPassword });
   showResetPasswordModal.value = false;
 }
-
-function resetLoginPerangkat(user) {
-  Swal.fire({
-    title: 'Reset Kunci Perangkat?',
-    html: `Kunci login perangkat untuk pengguna <b class="text-cyan-400 font-bold">${user.name || user.username}</b> akan dibuka.<br><span class="text-gray-400 mt-1.5 inline-block text-xs">Pengguna dapat langsung login di perangkat/HP baru.</span>`,
-    icon: 'question',
-    showCancelButton: true,
-    confirmButtonColor: '#06b6d4',
-    cancelButtonColor: '#475569',
-    confirmButtonText: 'Ya, Reset Perangkat!',
-    cancelButtonText: 'Batal',
-    background: '#1e293b',
-    color: '#fff',
-  }).then((res) => {
-    if (res.isConfirmed) {
-      router.post(
-        route('admin.user.reset-login'),
-        { userId: user.id },
-        {
-          preserveScroll: true,
-          onSuccess: () => {
-            showToast(`Kunci perangkat ${user.name || user.username} berhasil direset!`, 'success');
-          },
-        }
-      );
-    }
-  });
-}
 </script>
 
 <template>
@@ -408,7 +380,6 @@ function resetLoginPerangkat(user) {
               </td>
               <td class="px-6 py-4"><span class="text-emerald-400 text-xs font-bold">✓ Aktif</span></td>
               <td class="px-6 py-4 text-right space-x-2">
-                <button v-if="u.roles?.includes('murid') || u.role === 'murid'" @click="resetLoginPerangkat(u)" class="text-cyan-300 hover:text-white font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-2.5 py-1.5 rounded-xl border border-cyan-500/30 active:scale-95 transition-all" title="Reset Kunci Login Perangkat">📱 Reset HP</button>
                 <button @click="openResetPasswordModal(u)" class="text-amber-300 hover:text-white font-bold text-xs bg-amber-500/15 hover:bg-amber-500/30 px-3 py-1.5 rounded-xl border border-amber-500/30 active:scale-95 transition-all">🔑 Reset</button>
                 <button @click="openEditUserModal(u)" class="text-cyan-300 hover:text-white font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-3 py-1.5 rounded-xl border border-cyan-500/30 active:scale-95 transition-all">✏️ Edit</button>
                 <button @click="$emit('delete-user', u.id)" class="text-red-400 hover:text-red-300 font-bold text-xs bg-red-500/15 hover:bg-red-500/30 px-3 py-1.5 rounded-xl border border-red-500/30 active:scale-95 transition-all">🗑️ Hapus</button>
@@ -469,7 +440,6 @@ function resetLoginPerangkat(user) {
           </div>
 
           <div class="flex items-center gap-2 pt-2 border-t border-white/5 flex-wrap">
-            <button v-if="u.roles?.includes('murid') || u.role === 'murid'" @click="resetLoginPerangkat(u)" class="flex-1 text-cyan-300 font-bold text-[11px] bg-cyan-500/15 hover:bg-cyan-500/30 px-3 py-2 rounded-xl border border-cyan-500/30 active:scale-95 transition-all text-center min-h-[38px]">📱 Reset HP</button>
             <button @click="openResetPasswordModal(u)" class="flex-1 text-amber-300 font-bold text-[11px] bg-amber-500/15 hover:bg-amber-500/30 px-3 py-2 rounded-xl border border-amber-500/30 active:scale-95 transition-all text-center min-h-[38px]">🔑 Reset</button>
             <button @click="openEditUserModal(u)" class="flex-1 text-cyan-300 font-bold text-[11px] bg-cyan-500/15 hover:bg-cyan-500/30 px-3 py-2 rounded-xl border border-cyan-500/30 active:scale-95 transition-all text-center min-h-[38px]">✏️ Edit</button>
             <button @click="$emit('delete-user', u.id)" class="flex-1 text-red-400 font-bold text-[11px] bg-red-500/15 hover:bg-red-500/30 px-3 py-2 rounded-xl border border-red-500/30 active:scale-95 transition-all text-center min-h-[38px]">🗑️ Hapus</button>

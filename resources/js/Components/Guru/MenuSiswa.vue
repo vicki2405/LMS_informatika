@@ -42,65 +42,6 @@ const siswaForm = ref({ nis: '', nama: '', jenisKelamin: 'Laki-laki', kelas: '',
 const showImportModal = ref(false);
 const importFile = ref(null);
 
-function resetLoginPerangkat(siswa) {
-  Swal.fire({
-    title: 'Reset Kunci Perangkat?',
-    html: `Kunci login perangkat untuk <b class="text-cyan-400 font-bold">${siswa.nama}</b> akan dibuka.<br><span class="text-gray-400 mt-1.5 inline-block text-xs">Siswa dapat langsung login di perangkat/HP baru.</span>`,
-    icon: 'question',
-    showCancelButton: true,
-    confirmButtonColor: '#06b6d4',
-    cancelButtonColor: '#475569',
-    confirmButtonText: 'Ya, Reset Perangkat!',
-    cancelButtonText: 'Batal',
-    background: '#1e293b',
-    color: '#fff',
-  }).then((res) => {
-    if (res.isConfirmed) {
-      router.post(
-        route('guru.cbt.siswa.reset-login', siswa.id),
-        {},
-        {
-          preserveScroll: true,
-          onSuccess: () => {
-            showToast(`Kunci perangkat ${siswa.nama} berhasil direset!`, 'success');
-          },
-        }
-      );
-    }
-  });
-}
-
-function handleBulkResetLogin() {
-  if (selectedSiswaIds.value.length === 0) return;
-  const count = selectedSiswaIds.value.length;
-  Swal.fire({
-    title: 'Reset Login Siswa Terpilih?',
-    html: `Kunci login untuk <b class="text-cyan-400 font-bold">${count} siswa</b> yang dipilih akan dibuka.<br><span class="text-gray-400 mt-1.5 inline-block text-xs">Semua siswa yang dicentang dapat langsung login di perangkat/HP baru.</span>`,
-    icon: 'question',
-    showCancelButton: true,
-    confirmButtonColor: '#06b6d4',
-    cancelButtonColor: '#475569',
-    confirmButtonText: `Ya, Reset ${count} Siswa!`,
-    cancelButtonText: 'Batal',
-    background: '#1e293b',
-    color: '#fff',
-  }).then((res) => {
-    if (res.isConfirmed) {
-      router.post(
-        route('guru.cbt.siswa.reset-login-bulk'),
-        { ids: selectedSiswaIds.value },
-        {
-          preserveScroll: true,
-          onSuccess: () => {
-            showToast(`Kunci login ${count} siswa terpilih berhasil direset!`, 'success');
-            selectedSiswaIds.value = [];
-          },
-        }
-      );
-    }
-  });
-}
-
 function getTingkatFromKelas(namaKelas) {
   if (!namaKelas || typeof namaKelas !== 'string') return 'X';
   const upper = namaKelas.trim().toUpperCase();
@@ -381,6 +322,73 @@ function handleBulkDelete() {
   selectedSiswaIds.value = [];
 }
 
+function handleResetDevice(siswa) {
+  if (!siswa || !siswa.id) return;
+  const statusMsg = siswa.isDeviceLocked
+    ? `Siswa "${siswa.nama}" saat ini sedang aktif di perangkat ${siswa.deviceName || 'HP Lain'}. Reset sesi perangkat agar siswa dapat memilih namanya di HP baru?`
+    : `Reset sesi HP untuk siswa "${siswa.nama}"? Kaitan perangkat akan dibersihkan sehingga siswa bebas login di HP mana saja.`;
+
+  Swal.fire({
+    title: 'Reset Sesi HP?',
+    text: statusMsg,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#f59e0b',
+    cancelButtonColor: '#6b7280',
+    confirmButtonText: 'Ya, Reset HP!',
+    cancelButtonText: 'Batal',
+    background: '#0f172a',
+    color: '#fff'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      const url = props.canManage ? `/admin/siswa/${siswa.id}/reset-device` : `/guru/siswa/${siswa.id}/reset-device`;
+      router.post(url, {}, {
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: () => {
+          showToast(`Sesi perangkat ${siswa.nama} berhasil di-reset.`, 'success');
+        },
+        onError: () => {
+          showToast('Gagal me-reset sesi perangkat.', 'error');
+        }
+      });
+    }
+  });
+}
+
+function handleBulkResetDevices() {
+  if (selectedSiswaIds.value.length === 0) return;
+  Swal.fire({
+    title: 'Reset Sesi HP Terpilih?',
+    text: `Reset sesi perangkat untuk ${selectedSiswaIds.value.length} siswa terpilih?`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#f59e0b',
+    cancelButtonColor: '#6b7280',
+    confirmButtonText: 'Ya, Reset Semua Terpilih!',
+    cancelButtonText: 'Batal',
+    background: '#0f172a',
+    color: '#fff'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      const url = props.canManage ? '/admin/siswa/reset-devices-bulk' : '/guru/siswa/reset-devices-bulk';
+      router.post(url, {
+        siswa_ids: selectedSiswaIds.value
+      }, {
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: () => {
+          selectedSiswaIds.value = [];
+          showToast('Sesi perangkat siswa terpilih berhasil di-reset.', 'success');
+        },
+        onError: () => {
+          showToast('Gagal me-reset sesi perangkat.', 'error');
+        }
+      });
+    }
+  });
+}
+
 // Student CRUD Handlers
 function openAddSiswaModal() {
   editingSiswa.value = null;
@@ -570,14 +578,14 @@ function processImport() {
       </div>
       
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-        <!-- Bulk Reset Login Button (Available for both Guru and Admin when students are selected) -->
+        <!-- Bulk Reset Device Button (Available for both Guru and Admin) -->
         <button
           v-if="selectedSiswaIds.length > 0"
-          @click="handleBulkResetLogin"
-          class="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white px-4 py-2.5 rounded-2xl font-extrabold text-xs sm:text-sm shadow-lg shadow-cyan-500/25 active:scale-95 transition-all duration-200 min-h-[44px]"
+          @click="handleBulkResetDevices"
+          class="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-amber-600 to-orange-600 text-white px-4 py-2.5 rounded-2xl font-extrabold text-xs sm:text-sm shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 active:scale-95 transition-all duration-200 min-h-[44px]"
         >
-          <span>📱</span>
-          <span>Reset Login Terpilih ({{ selectedSiswaIds.length }} Siswa)</span>
+          <span>🔄</span>
+          <span>Reset Sesi HP ({{ selectedSiswaIds.length }} Siswa)</span>
         </button>
 
         <!-- Read-Only Badge for Subject Teachers -->
@@ -931,6 +939,21 @@ function processImport() {
                         {{ siswa.nama }}
                       </span>
                       <span
+                        v-if="siswa.isDeviceLocked"
+                        class="inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                        :title="'Terkunci di ' + (siswa.deviceName || 'HP') + (siswa.deviceLockedAt ? ' sejak ' + siswa.deviceLockedAt : '')"
+                      >
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span>📱 {{ siswa.deviceName || 'HP Aktif' }}</span>
+                      </span>
+                      <span
+                        v-else
+                        class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/10"
+                        title="Belum terikat ke perangkat apapun / Siap login di HP mana saja"
+                      >
+                        <span>📱 Siap Login</span>
+                      </span>
+                      <span
                         v-if="siswa.status === 'Keluar'"
                         class="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/40 uppercase"
                       >
@@ -986,7 +1009,20 @@ function processImport() {
                 </div>
               </td>
               <td class="px-6 py-4 text-right space-x-2">
-                <button @click="resetLoginPerangkat(siswa)" class="text-cyan-300 hover:text-white font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-2.5 py-1.5 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[36px]" title="Reset Sesi/Kunci Login Perangkat">📱 Reset Login</button>
+                <button
+                  @click="handleResetDevice(siswa)"
+                  :class="[
+                    'font-bold text-xs px-3 py-1.5 rounded-xl border active:scale-95 transition-all min-h-[36px] inline-flex items-center gap-1.5',
+                    siswa.isDeviceLocked
+                      ? 'text-amber-300 hover:text-white bg-amber-500/20 hover:bg-amber-500/35 border-amber-500/40 shadow-sm shadow-amber-500/20'
+                      : 'text-slate-400 hover:text-amber-300 bg-white/5 hover:bg-amber-500/15 border-white/10 hover:border-amber-500/30'
+                  ]"
+                  :title="siswa.isDeviceLocked ? 'Siswa sedang aktif di HP lain. Klik untuk me-reset sesi HP.' : 'Klik untuk me-reset sesi HP siswa ini'"
+                >
+                  <span>🔄</span>
+                  <span>Reset HP</span>
+                  <span v-if="siswa.isDeviceLocked" class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                </button>
                 <template v-if="canManage">
                   <button @click="openEditSiswa(siswa)" class="text-cyan-300 hover:text-white font-bold text-xs bg-cyan-500/15 hover:bg-cyan-500/30 px-3 py-1.5 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[36px]">✏️ Edit</button>
                   <button @click="$emit('delete-siswa', siswa.id)" class="text-red-400 hover:text-red-300 font-bold text-xs bg-red-500/15 hover:bg-red-500/30 px-3 py-1.5 rounded-xl border border-red-500/30 active:scale-95 transition-all min-h-[36px]">🗑️ Hapus</button>
@@ -1050,6 +1086,20 @@ function processImport() {
             </div>
 
             <div class="flex flex-wrap items-center justify-end gap-1.5">
+              <span
+                v-if="siswa.isDeviceLocked"
+                class="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5"
+                :title="'Terkunci di ' + (siswa.deviceName || 'HP')"
+              >
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>📱 {{ siswa.deviceName || 'HP Aktif' }}</span>
+              </span>
+              <span
+                v-else
+                class="text-[11px] px-2.5 py-0.5 rounded-full font-semibold bg-white/5 text-slate-400 border border-white/10 flex items-center gap-1"
+              >
+                <span>📱 Siap Login</span>
+              </span>
               <span :class="['text-[11px] px-2.5 py-0.5 rounded-full font-bold', siswa.jenisKelamin === 'Laki-laki' ? 'bg-blue-500/20 text-blue-300' : 'bg-pink-500/20 text-pink-300']">
                 {{ siswa.jenisKelamin }}
               </span>
@@ -1086,8 +1136,18 @@ function processImport() {
           </div>
 
           <div class="flex items-center gap-2 pt-2 border-t border-white/10">
-            <button @click="resetLoginPerangkat(siswa)" class="flex-1 py-2.5 text-center text-cyan-300 font-bold text-xs bg-cyan-500/15 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[44px]">
-              📱 Reset Login
+            <button
+              @click="handleResetDevice(siswa)"
+              :class="[
+                'flex-1 py-2.5 text-center font-bold text-xs rounded-xl border active:scale-95 transition-all min-h-[44px] flex items-center justify-center gap-1.5',
+                siswa.isDeviceLocked
+                  ? 'text-amber-300 bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 shadow-sm shadow-amber-500/20'
+                  : 'text-slate-400 hover:text-amber-300 bg-white/5 hover:bg-amber-500/15 border-white/10 hover:border-amber-500/30'
+              ]"
+            >
+              <span>🔄</span>
+              <span>Reset Sesi HP</span>
+              <span v-if="siswa.isDeviceLocked" class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
             </button>
             <template v-if="canManage">
               <button @click="openEditSiswa(siswa)" class="flex-1 py-2.5 text-center text-cyan-300 font-bold text-xs bg-cyan-500/15 rounded-xl border border-cyan-500/30 active:scale-95 transition-all min-h-[44px]">

@@ -57,25 +57,6 @@ class LoginRequest extends FormRequest
             ]);
         }
 
-        /** @var \App\Models\User $user */
-        $user = Auth::user();
-
-        // Enforce single-device login policy for students (murid)
-        if ($user && $user->isStudent()) {
-            $currentSessionId = $this->hasSession() ? $this->session()->getId() : null;
-
-            if ($user->isDeviceSessionActive($currentSessionId)) {
-                // Log out from current attempt immediately to protect the active device
-                Auth::guard('web')->logout();
-
-                RateLimiter::hit($this->throttleKey());
-
-                throw ValidationException::withMessages([
-                    'email' => 'Akun Anda sedang aktif di perangkat lain. Harap logout dari perangkat sebelumnya atau hubungi pengawas/guru untuk me-reset login perangkat Anda.',
-                ]);
-            }
-        }
-
         RateLimiter::clear($this->throttleKey());
     }
 

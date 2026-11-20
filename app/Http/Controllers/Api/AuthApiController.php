@@ -43,22 +43,6 @@ class AuthApiController extends Controller
             ], 403);
         }
 
-        // Enforce single-device active session for students
-        if ($user->isStudent() && $user->isDeviceSessionActive()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Akun Anda sedang aktif di perangkat lain. Harap logout dari perangkat sebelumnya atau hubungi pengawas/guru untuk me-reset login perangkat Anda.',
-            ], 422);
-        }
-
-        if ($user->isStudent()) {
-            $user->update([
-                'active_device_ip' => $request->ip(),
-                'active_device_agent' => substr((string) $request->userAgent(), 0, 255),
-                'last_activity_at' => now(),
-            ]);
-        }
-
         $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([

@@ -238,20 +238,34 @@ class AdminApiController extends Controller
         ]);
     }
 
-    public function resetLoginUser(int $id): JsonResponse
+    public function resetDeviceSiswa(int $id): JsonResponse
     {
-        $user = \App\Models\User::findOrFail($id);
-        $user->update([
-            'active_session_id' => 'RESET',
-            'active_device_token' => null,
-            'active_device_ip' => null,
-            'active_device_agent' => null,
-            'last_activity_at' => null,
+        $siswa = Siswa::findOrFail($id);
+        $nama = $siswa->nama;
+        $siswa->unlockDevice();
+
+        return response()->json([
+            'success' => true,
+            'message' => "Sesi perangkat {$nama} berhasil di-reset.",
+        ]);
+    }
+
+    public function resetDevicesSiswaBulk(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'siswa_ids' => 'required|array',
+            'siswa_ids.*' => 'integer|exists:siswas,id',
+        ]);
+
+        $count = Siswa::whereIn('id', $validated['siswa_ids'])->update([
+            'device_id' => null,
+            'device_name' => null,
+            'device_locked_at' => null,
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => "Kunci login perangkat untuk {$user->name} berhasil direset!",
+            'message' => "{$count} sesi perangkat siswa berhasil di-reset.",
         ]);
     }
 }

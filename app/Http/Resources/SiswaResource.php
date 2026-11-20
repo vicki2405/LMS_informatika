@@ -19,6 +19,10 @@ class SiswaResource extends JsonResource
             'kelasId' => $this->kelas_id,
             'status' => $this->status ?? 'Aktif',
             'tanggal_status' => $this->tanggal_status,
+            'deviceId' => $this->device_id,
+            'deviceName' => $this->device_name,
+            'deviceLockedAt' => $this->device_locked_at?->format('d/m/Y H:i'),
+            'isDeviceLocked' => ! empty($this->device_id),
             'kelas' => $this->whenLoaded('kelas', function () {
                 return [
                     'id' => $this->kelas->id,

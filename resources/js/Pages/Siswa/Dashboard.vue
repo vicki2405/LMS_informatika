@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { showToast } from '@/Utils/sweetalert';
+import Swal, { showToast } from '@/Utils/sweetalert';
 
 // Modular Siswa Components
 import Header from '@/Components/Siswa/Header.vue';
@@ -93,6 +93,43 @@ const activeSiswa = computed(() => {
 // Portal lock screen: all menus are locked until student explicitly selects their identity
 const isLocked = computed(() => isAkunKelas.value && hasSiswaList.value && !activeSiswa.value);
 
+function getDeviceUuid() {
+  if (typeof window === 'undefined') return '';
+  let uuid = localStorage.getItem('siswacloud_device_uuid');
+  if (!uuid) {
+    uuid = 'dev_' + Math.random().toString(36).substring(2, 12) + '_' + Date.now().toString(36);
+    try {
+      localStorage.setItem('siswacloud_device_uuid', uuid);
+    } catch (e) {}
+  }
+  return uuid;
+}
+
+function getDeviceName() {
+  if (typeof window === 'undefined') return 'Perangkat Siswa';
+  const ua = navigator.userAgent;
+  let browser = 'Browser';
+  let os = 'HP';
+  if (/android/i.test(ua)) os = 'Android';
+  else if (/iphone|ipad|ipod/i.test(ua)) os = 'iOS';
+  else if (/windows/i.test(ua)) os = 'Windows';
+  else if (/mac/i.test(ua)) os = 'Mac';
+  else if (/linux/i.test(ua)) os = 'Linux';
+
+  if (/chrome/i.test(ua) && !/edg/i.test(ua)) browser = 'Chrome';
+  else if (/safari/i.test(ua) && !/chrome/i.test(ua)) browser = 'Safari';
+  else if (/firefox/i.test(ua)) browser = 'Firefox';
+  else if (/edg/i.test(ua)) browser = 'Edge';
+
+  return `${browser} (${os})`;
+}
+
+function isLockedToOther(student) {
+  if (!student || !student.isDeviceLocked) return false;
+  const myDev = getDeviceUuid();
+  return Boolean(student.deviceId && student.deviceId !== myDev);
+}
+
 onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener('popstate', handlePopState);
@@ -101,10 +138,15 @@ onMounted(() => {
     } else if (isAkunKelas.value && hasSiswaList.value) {
       try {
         const savedId = localStorage.getItem('siswacloud_active_siswa_id');
-        if (savedId && props.siswaListProp.some(s => String(s.id) === String(savedId))) {
+        const matched = props.siswaListProp.find(s => String(s.id) === String(savedId));
+        const myDev = getDeviceUuid();
+        if (matched && (!matched.isDeviceLocked || matched.deviceId === myDev)) {
           activeSiswaId.value = Number(savedId);
           fetchStudentData(Number(savedId));
         } else {
+          if (savedId) {
+            localStorage.removeItem('siswacloud_active_siswa_id');
+          }
           showIdentityModal.value = true;
         }
       } catch (e) {
@@ -159,18 +201,89 @@ function refreshDashboardData() {
 }
 
 function selectStudent(student) {
-  activeSiswaId.value = student.id;
-  try {
-    localStorage.setItem('siswacloud_active_siswa_id', String(student.id));
-  } catch (e) {}
-  showIdentityModal.value = false;
-  showToast(`Selamat datang, ${student.nama}!`, 'success');
-  fetchStudentData(student.id);
+  if (isLockedToOther(student)) {
+    Swal.fire({
+      title: 'Perangkat Terkunci',
+      text: `Nama "${student.nama}" saat ini sedang aktif di perangkat lain (${student.deviceName || 'HP Lain'}). Jika Anda berganti HP karena HP lama rusak/habis baterai, silakan lapor kepada Guru untuk me-reset sesi HP Anda.`,
+      icon: 'warning',
+      confirmButtonText: 'Mengerti',
+      confirmButtonColor: '#06b6d4',
+      background: '#0f172a',
+      color: '#fff',
+    });
+    return;
+  }
+
+  const deviceId = getDeviceUuid();
+  const deviceName = getDeviceName();
+
+  router.post('/siswa/bind-identity', {
+    siswa_id: student.id,
+    device_id: deviceId,
+    device_name: deviceName,
+  }, {
+    preserveScroll: true,
+    preserveState: true,
+    onSuccess: () => {
+      activeSiswaId.value = student.id;
+      try {
+        localStorage.setItem('siswacloud_active_siswa_id', String(student.id));
+      } catch (e) {}
+      showIdentityModal.value = false;
+      showToast(`Selamat datang, ${student.nama}!`, 'success');
+      fetchStudentData(student.id);
+    },
+    onError: (errors) => {
+      Swal.fire({
+        title: 'Perangkat Terkunci',
+        text: errors.siswa_id || 'Gagal memilih siswa. Perangkat sedang aktif di HP lain.',
+        icon: 'error',
+        confirmButtonText: 'Tutup',
+        confirmButtonColor: '#ef4444',
+        background: '#0f172a',
+        color: '#fff',
+      });
+    }
+  });
 }
 
 function switchStudent() {
   studentSearchText.value = '';
   showIdentityModal.value = true;
+}
+
+function releaseCurrentIdentity() {
+  if (!activeSiswaId.value) return;
+  Swal.fire({
+    title: 'Lepas Kaitan HP?',
+    text: 'Lepas identitas Anda dari HP ini agar nama Anda dapat dipilih di perangkat lain?',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Ya, Lepas!',
+    cancelButtonText: 'Batal',
+    confirmButtonColor: '#f59e0b',
+    cancelButtonColor: '#6b7280',
+    background: '#0f172a',
+    color: '#fff',
+  }).then((result) => {
+    if (result.isConfirmed) {
+      router.post('/siswa/unbind-identity', {
+        siswa_id: activeSiswaId.value,
+        device_id: getDeviceUuid(),
+      }, {
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: () => {
+          activeSiswaId.value = null;
+          try {
+            localStorage.removeItem('siswacloud_active_siswa_id');
+          } catch (e) {}
+          showIdentityModal.value = true;
+          showToast('Kaitan perangkat berhasil dilepas.', 'success');
+        }
+      });
+    }
+  });
 }
 
 const filteredClassSiswaList = computed(() => {
@@ -428,8 +541,23 @@ function handleStartCbtWithToken(payload) {
         <div class="px-5 py-3 bg-amber-500/10 border-b border-amber-500/20 flex items-start gap-2.5 text-xs text-amber-300">
           <span class="text-base leading-none shrink-0">⚠️</span>
           <p class="leading-relaxed">
-            <strong class="font-extrabold text-white">Menu Terkunci:</strong> Silakan klik nama Anda di bawah ini untuk membuka modul materi, tugas, ujian CBT, dan mencatat absensi otomatis kelas hari ini.
+            <strong class="font-extrabold text-white">Menu Terkunci:</strong> Silakan klik nama Anda di bawah ini untuk membuka modul materi, tugas, dan ujian CBT. Nama Anda akan terikat pada HP ini.
           </p>
+        </div>
+
+        <!-- Active Identity Banner if already bound on this phone -->
+        <div v-if="activeSiswa" class="px-5 py-2.5 bg-cyan-950/40 border-b border-cyan-500/20 flex items-center justify-between gap-3 text-xs">
+          <div class="flex items-center gap-2 truncate">
+            <span>📱</span>
+            <span class="text-slate-300 truncate">HP ini terdaftar untuk: <strong class="text-white">{{ activeSiswa.nama }}</strong></span>
+          </div>
+          <button
+            @click="releaseCurrentIdentity"
+            class="px-3 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 font-bold transition shrink-0 text-xs min-h-[32px]"
+            title="Lepas nama dari HP ini agar bisa dipilih di HP lain"
+          >
+            Lepas HP
+          </button>
         </div>
 
         <!-- Search Input -->
@@ -453,7 +581,11 @@ function handleStartCbtWithToken(payload) {
             :key="s.id"
             @click="selectStudent(s)"
             class="group p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 active:scale-[0.99]"
-            :class="activeSiswaId === s.id ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-md shadow-cyan-500/10' : 'bg-slate-950/60 border-white/5 hover:border-cyan-400/30 hover:bg-white/[0.04] text-slate-200'"
+            :class="[
+              activeSiswaId === s.id ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-md shadow-cyan-500/10' :
+              isLockedToOther(s) ? 'bg-slate-950/40 border-amber-500/20 hover:border-amber-500/40 text-slate-300' :
+              'bg-slate-950/60 border-white/5 hover:border-cyan-400/30 hover:bg-white/[0.04] text-slate-200'
+            ]"
           >
             <div class="flex items-center gap-3 min-w-0">
               <div
@@ -463,12 +595,18 @@ function handleStartCbtWithToken(payload) {
                 {{ s.jenisKelamin === 'P' ? '👧' : '👦' }}
               </div>
               <div class="min-w-0">
-                <div class="font-black text-sm text-white group-hover:text-cyan-300 transition truncate">
-                  {{ s.nama }}
+                <div class="font-black text-sm text-white group-hover:text-cyan-300 transition truncate flex items-center gap-2">
+                  <span>{{ s.nama }}</span>
+                  <span
+                    v-if="isLockedToOther(s)"
+                    class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  >
+                    🔒 Terkunci di HP Lain
+                  </span>
                 </div>
                 <div class="text-[11px] font-mono text-slate-400 flex items-center gap-2">
                   <span>NIS: {{ s.nis || ('100' + s.id) }}</span>
-                  <span v-if="activeSiswaId === s.id" class="text-cyan-400 font-bold">• Sedang Aktif</span>
+                  <span v-if="activeSiswaId === s.id" class="text-cyan-400 font-bold">• Sedang Aktif di HP Ini</span>
                 </div>
               </div>
             </div>
@@ -476,9 +614,13 @@ function handleStartCbtWithToken(payload) {
             <div class="shrink-0">
               <span
                 class="px-3 py-1 rounded-xl text-xs font-bold transition border"
-                :class="activeSiswaId === s.id ? 'bg-cyan-500 text-slate-950 border-cyan-400' : 'bg-white/5 border-white/10 text-slate-400 group-hover:bg-cyan-500/20 group-hover:text-cyan-300 group-hover:border-cyan-400/40'"
+                :class="[
+                  activeSiswaId === s.id ? 'bg-cyan-500 text-slate-950 border-cyan-400' :
+                  isLockedToOther(s) ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 group-hover:bg-amber-500/20' :
+                  'bg-white/5 border-white/10 text-slate-400 group-hover:bg-cyan-500/20 group-hover:text-cyan-300 group-hover:border-cyan-400/40'
+                ]"
               >
-                {{ activeSiswaId === s.id ? 'Aktif ✓' : 'Pilih Saya →' }}
+                {{ activeSiswaId === s.id ? 'Aktif ✓' : isLockedToOther(s) ? '🔒 Terkunci' : 'Pilih Saya →' }}
               </span>
             </div>
           </div>

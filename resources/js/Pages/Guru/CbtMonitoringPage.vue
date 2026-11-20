@@ -456,35 +456,6 @@ function resetSesi(sesiId, namaSiswa) {
   });
 }
 
-function resetLoginPerangkat(siswaId, namaSiswa) {
-  Swal.fire({
-    title: 'Reset Kunci Perangkat?',
-    html: `Kunci login perangkat untuk <b class="text-cyan-400 font-bold">${namaSiswa}</b> akan dibuka.<br><span class="text-gray-400 mt-1.5 inline-block text-xs">Siswa dapat langsung login di perangkat/HP baru. Jawaban ujian dan nilai saat ini tidak akan dihapus.</span>`,
-    icon: 'question',
-    showCancelButton: true,
-    confirmButtonColor: '#06b6d4',
-    cancelButtonColor: '#475569',
-    confirmButtonText: 'Ya, Reset Perangkat!',
-    cancelButtonText: 'Batal',
-    background: '#1e293b',
-    color: '#fff',
-  }).then((res) => {
-    if (res.isConfirmed) {
-      router.post(
-        route('guru.cbt.siswa.reset-login', siswaId),
-        {},
-        {
-          preserveScroll: true,
-          onSuccess: () => {
-            showToast(`Kunci perangkat ${namaSiswa} berhasil direset!`, 'success');
-            fetchMonitoringData(false);
-          },
-        }
-      );
-    }
-  });
-}
-
 // Manual Action: Sinkronkan Nilai CBT ke Lembar Nilai TP
 const isSyncingTp = ref(false);
 function sinkronkanNilaiKeTp() {
@@ -1306,14 +1277,6 @@ function getProgressPercent(terjawab) {
                     <span class="text-[10.5px] text-gray-400 font-medium px-2 py-1 rounded-lg bg-white/5 border border-white/5">
                       Menunggu Siswa
                     </span>
-                    <button
-                      v-if="p.isDeviceActive"
-                      @click="resetLoginPerangkat(p.siswaId, p.namaSiswa)"
-                      class="px-2 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold transition-all min-h-[32px] flex items-center gap-1 active:scale-95"
-                      title="Reset Kunci Login Perangkat (Izinkan HP/PC Baru)"
-                    >
-                      📱 Reset HP
-                    </button>
                   </div>
 
                   <!-- Active Session Actions -->
@@ -1334,15 +1297,6 @@ function getProgressPercent(terjawab) {
                       title="Kunci Layar Ujian"
                     >
                       🔒 Kunci
-                    </button>
-
-                    <!-- Reset Kunci Perangkat (Single Device) -->
-                    <button
-                      @click="resetLoginPerangkat(p.siswaId, p.namaSiswa)"
-                      class="px-2 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold transition-all min-h-[32px] flex items-center gap-1 active:scale-95"
-                      title="Reset Kunci Login Perangkat (Izinkan HP/PC Baru)"
-                    >
-                      📱 Reset HP
                     </button>
 
                     <!-- Reset Sesi -->
@@ -1511,13 +1465,6 @@ function getProgressPercent(terjawab) {
               <div class="text-center py-2 px-3 text-xs text-amber-300 font-medium bg-amber-500/10 border border-amber-500/20 rounded-xl min-h-[38px] flex items-center justify-center">
                 ⏳ Siswa Belum Masuk Ujian (Token: {{ jadwal.token }})
               </div>
-              <button
-                v-if="p.isDeviceActive"
-                @click="resetLoginPerangkat(p.siswaId, p.namaSiswa)"
-                class="w-full py-2.5 px-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold min-h-[42px] flex items-center justify-center gap-1 active:scale-95"
-              >
-                📱 Reset Kunci HP/Perangkat Siswa
-              </button>
             </div>
             <div v-else class="grid grid-cols-2 gap-2 pt-1">
               <button
@@ -1537,14 +1484,6 @@ function getProgressPercent(terjawab) {
               <div v-else class="text-center py-2 text-xs text-gray-500 flex items-center justify-center min-h-[42px] bg-white/5 rounded-xl border border-white/5">
                 {{ p.status }}
               </div>
-
-              <!-- Reset Kunci Perangkat (Single Device) -->
-              <button
-                @click="resetLoginPerangkat(p.siswaId, p.namaSiswa)"
-                class="py-2.5 px-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold min-h-[42px] flex items-center justify-center gap-1 active:scale-95"
-              >
-                📱 Reset HP
-              </button>
 
               <button
                 @click="resetSesi(p.id, p.namaSiswa)"
